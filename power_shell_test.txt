@@ -1,0 +1,6 @@
+python process_statements_process_llm.py `
+  --file-location ".\inbound\" `
+  --file-name "manhattan_life_raw_data.csv" `
+  --trandate "2025-09-17T14:06:00" `
+  --paycode "AWM01" `
+  --issuer "manhattan_life"
