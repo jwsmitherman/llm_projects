@@ -1,75 +1,91 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, render_template_string, request
 import os
-from pathlib import Path
 import shutil
 
 app = Flask(__name__)
 
-INBOUND_DIR = Path("./inbound")
-INBOUND_DIR.mkdir(exist_ok=True)
+# Make sure inbound folder exists
+INBOUND_DIR = os.path.join(os.getcwd(), "inbound")
+os.makedirs(INBOUND_DIR, exist_ok=True)
 
-# Simple HTML template
-HTML_FORM = """
-<!doctype html>
-<title>Test Upload & Form</title>
-<h1>Upload CSV & Enter Parameters</h1>
-<form method="post" enctype="multipart/form-data">
-  <label>CSV File:</label><br>
-  <input type="file" name="file" required><br><br>
+# HTML template embedded into Python
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CSV Processor</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #f9f9f9; }
+    h2 { color: #333; }
+    form { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); width: 500px; }
+    label { display: block; margin-top: 10px; font-weight: bold; }
+    input { width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #ccc; border-radius: 4px; }
+    button { margin-top: 15px; padding: 10px; background: #007BFF; color: #fff; border: none; border-radius: 4px; }
+    button:hover { background: #0056b3; cursor: pointer; }
+    .results { margin-top: 30px; padding: 15px; background: #e9ffe9; border: 1px solid #b2d8b2; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h2>Upload CSV and Run Process</h2>
+  <form action="/process" method="post" enctype="multipart/form-data">
+    <label>Upload CSV:</label>
+    <input type="file" name="file" required>
 
-  <label>File Location:</label><br>
-  <input type="text" name="file_location" value="./inbound/"><br><br>
+    <label>File Location:</label>
+    <input type="text" name="file_location" value="./inbound/" required>
 
-  <label>File Name:</label><br>
-  <input type="text" name="file_name" value="manhattan_life_raw_data.csv"><br><br>
+    <label>File Name:</label>
+    <input type="text" name="file_name" value="manhattan_life_raw_data.csv" required>
 
-  <label>TranDate:</label><br>
-  <input type="text" name="trandate" value="2025-09-17T14:06:00"><br><br>
+    <label>TranDate:</label>
+    <input type="text" name="trandate" value="2025-09-17T14:06:00" required>
 
-  <label>PayCode:</label><br>
-  <input type="text" name="paycode" value="AWM01"><br><br>
+    <label>PayCode:</label>
+    <input type="text" name="paycode" value="AWM01" required>
 
-  <label>Issuer:</label><br>
-  <input type="text" name="issuer" value="manhattan_life"><br><br>
+    <label>Issuer:</label>
+    <input type="text" name="issuer" value="manhattan_life" required>
 
-  <input type="submit" value="Run Process">
-</form>
+    <button type="submit">Run Process</button>
+  </form>
 
-{% if results %}
-<h2>Results</h2>
-<pre>{{ results }}</pre>
-{% endif %}
+  {% if results %}
+  <div class="results">
+    <h3>Selections:</h3>
+    <pre>{{ results }}</pre>
+  </div>
+  {% endif %}
+</body>
+</html>
 """
 
-@app.route("/", methods=["GET", "POST"])
-def upload_and_echo():
-    results = None
-    if request.method == "POST":
-        # Save file
-        file = request.files.get("file")
-        if file and file.filename:
-            saved_path = INBOUND_DIR / file.filename
-            file.save(saved_path)
+@app.route("/", methods=["GET"])
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
-        # Collect inputs
-        file_location = request.form.get("file_location", "")
-        file_name = request.form.get("file_name", "")
-        trandate = request.form.get("trandate", "")
-        paycode = request.form.get("paycode", "")
-        issuer = request.form.get("issuer", "")
+@app.route("/process", methods=["POST"])
+def process():
+    file = request.files["file"]
+    file_location = request.form["file_location"]
+    file_name = request.form["file_name"]
+    trandate = request.form["trandate"]
+    paycode = request.form["paycode"]
+    issuer = request.form["issuer"]
 
-        # Prepare output string
-        results = f"""
-        ✅ File saved to inbound: {saved_path}
-        📂 File Location: {file_location}
-        📄 File Name: {file_name}
-        🗓️ TranDate: {trandate}
-        💰 PayCode: {paycode}
-        🏢 Issuer: {issuer}
-        """
+    # Save file to inbound folder
+    saved_path = os.path.join(INBOUND_DIR, file.filename)
+    file.save(saved_path)
 
-    return render_template_string(HTML_FORM, results=results)
+    results = f"""
+    File saved to inbound: {saved_path}
+    File Location: {file_location}
+    File Name: {file_name}
+    TranDate: {trandate}
+    PayCode: {paycode}
+    Issuer: {issuer}
+    """
 
+    return render_template_string(HTML_TEMPLATE, results=results)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="127.0.0.1", port=8000, debug=True)
