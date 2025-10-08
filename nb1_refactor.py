@@ -311,52 +311,60 @@ def apply_rules_parallel(df: pd.DataFrame, bound_spec: Dict[str, Any]) -> pd.Dat
 # MAIN (hot path)
 ###############################################################################
 
+import time
+from datetime import datetime
+
 def main():
-    # 1) Load raw + precompiled rules
+    # Start timer
+    start_time = time.perf_counter()
+    print(f"=== Process started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+
+    # Load raw + compiled rules
     raw_df, compiled_rules_path = load_carrier_data(ISSUER)
 
-    # 2) Build a header signature and pick a cache path (optional: per-header cache)
+    # Compute header signature and bind spec
     sig = _header_signature(raw_df)
     per_header_cache = Path(compiled_rules_path).with_name(
         Path(compiled_rules_path).stem + f"__{sig}.json"
     )
 
-    # Prefer exact header-bound cache, else fall back to generic compiled rules
     if per_header_cache.exists():
         bound_spec = json.loads(per_header_cache.read_text(encoding="utf-8"))
     else:
         bound_spec = _load_compiled_rules(compiled_rules_path)
         bound_spec = _ensure_sources_present(bound_spec)
-        # Save a fast per-header copy for next time (no binding needed again)
         try:
             per_header_cache.write_text(json.dumps(bound_spec, ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
 
-    # 3) Execute transform (vectorized / or Ray if large)
+    # Apply rules
     use_ray = _should_use_ray(len(raw_df))
     if use_ray:
         out_df = apply_rules_parallel(raw_df, bound_spec)
     else:
         out_df = apply_rules_vectorized(raw_df, bound_spec)
 
-    # 4) Set constant columns required for this run
+    # Add constants
     out_df["TranDate"] = TRANDATE
     out_df["PayCode"]  = PAYCODE
     out_df["Issuer"]   = ISSUER
 
-    # 5) Done — return or write (keep I/O tiny)
-    # Example: write fast parquet (optional)
+    # Write output
     out_path = Path("./outbound") / f"{ISSUER}_{sig}.parquet"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         out_df.to_parquet(out_path, index=False)
     except Exception:
-        # fallback to CSV if pyarrow not present
         out_path = out_path.with_suffix(".csv")
         out_df.to_csv(out_path, index=False)
 
-    print(f"Rows: {len(out_df):,}  | Ray: {use_ray}  | Out: {out_path.as_posix()}")
+    # End timer
+    end_time = time.perf_counter()
+    elapsed = end_time - start_time
+    print(f"=== Process completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+    print(f"Rows: {len(out_df):,} | Ray: {use_ray} | Output: {out_path.as_posix()}")
+    print(f"Total execution time: {elapsed:.2f} seconds")
 
 if __name__ == "__main__":
     main()
