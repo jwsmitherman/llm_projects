@@ -1,213 +1,211 @@
-import os
+# app.py
+import os, uuid, threading
+from collections import deque
 from pathlib import Path
 from datetime import datetime
-import subprocess
-from flask import Flask, render_template_string, request, send_from_directory
+from flask import Flask, request, jsonify, render_template_string
+from werkzeug.utils import secure_filename
 
-app = Flask(__name__)
+from processor import run_llm_pipeline  # <-- our separate LLM module
 
-# --- Paths ---
-BASE = Path(__file__).resolve().parent
-INBOUND_DIR = BASE / "inbound"
-OUTBOUND_DIR = BASE / "outbound"
-BAT_FILE = BASE / "run_process_refactored_llm.bat"  # <-- your .bat
+UPLOAD_DIR   = Path("./uploads")
+OUTBOUND_DIR = Path("./outbound")
+ALLOWED_EXTS = {"csv"}
+MAX_CONTENT_LENGTH = 200 * 1024 * 1024  # 200MB
 
-INBOUND_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTBOUND_DIR.mkdir(parents=True, exist_ok=True)
 
-# --- Page (single-file template) ---
-PAGE = r"""
-<!DOCTYPE html>
+app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+app.config["UPLOAD_FOLDER"] = UPLOAD_DIR.as_posix()
+
+# In-memory job store
+jobs = {}  # job_id -> {"logs": deque, "status": "running|done|error", "output_path": str|None}
+
+def log(job_id: str, msg: str):
+    now = datetime.now().strftime("%H:%M:%S")
+    jobs[job_id]["logs"].append(f"[{now}] {msg}")
+
+INDEX_HTML = """
+<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>CSV Processor (.bat)</title>
+  <meta charset="utf-8" />
+  <title>LLM Mapping Runner</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 32px; background:#f7f8fb; }
-    .wrap { max-width: 980px; margin: 0 auto; }
-    .card { background: #fff; border: 1px solid #e6e6e6; border-radius: 12px; padding: 18px 22px; box-shadow: 0 6px 20px rgba(0,0,0,0.06); }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    label { display:block; margin:.6rem 0 .25rem; font-weight:600; }
-    input, select { width:100%; padding:.55rem .65rem; border:1px solid #d0d7de; border-radius:8px; }
-    button { padding:.6rem 1rem; border:0; border-radius:8px; background:#2563eb; color:#fff; font-weight:600; margin-top:14px; }
-    button:hover { background:#1e50c6; cursor:pointer; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .note { color:#566; font-size:.92rem; margin-top:8px }
-    pre { background:#0f172a; color:#e2e8f0; padding:14px; border-radius:10px; overflow:auto; max-height:380px; }
-    .ok { color:#0a7a22; font-weight:700; }
-    .bad { color:#a21616; font-weight:700; }
-    .dl { display:inline-block; margin:8px 0 0; padding:.45rem .75rem; border:1px solid #1f883d; color:#1f883d; text-decoration:none; border-radius:8px; }
-    .dl:hover { background:#e9f6ec; }
-    .mt { margin-top:18px }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #f7f7f8; }
+    .wrap { display: grid; grid-template-columns: 420px 1fr; gap: 12px; padding: 16px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+    .title { font-weight: 700; margin-bottom: 8px; }
+    label { display:block; font-size: 14px; margin-top: 12px; }
+    input[type="text"], input[type="date"], input[type="file"] {
+      width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;
+    }
+    .btn { margin-top: 16px; padding: 10px 14px; background: #111827; color:#fff; border: none; border-radius: 8px; cursor: pointer; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    pre { white-space: pre-wrap; background:#0b1020; color:#d9e1f2; padding: 12px; border-radius:8px; height: 70vh; overflow:auto; }
+    .hint { color:#6b7280; font-size:12px; margin-top:6px; }
+    .ok { color: #065f46; }
+    .err { color: #991b1b; }
   </style>
 </head>
 <body>
-<div class="wrap">
-  <h2>Upload CSV & Run Process (.bat)</h2>
-  <div class="row">
+  <div class="wrap">
     <div class="card">
-      <form method="post" enctype="multipart/form-data">
-        <label>CSV File</label>
-        <input type="file" name="file" accept=".csv" required>
-
-        <label>File Location (sent to .bat)</label>
-        <input type="text" name="file_location" value="{{ inbound_dir }}" required>
-
-        <label>File Name (sent to .bat)</label>
-        <input type="text" name="file_name" value="manhattan_life_raw_data.csv" required>
-
-        <label>TranDate</label>
-        <input type="text" name="trandate" value="{{ default_trandate }}" required>
-
-        <label>PayCode</label>
-        <input type="text" name="paycode" value="AWM01" required>
-
-        <label>Issuer</label>
-        <select name="issuer" required>
-          {% for i in issuers %}
-            <option value="{{ i }}">{{ i }}</option>
-          {% endfor %}
-        </select>
-
-        <div class="note">
-          Note: after you click <b>Run Process</b>, your selections are shown below and the
-          batch file is executed. Command and logs will appear in the results area.
-        </div>
-
-        <button type="submit">Run Process</button>
+      <div class="title">Run LLM Mapping</div>
+      <form id="form">
+        <label>Issuer
+          <input type="text" name="issuer" placeholder="molina / ameritas / manhattan_life" required />
+        </label>
+        <label>Pay Code
+          <input type="text" name="paycode" placeholder="FromApp" required />
+        </label>
+        <label>Tran Date
+          <input type="date" name="trandate" required />
+        </label>
+        <label>Template Folder (contains &lt;issuer&gt;_prompt.txt and &lt;issuer&gt;_rules.json)
+          <input type="text" name="template_dir" placeholder="./carrier_prompts" required />
+        </label>
+        <label>Upload CSV
+          <input type="file" name="file" accept=".csv" required />
+        </label>
+        <button class="btn" id="startBtn" type="submit">Start</button>
       </form>
+      <div id="result" class="hint"></div>
     </div>
 
     <div class="card">
-      <h3>Results</h3>
-
-      {% if selections %}
-        <div class="mt">
-          <div><b>Selections</b></div>
-          <pre class="mono">{{ selections }}</pre>
-        </div>
-      {% endif %}
-
-      {% if cmd %}
-        <div class="mt">
-          <div><b>Command</b></div>
-          <pre class="mono">{{ cmd }}</pre>
-        </div>
-      {% endif %}
-
-      {% if ran %}
-        <div class="mt">
-          <div><b>Status</b>:
-            {% if success %}
-              <span class="ok">Success</span>
-            {% else %}
-              <span class="bad">Failed</span>
-            {% endif %}
-            (exit code {{ exit_code }})
-          </div>
-        </div>
-      {% endif %}
-
-      {% if out_name and success %}
-        <div class="mt">
-          <a class="dl" href="/download/{{ out_name }}">Download {{ out_name }}</a>
-        </div>
-      {% endif %}
-
-      {% if stdout or stderr %}
-        <div class="mt"><b>Logs</b></div>
-        <pre class="mono">--- STDOUT ---{{ '\n' + stdout if stdout else '' }}{% if stderr %}\n\n--- STDERR ---\n{{ stderr }}{% endif %}</pre>
-      {% endif %}
+      <div class="title">Logs</div>
+      <pre id="logs">Waiting to start…</pre>
     </div>
   </div>
-</div>
 
+  <script>
+    const form = document.getElementById('form');
+    const startBtn = document.getElementById('startBtn');
+    const logsEl = document.getElementById('logs');
+    const resultEl = document.getElementById('result');
+    let pollTimer = null;
+    let currentJob = null;
+
+    function appendLogs(lines) {
+      if (logsEl.textContent === 'Waiting to start…') logsEl.textContent = '';
+      logsEl.textContent += (Array.isArray(lines) ? lines.join('\\n') : lines) + '\\n';
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
+
+    async function poll(jobId) {
+      try {
+        const r = await fetch('/logs?job_id=' + jobId);
+        const data = await r.json();
+        if (data.logs && data.logs.length) appendLogs(data.logs);
+        if (data.status === 'done') {
+          clearInterval(pollTimer); pollTimer = null;
+          resultEl.innerHTML = '<span class="ok">Completed.</span> Output: ' + data.output_path;
+          startBtn.disabled = false;
+        } else if (data.status === 'error') {
+          clearInterval(pollTimer); pollTimer = null;
+          resultEl.innerHTML = '<span class="err">Failed.</span> See logs above.';
+          startBtn.disabled = false;
+        }
+      } catch (e) {
+        clearInterval(pollTimer); pollTimer = null;
+        resultEl.innerHTML = '<span class="err">Error polling logs.</span>';
+        startBtn.disabled = false;
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      logsEl.textContent = 'Starting…\\n';
+      resultEl.textContent = '';
+      startBtn.disabled = true;
+
+      const fd = new FormData(form);
+      const r = await fetch('/start', { method: 'POST', body: fd });
+      if (!r.ok) {
+        startBtn.disabled = false;
+        appendLogs('Server error starting job.');
+        return;
+      }
+      const data = await r.json();
+      currentJob = data.job_id;
+      pollTimer = setInterval(() => poll(currentJob), 800);
+    });
+  </script>
 </body>
 </html>
 """
 
-ISSUERS = ["manhattan_life", "ameritas", "molina"]
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def index():
-    # Defaults for page render
-    context = {
-        "inbound_dir": str(INBOUND_DIR.resolve()),
-        "default_trandate": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-        "issuers": ISSUERS,
-        "selections": "",
-        "cmd": "",
-        "ran": False,
-        "success": False,
-        "exit_code": None,
-        "stdout": "",
-        "stderr": "",
-        "out_name": "",
-    }
+    return render_template_string(INDEX_HTML)
 
-    if request.method == "POST":
-        # --- Save uploaded file ---
-        up = request.files.get("file")
-        saved_path = ""
-        if up and up.filename:
-            saved_path = INBOUND_DIR / up.filename
-            up.save(saved_path.as_posix())
+@app.route("/start", methods=["POST"])
+def start():
+    issuer = (request.form.get("issuer") or "").strip()
+    paycode = (request.form.get("paycode") or "").strip()
+    trandate = (request.form.get("trandate") or "").strip()
+    template_dir = (request.form.get("template_dir") or "").strip()
 
-        # --- Collect form args ---
-        file_location = request.form.get("file_location", str(INBOUND_DIR.resolve())).strip()
-        file_name     = request.form.get("file_name", up.filename if up else "").strip()
-        trandate      = request.form.get("trandate", "").strip()
-        paycode       = request.form.get("paycode", "").strip()
-        issuer        = request.form.get("issuer", "").strip()
+    if not (issuer and paycode and trandate and template_dir):
+        return jsonify({"error": "Missing required fields"}), 400
+    if "file" not in request.files:
+        return jsonify({"error": "CSV file missing"}), 400
 
-        # Show the selections (and where file was saved)
-        context["selections"] = (
-            f"Saved file: {saved_path}\n"
-            f"file_location: {file_location}\n"
-            f"file_name:     {file_name}\n"
-            f"trandate:      {trandate}\n"
-            f"paycode:       {paycode}\n"
-            f"issuer:        {issuer}\n"
-        )
+    f = request.files["file"]
+    if f.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
+    filename = secure_filename(f.filename)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext != "csv":
+        return jsonify({"error": "Only .csv files are allowed"}), 400
 
-        # --- Build and run .bat ---
-        # cmd /c <bat> "<inbound>" "<filename>" "<trandate>" "<paycode>" "<issuer>"
-        cmd = [
-            "cmd", "/c",
-            str(BAT_FILE),
-            file_location,
-            file_name,
-            trandate,
-            paycode,
-            issuer
-        ]
-        context["cmd"] = " ".join(f'"{c}"' if " " in c else c for c in cmd)
+    save_path = UPLOAD_DIR / filename
+    f.save(save_path)
 
-        # Run in BASE so any relative paths inside the .bat/.py work
-        proc = subprocess.run(
-            cmd,
-            cwd=BASE,
-            capture_output=True,
-            text=True,
-            shell=False
-        )
+    job_id = uuid.uuid4().hex[:12]
+    jobs[job_id] = {"logs": deque(maxlen=2000), "status": "running", "output_path": None}
+    log(job_id, f"Job created: {job_id}")
+    log(job_id, f"Issuer={issuer}  PayCode={paycode}  TranDate={trandate}")
+    log(job_id, f"Template dir={template_dir}")
+    log(job_id, f"CSV saved: {save_path.as_posix()}")
 
-        context["ran"] = True
-        context["exit_code"] = proc.returncode
-        context["stdout"] = proc.stdout or ""
-        context["stderr"] = proc.stderr or ""
+    def _run():
+        try:
+            out_path = run_llm_pipeline(
+                issuer=issuer,
+                paycode=paycode,
+                trandate=trandate,
+                csv_path=save_path.as_posix(),
+                template_dir=template_dir,
+                log=lambda line: log(job_id, line),
+            )
+            jobs[job_id]["output_path"] = out_path
+            jobs[job_id]["status"] = "done"
+        except Exception as e:
+            jobs[job_id]["status"] = "error"
+            log(job_id, f"ERROR: {type(e).__name__}: {e}")
 
-        # Check for the expected output produced by your pipeline
-        out_path = OUTBOUND_DIR / f"{issuer}_standard_template.csv"
-        context["success"] = (proc.returncode == 0) and out_path.exists()
-        if context["success"]:
-            context["out_name"] = out_path.name
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"job_id": job_id})
 
-    return render_template_string(PAGE, **context)
-
-@app.route("/download/<path:filename>")
-def download(filename: str):
-    return send_from_directory(OUTBOUND_DIR.as_posix(), filename, as_attachment=True)
+@app.route("/logs")
+def get_logs():
+    job_id = request.args.get("job_id", "")
+    if job_id not in jobs:
+        return jsonify({"error": "Unknown job_id"}), 404
+    lines = []
+    dq = jobs[job_id]["logs"]
+    while dq:
+        lines.append(dq.popleft())
+    return jsonify({
+        "status": jobs[job_id]["status"],
+        "output_path": jobs[job_id]["output_path"],
+        "logs": lines
+    })
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=True)
