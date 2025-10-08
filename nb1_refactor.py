@@ -368,3 +368,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+setx PATH "%PATH%;C:\Users\i40212888\AppData\Local\Programs\Python\Python313\;C:\Users\i40212888\AppData\Local\Programs\Python\Python313\Scripts\"
