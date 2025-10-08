@@ -370,17 +370,4 @@ if __name__ == "__main__":
     main()
 
 
-setx PATH "%PATH%;C:\Users\i40212888\AppData\Local\Programs\Python\Python313\;C:\Users\i40212888\AppData\Local\Programs\Python\Python313\Scripts\"
-dir "C:\Users\i40212888\AppData\Local\Programs\Python\Python313"
-
-
-$oldPath = [Environment]::GetEnvironmentVariable("Path", "User")
-$newPath = "$oldPath;C:\Users\i40212888\AppData\Local\Programs\Python\Python313;C:\Users\i40212888\AppData\Local\Programs\Python\Python313\Scripts"
-[Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-
-
-where python
-python --version
-
-set PATH=%PATH%;C:\Users\i40212888\AppData\Local\Programs\Python\Python313;C:\Users\i40212888\AppData\Local\Programs\Python\Python313\Scripts
-python --version
+$env:Path += ";C:\Users\i40212888\AppData\Local\Programs\Python\Python313;C:\Users\i40212888\AppData\Local\Programs\Python\Python313\Scripts"
