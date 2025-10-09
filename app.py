@@ -5,8 +5,7 @@ from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string
 from werkzeug.utils import secure_filename
-
-from processor import run_llm_pipeline  # <-- our separate LLM module
+from processor import run_llm_pipeline  # our separate LLM module
 
 UPLOAD_DIR   = Path("./uploads")
 OUTBOUND_DIR = Path("./outbound")
@@ -19,6 +18,10 @@ OUTBOUND_DIR.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["UPLOAD_FOLDER"] = UPLOAD_DIR.as_posix()
+
+# Available options for drop-downs
+ISSUER_OPTIONS = ["molina", "ameritas", "manhattan_life"]
+PAYCODE_OPTIONS = ["FromApp", "Rebill", "Monthly", "Quarterly"]
 
 # In-memory job store
 jobs = {}  # job_id -> {"logs": deque, "status": "running|done|error", "output_path": str|None}
@@ -39,7 +42,7 @@ INDEX_HTML = """
     .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
     .title { font-weight: 700; margin-bottom: 8px; }
     label { display:block; font-size: 14px; margin-top: 12px; }
-    input[type="text"], input[type="date"], input[type="file"] {
+    select, input[type="text"], input[type="date"], input[type="file"] {
       width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;
     }
     .btn { margin-top: 16px; padding: 10px 14px; background: #111827; color:#fff; border: none; border-radius: 8px; cursor: pointer; }
@@ -56,10 +59,18 @@ INDEX_HTML = """
       <div class="title">Run LLM Mapping</div>
       <form id="form">
         <label>Issuer
-          <input type="text" name="issuer" placeholder="molina / ameritas / manhattan_life" required />
+          <select name="issuer" required>
+            {% for i in issuer_options %}
+              <option value="{{ i }}">{{ i }}</option>
+            {% endfor %}
+          </select>
         </label>
         <label>Pay Code
-          <input type="text" name="paycode" placeholder="FromApp" required />
+          <select name="paycode" required>
+            {% for p in paycode_options %}
+              <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+          </select>
         </label>
         <label>Tran Date
           <input type="date" name="trandate" required />
@@ -140,7 +151,11 @@ INDEX_HTML = """
 
 @app.route("/")
 def index():
-    return render_template_string(INDEX_HTML)
+    return render_template_string(
+        INDEX_HTML,
+        issuer_options=ISSUER_OPTIONS,
+        paycode_options=PAYCODE_OPTIONS
+    )
 
 @app.route("/start", methods=["POST"])
 def start():
