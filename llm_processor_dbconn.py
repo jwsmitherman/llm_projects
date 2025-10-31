@@ -108,3 +108,52 @@ def run_llm_pipeline(
     elapsed = time.perf_counter() - start
     log(f"Completed → {out_path.as_posix()} (elapsed {elapsed:.2f}s)")
     return out_path.as_posix()
+
+
+# 6) Manhattan Life enrichment
+if issuer == "Manhattan Life":
+    log("[INFO] Manhattan Life detected — retrieving SQL mapping.")
+    try:
+        map_df = get_manhattan_mapping(
+            load_task_id=13449,
+            company_issuer_id=2204,
+            log=log
+        )
+
+        # Identify PlanCode column dynamically (in case it's named slightly differently)
+        plan_code_col = next((c for c in df.columns if "plan" in c.lower() and "code" in c.lower()), None)
+
+        if not map_df.empty and plan_code_col:
+            log(f"[ManhattanLife] Found PlanCode column '{plan_code_col}' and {len(map_df)} mapping rows.")
+
+            # Prepare lookup DataFrame
+            map_df = map_df.drop_duplicates(subset=["PlanCode"]).copy()
+            map_df.index = map_df["PlanCode"].astype(str).str.strip()
+
+            # Normalize raw source keys
+            src_key = df[plan_code_col].astype(str).str.strip()
+            mapped_policy = src_key.map(map_df["PolicyNumber"]).fillna("Unknown")
+            mapped_name   = src_key.map(map_df["ProductName"]).fillna("Unknown")
+
+            # Ensure columns exist
+            if "ProductType" not in out_df.columns:
+                out_df["ProductType"] = ""
+            if "PlanName" not in out_df.columns:
+                out_df["PlanName"] = ""
+
+            # Update mapped fields
+            out_df["ProductType"] = mapped_policy.where(mapped_policy.ne(""), "Unknown")
+            out_df["PlanName"]    = mapped_name.where(mapped_name.ne(""), "Unknown")
+
+            updated_count = (mapped_policy != "Unknown").sum()
+            log(f"[ManhattanLife] Updated {updated_count} ProductType/PlanName rows.")
+        else:
+            # No mapping data or missing PlanCode column
+            log("[ManhattanLife] No PlanCode column or mapping data — populating as 'Unknown'.")
+            out_df["ProductType"] = "Unknown"
+            out_df["PlanName"] = "Unknown"
+
+    except Exception as e:
+        log(f"[WARN] Manhattan Life enrichment failed: {e}")
+        out_df["ProductType"] = "Unknown"
+        out_df["PlanName"] = "Unknown"
