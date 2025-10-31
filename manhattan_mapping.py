@@ -1,24 +1,36 @@
-"""
-manhattan_mapping.py
---------------------------------
-Handles SQL Server connection and retrieval of Manhattan Life plan mapping data.
-"""
+# manhattan_mapping.py
+# --------------------------------
+# Handles SQL Server connection and retrieval of Manhattan Life plan mapping data.
 
+from __future__ import annotations
+
+import os
 import pandas as pd
 import pyodbc
-import os
 
 
-def get_manhattan_mapping(load_task_id: int, company_issuer_id: int, log=print) -> pd.DataFrame:
+def get_manhattan_mapping(
+    load_task_id: int,
+    company_issuer_id: int,
+    log=print
+) -> pd.DataFrame:
     """
-    Connects to SQL Server via Windows Authentication and returns mapping DataFrame
+    Connects to SQL Server via Windows Authentication and returns a mapping DataFrame
     with columns: PlanCode, PolicyNumber, ProductName.
+
+    Reads connection settings from environment variables (with safe defaults):
+      - SQL_SERVER (default: QWVIDBSQLB401.ngquotit.com)
+      - SQL_DATABASE (default: NGCS)
+      - SQL_DRIVER (default: ODBC Driver 18 for SQL Server)
+      - SQL_ENCRYPT (default: no)
+      - SQL_TRUST_SERVER_CERT (default: yes)
     """
+
     server = os.getenv("SQL_SERVER", "QWVIDBSQLB401.ngquotit.com")
     database = os.getenv("SQL_DATABASE", "NGCS")
-    driver = os.getenv("SQL_DRIVER", "ODBC Driver 18 for SQL Server")
-    encrypt = os.getenv("SQL_ENCRYPT", "no").lower() in ("1", "true", "yes", "y")
-    trust = os.getenv("SQL_TRUST_SERVER_CERT", "yes").lower() in ("1", "true", "yes", "y")
+    driver = os.getenv("SQL_DRIVER", "ODBC Driver 18 for SQL Server")  # use "ODBC Driver 17 for SQL Server" if needed
+    encrypt = os.getenv("SQL_ENCRYPT", "no").lower() in {"1", "true", "yes", "y"}
+    trust   = os.getenv("SQL_TRUST_SERVER_CERT", "yes").lower() in {"1", "true", "yes", "y"}
 
     conn_str = (
         f"DRIVER={{{driver}}};"
@@ -29,6 +41,7 @@ def get_manhattan_mapping(load_task_id: int, company_issuer_id: int, log=print) 
         f"TrustServerCertificate={'yes' if trust else 'no'};"
     )
 
+    # NOTE: f-string is used per your requirement (no parameterized query here).
     sql = f"""
     SELECT DISTINCT
         p.IssuerPlanId AS PlanCode,
@@ -70,5 +83,10 @@ def get_manhattan_mapping(load_task_id: int, company_issuer_id: int, log=print) 
     with pyodbc.connect(conn_str) as conn:
         df = pd.read_sql(sql, conn).fillna("")
 
+    # Enforce expected columns (use empty if missing)
+    for col in ("PlanCode", "PolicyNumber", "ProductName"):
+        if col not in df.columns:
+            df[col] = ""
+
     log(f"[DB] Retrieved {len(df):,} Manhattan Life mapping rows.")
-    return df
+    return df[["PlanCode", "PolicyNumber", "ProductName"]]
