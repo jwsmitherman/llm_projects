@@ -1,19 +1,19 @@
 @echo off
 setlocal enableextensions
 
-REM ============================================================
+REM ============================================
 REM Usage:
-REM   run_mapping.bat <ISSUER> <PAYCODE> <TRANDATE YYYY-MM-DD> <LOAD_TASK_ID> <COMPANY_ISSUER_ID> <CSV_PATH> <TEMPLATE_DIR>
+REM run_mapping.bat ISSUER PAYCODE TRANDATE LOAD_TASK_ID COMPANY_ISSUER_ID CSV_PATH TEMPLATE_DIR
 REM Example:
-REM   run_mapping.bat "Manhattan Life" "Default" "2025-11-03" "13449" "2204" "C:\path\file.csv" "C:\path\templates"
-REM ============================================================
+REM run_mapping.bat "Manhattan Life" "Default" "2025-11-03" "13449" "2204" "C:\path\file.csv" "C:\path\templates"
+REM ============================================
 
 if "%~7"=="" (
-  echo Usage: ^<ISSUER^> ^<PAYCODE^> ^<TRANDATE YYYY-MM-DD^> ^<LOAD_TASK_ID^> ^<COMPANY_ISSUER_ID^> ^<CSV_PATH^> ^<TEMPLATE_DIR^>
+  echo Usage: ISSUER PAYCODE TRANDATE LOAD_TASK_ID COMPANY_ISSUER_ID CSV_PATH TEMPLATE_DIR
   exit /b 2
 )
 
-REM ------------------ Positional args ------------------
+REM Positional arguments
 set "ISSUER=%~1"
 set "PAYCODE=%~2"
 set "TRANDATE=%~3"
@@ -22,50 +22,42 @@ set "COMPANY_ISSUER_ID=%~5"
 set "CSV_PATH=%~6"
 set "TEMPLATE_DIR=%~7"
 
-REM ------------------ Stable working dir ------------------
+REM Set working directory
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%"
 
-REM ------------------ Python interpreter ------------------
+REM Python interpreter
 set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python313\python.exe"
 if not exist "%PYTHON_EXE%" (
-  echo [WARN] Preferred Python not found at "%PYTHON_EXE%". Falling back to PATH.
+  echo Warning: Preferred Python not found at %PYTHON_EXE%. Falling back to system Python.
   set "PYTHON_EXE=python"
 )
 
-REM ============================================================
-REM New / optional: Azure OpenAI (uncomment and set if not using system env)
+REM Azure OpenAI environment variables (optional)
 REM set "AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com"
-REM set "AZURE_OPENAI_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+REM set "AZURE_OPENAI_API_KEY=your_api_key"
 REM set "AZURE_OPENAI_API_VERSION=2024-02-15-preview"
 REM set "AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini"
-REM ============================================================
 
-REM ============================================================
-REM New fields: performance & output config (read by Python)
-REM (keep these values or change as needed)
-REM ============================================================
-set "ENABLE_RAY=auto"              REM auto | on | off
+REM Performance and output configuration
+set "ENABLE_RAY=auto"
 set "RAY_PARTITIONS=8"
 set "RAY_MIN_ROWS_TO_USE=300000"
-
-REM Absolute OUT_DIR so Explorer and Python agree
 set "OUT_DIR=%SCRIPT_DIR%outbound"
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
+set "OUT_FORMAT=csv"
+set "PARQUET_COMPRESSION=snappy"
 
-set "OUT_FORMAT=csv"               REM csv | parquet
-set "PARQUET_COMPRESSION=snappy"   REM if OUT_FORMAT=parquet
+REM Display configuration info
+echo Script directory: %SCRIPT_DIR%
+echo Using Python: %PYTHON_EXE%
+echo Current directory: %CD%
+echo Output directory: %OUT_DIR%
+echo Output format: %OUT_FORMAT%
+echo Ray settings: ENABLE_RAY=%ENABLE_RAY% PARTITIONS=%RAY_PARTITIONS% MIN_ROWS=%RAY_MIN_ROWS_TO_USE%
+echo Azure OpenAI: Endpoint=%AZURE_OPENAI_ENDPOINT% Deployment=%AZURE_OPENAI_DEPLOYMENT%
 
-REM ------------------ Info banner ------------------
-echo [INFO] Script dir : "%SCRIPT_DIR%"
-echo [INFO] Using Python: "%PYTHON_EXE%"
-echo [INFO] CWD        : "%CD%"
-echo [INFO] OUT_DIR    : "%OUT_DIR%"
-echo [INFO] OUT_FORMAT : "%OUT_FORMAT%"
-echo [INFO] Ray        : ENABLE_RAY=%ENABLE_RAY% PARTS=%RAY_PARTITIONS% MIN_ROWS=%RAY_MIN_ROWS_TO_USE%
-echo [INFO] Azure OAI  : endpoint=%AZURE_OPENAI_ENDPOINT% dep=%AZURE_OPENAI_DEPLOYMENT%
-
-REM ------------------ Run pipeline ------------------
+REM Run the LLM pipeline
 echo Running LLM pipeline...
 "%PYTHON_EXE%" "%SCRIPT_DIR%cli_runner.py" ^
   --issuer "%ISSUER%" ^
@@ -79,14 +71,14 @@ echo Running LLM pipeline...
 set "EXITCODE=%ERRORLEVEL%"
 
 if not "%EXITCODE%"=="0" (
-  echo [ERROR] Failed with exit code %EXITCODE%.
+  echo Error: Pipeline failed with exit code %EXITCODE%.
   popd
   endlocal
   exit /b %EXITCODE%
 )
 
-echo [INFO] Done. Outputs should be under:
-echo        "%OUT_DIR%"
+echo Done. Outputs are located in:
+echo %OUT_DIR%
 
 popd
 endlocal
