@@ -1,51 +1,92 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal enableextensions
 
-REM ============================
+REM ============================================================
 REM Usage:
-REM   run_mapping.bat <ISSUER> <PAYCODE> <TRANDATE> <CSV_PATH> <TEMPLATE_DIR>
+REM   run_mapping.bat <ISSUER> <PAYCODE> <TRANDATE YYYY-MM-DD> <LOAD_TASK_ID> <COMPANY_ISSUER_ID> <CSV_PATH> <TEMPLATE_DIR>
 REM Example:
-REM   run_mapping.bat molina FromApp 2025-10-01 "C:\data\in.csv" "C:\work\carrier_prompts"
-REM ============================
+REM   run_mapping.bat "Manhattan Life" "Default" "2025-11-03" "13449" "2204" "C:\path\file.csv" "C:\path\templates"
+REM ============================================================
 
-if "%~5"=="" (
-  echo Usage: %~nx0 ^<ISSUER^> ^<PAYCODE^> ^<TRANDATE YYYY-MM-DD^> ^<CSV_PATH^> ^<TEMPLATE_DIR^>
+if "%~7"=="" (
+  echo Usage: ^<ISSUER^> ^<PAYCODE^> ^<TRANDATE YYYY-MM-DD^> ^<LOAD_TASK_ID^> ^<COMPANY_ISSUER_ID^> ^<CSV_PATH^> ^<TEMPLATE_DIR^>
   exit /b 2
 )
 
-set ISSUER=%~1
-set PAYCODE=%~2
-set TRANDATE=%~3
-set CSV_PATH=%~4
-set TEMPLATE_DIR=%~5
+REM ------------------ Positional args ------------------
+set "ISSUER=%~1"
+set "PAYCODE=%~2"
+set "TRANDATE=%~3"
+set "LOAD_TASK_ID=%~4"
+set "COMPANY_ISSUER_ID=%~5"
+set "CSV_PATH=%~6"
+set "TEMPLATE_DIR=%~7"
 
-REM ---- Optional: set/override Azure OpenAI env here (or do it in System env vars) ----
-REM set AZURE_OPENAI_API_KEY=YOUR_KEY
-REM set AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-REM set AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
-REM set AZURE_OPENAI_API_VERSION=2024-02-15-preview
+REM ------------------ Stable working dir ------------------
+set "SCRIPT_DIR=%~dp0"
+pushd "%SCRIPT_DIR%"
 
-REM ---- Optional: performance and output config (matches your processor module) ----
-REM set ENABLE_RAY=auto
-REM set RAY_PARTITIONS=8
-REM set RAY_MIN_ROWS_TO_USE=300000
-REM set OUT_DIR=.\outbound
-REM set OUT_FORMAT=parquet
-REM set PARQUET_COMPRESSION=snappy
+REM ------------------ Python interpreter ------------------
+set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python313\python.exe"
+if not exist "%PYTHON_EXE%" (
+  echo [WARN] Preferred Python not found at "%PYTHON_EXE%". Falling back to PATH.
+  set "PYTHON_EXE=python"
+)
 
+REM ============================================================
+REM New / optional: Azure OpenAI (uncomment and set if not using system env)
+REM set "AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com"
+REM set "AZURE_OPENAI_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+REM set "AZURE_OPENAI_API_VERSION=2024-02-15-preview"
+REM set "AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini"
+REM ============================================================
+
+REM ============================================================
+REM New fields: performance & output config (read by Python)
+REM (keep these values or change as needed)
+REM ============================================================
+set "ENABLE_RAY=auto"              REM auto | on | off
+set "RAY_PARTITIONS=8"
+set "RAY_MIN_ROWS_TO_USE=300000"
+
+REM Absolute OUT_DIR so Explorer and Python agree
+set "OUT_DIR=%SCRIPT_DIR%outbound"
+if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
+
+set "OUT_FORMAT=csv"               REM csv | parquet
+set "PARQUET_COMPRESSION=snappy"   REM if OUT_FORMAT=parquet
+
+REM ------------------ Info banner ------------------
+echo [INFO] Script dir : "%SCRIPT_DIR%"
+echo [INFO] Using Python: "%PYTHON_EXE%"
+echo [INFO] CWD        : "%CD%"
+echo [INFO] OUT_DIR    : "%OUT_DIR%"
+echo [INFO] OUT_FORMAT : "%OUT_FORMAT%"
+echo [INFO] Ray        : ENABLE_RAY=%ENABLE_RAY% PARTS=%RAY_PARTITIONS% MIN_ROWS=%RAY_MIN_ROWS_TO_USE%
+echo [INFO] Azure OAI  : endpoint=%AZURE_OPENAI_ENDPOINT% dep=%AZURE_OPENAI_DEPLOYMENT%
+
+REM ------------------ Run pipeline ------------------
 echo Running LLM pipeline...
-python "%~dp0cli_runner.py" ^
+"%PYTHON_EXE%" "%SCRIPT_DIR%cli_runner.py" ^
   --issuer "%ISSUER%" ^
   --paycode "%PAYCODE%" ^
   --trandate "%TRANDATE%" ^
+  --load_task_id "%LOAD_TASK_ID%" ^
+  --company_issuer_id "%COMPANY_ISSUER_ID%" ^
   --csv_path "%CSV_PATH%" ^
   --template_dir "%TEMPLATE_DIR%"
 
-set EXITCODE=%ERRORLEVEL%
-if %EXITCODE% NEQ 0 (
-  echo Failed with exit code %EXITCODE%.
+set "EXITCODE=%ERRORLEVEL%"
+
+if not "%EXITCODE%"=="0" (
+  echo [ERROR] Failed with exit code %EXITCODE%.
+  popd
+  endlocal
   exit /b %EXITCODE%
 )
 
-echo Done.
+echo [INFO] Done. Outputs should be under:
+echo        "%OUT_DIR%"
+
+popd
 endlocal
