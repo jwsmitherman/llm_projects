@@ -1,9 +1,12 @@
-from manhattan_mapping import get_manhattan_mapping
-import pandas as pd
-
 def run_llm_pipeline(
-    *, issuer: str, paycode: str, trandate: str,
-    csv_path: str, template_dir: str,
+    *,
+    issuer: str,
+    paycode: str,
+    trandate: str,
+    load_task_id: str,
+    company_issuer_id: str,
+    csv_path: str,
+    template_dir: str,
     log: Callable[[str], None]
 ) -> str:
     """
@@ -37,14 +40,14 @@ def run_llm_pipeline(
         raw_spec   = canonicalize_spec_keys(raw_spec)
         bound_spec = bind_sources_to_headers(headers, raw_spec)
         bound_spec = promote_pid_to_ptd(bound_spec)
-        compiled_path.write_text(json.dumps(bound_spec, ensure_ascii=False, indent=2), encoding="utf-8")
+        compiled_path.write_text(json.dumps(bound_spec, ensure_ascii=False, indent=2, encoding="utf-8"))
         log(f"[Rules] Compiled & saved → {compiled_path.name}")
 
     # 3) Minimal IO re-read
     usecols = collect_usecols(bound_spec)
     df = _read_csv_usecols(csv_path, usecols if usecols else None, loader)
     n = len(df)
-    log(f"[IO] Rows loaded: {n:,} | usecols={len(usecols)} | loader={loader}")
+    log(f"[IO] Rows loaded: {n:,} | usecols={len(usecols) if usecols else 'ALL'} | loader={loader}")
 
     # 4) Transform
     use_ray = should_use_ray(n)
@@ -59,36 +62,72 @@ def run_llm_pipeline(
     out_df["PayCode"]  = paycode
     out_df["Issuer"]   = issuer
 
-    # 6) Manhattan Life enrichment
+    # 6) Manhattan Life enrichment (PlanCode → PlanName/ProductType)
     if issuer == "Manhattan Life":
         log("[INFO] Manhattan Life detected — retrieving SQL mapping.")
         try:
             map_df = get_manhattan_mapping(
-                load_task_id=13449,
-                company_issuer_id=2204,
+                load_task_id=load_task_id,
+                company_issuer_id=company_issuer_id,
                 log=log
             )
 
-            if not map_df.empty and "PlanCode" in df.columns:
+            # Find the raw PlanCode column (name may vary)
+            plan_code_col = next(
+                (c for c in df.columns if "plan" in c.lower() and "code" in c.lower()),
+                None
+            )
+
+            if not map_df.empty and plan_code_col:
+                log(f"[ManhattanLife] Found PlanCode column: {plan_code_col} | mapping rows={len(map_df)}")
+
+                # Validate expected columns in the mapping
+                required_cols = {"PlanCode", "PlanName", "ProductType"}
+                missing = required_cols - set(map_df.columns)
+                if missing:
+                    log(f"[WARN][ManhattanLife] Mapping table missing columns: {missing} (will use Unknown)")
+                    # Create empty fallbacks if needed
+                    for c in missing:
+                        map_df[c] = ""
+
+                # Normalize keys on both sides
                 map_df = map_df.drop_duplicates(subset=["PlanCode"]).copy()
-                map_df.index = map_df["PlanCode"].astype(str).str.strip()
+                map_df["PlanCode_norm"]    = map_df["PlanCode"].astype(str).str.strip().str.upper()
+                map_df["PlanName_norm"]    = map_df["PlanName"].astype(str).str.strip()
+                map_df["ProductType_norm"] = map_df["ProductType"].astype(str).str.strip()
+                map_df = map_df.set_index("PlanCode_norm")
 
-                src_key = df["PlanCode"].astype(str).str.strip()
-                mapped_policy = src_key.map(map_df["PolicyNumber"]).fillna("")
-                mapped_name = src_key.map(map_df["ProductName"]).fillna("")
+                src_key = df[plan_code_col].astype(str).str.strip().str.upper()
 
-                if "ProductType" not in out_df.columns:
-                    out_df["ProductType"] = ""
+                mapped_plan_name   = src_key.map(map_df["PlanName_norm"]).fillna("Unknown")
+                mapped_producttype = src_key.map(map_df["ProductType_norm"]).fillna("Unknown")
+
+                # Ensure destination columns exist on out_df
                 if "PlanName" not in out_df.columns:
                     out_df["PlanName"] = ""
+                if "ProductType" not in out_df.columns:
+                    out_df["ProductType"] = ""
 
-                out_df["ProductType"] = mapped_policy.where(mapped_policy.ne(""), out_df["ProductType"])
-                out_df["PlanName"] = mapped_name.where(mapped_name.ne(""), out_df["PlanName"])
-                log(f"[ManhattanLife] Updated {sum(mapped_policy!='')} ProductType/PlanName rows.")
+                # Populate (respect Unknown semantics)
+                out_df["PlanName"]    = mapped_plan_name.where(mapped_plan_name.ne(""), "Unknown")
+                out_df["ProductType"] = mapped_producttype.where(mapped_producttype.ne(""), "Unknown")
+
+                # Diagnostics
+                matched = (mapped_plan_name != "Unknown").sum()
+                log(f"[ManhattanLife] PlanCode matches applied: {matched}/{len(out_df)}")
+                # A few not-matched examples to help debugging
+                unmatched = sorted((set(src_key.unique()) - set(map_df.index)))[:5]
+                if unmatched:
+                    log(f"[ManhattanLife] Sample unmatched PlanCodes: {unmatched}")
             else:
-                log("[ManhattanLife] No PlanCode column or mapping data — skipped.")
+                log("[ManhattanLife] No PlanCode column or empty mapping — setting defaults to 'Unknown'.")
+                out_df["PlanName"]    = out_df.get("PlanName", "Unknown")
+                out_df["ProductType"] = out_df.get("ProductType", "Unknown")
+
         except Exception as e:
             log(f"[WARN] Manhattan Life enrichment failed: {e}")
+            out_df["PlanName"]    = "Unknown"
+            out_df["ProductType"] = "Unknown"
 
     # 7) Write output file (same as before)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -96,9 +135,10 @@ def run_llm_pipeline(
     if OUT_FORMAT.lower() == "parquet":
         out_path = out_base.with_suffix(".parquet")
         try:
-            comp = None if PARQUET_COMPRESSION.lower()=="none" else PARQUET_COMPRESSION
+            comp = None if PARQUET_COMPRESSION.lower() == "none" else PARQUET_COMPRESSION
             out_df.to_parquet(out_path, index=False, compression=comp)
         except Exception:
+            # Fallback to CSV if Parquet writer not available
             out_path = out_base.with_suffix(".csv")
             out_df.to_csv(out_path, index=False)
     else:
@@ -106,54 +146,5 @@ def run_llm_pipeline(
         out_df.to_csv(out_path, index=False)
 
     elapsed = time.perf_counter() - start
-    log(f"Completed → {out_path.as_posix()} (elapsed {elapsed:.2f}s)")
+    log(f"Completed: {out_path.as_posix()} (elapsed {elapsed:.2f}s)")
     return out_path.as_posix()
-
-
-# 6) Manhattan Life enrichment
-if issuer == "Manhattan Life":
-    log("[INFO] Manhattan Life detected — retrieving SQL mapping.")
-    try:
-        map_df = get_manhattan_mapping(
-            load_task_id=13449,
-            company_issuer_id=2204,
-            log=log
-        )
-
-        # Identify PlanCode column dynamically (in case it's named slightly differently)
-        plan_code_col = next((c for c in df.columns if "plan" in c.lower() and "code" in c.lower()), None)
-
-        if not map_df.empty and plan_code_col:
-            log(f"[ManhattanLife] Found PlanCode column '{plan_code_col}' and {len(map_df)} mapping rows.")
-
-            # Prepare lookup DataFrame
-            map_df = map_df.drop_duplicates(subset=["PlanCode"]).copy()
-            map_df.index = map_df["PlanCode"].astype(str).str.strip()
-
-            # Normalize raw source keys
-            src_key = df[plan_code_col].astype(str).str.strip()
-            mapped_policy = src_key.map(map_df["PolicyNumber"]).fillna("Unknown")
-            mapped_name   = src_key.map(map_df["ProductName"]).fillna("Unknown")
-
-            # Ensure columns exist
-            if "ProductType" not in out_df.columns:
-                out_df["ProductType"] = ""
-            if "PlanName" not in out_df.columns:
-                out_df["PlanName"] = ""
-
-            # Update mapped fields
-            out_df["ProductType"] = mapped_policy.where(mapped_policy.ne(""), "Unknown")
-            out_df["PlanName"]    = mapped_name.where(mapped_name.ne(""), "Unknown")
-
-            updated_count = (mapped_policy != "Unknown").sum()
-            log(f"[ManhattanLife] Updated {updated_count} ProductType/PlanName rows.")
-        else:
-            # No mapping data or missing PlanCode column
-            log("[ManhattanLife] No PlanCode column or mapping data — populating as 'Unknown'.")
-            out_df["ProductType"] = "Unknown"
-            out_df["PlanName"] = "Unknown"
-
-    except Exception as e:
-        log(f"[WARN] Manhattan Life enrichment failed: {e}")
-        out_df["ProductType"] = "Unknown"
-        out_df["PlanName"] = "Unknown"
