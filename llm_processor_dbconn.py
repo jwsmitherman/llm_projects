@@ -238,3 +238,91 @@ if issuer == "Manhattan Life":
             out_df["ProductType"] = "Unknown"
         else:
             out_df["ProductType"] = out_df["ProductType"].replace("", "Unknown").fillna("Unknown")
+
+
+######
+
+# 6) Manhattan Life enrichment — (A) RAW PlanCode -> map_df  (B) map_df -> out_df by PolicyNumber
+if issuer == "Manhattan Life":
+    log("[INFO] Manhattan Life detected — enriching from DB (PlanCode -> map_df -> PolicyNumber -> out_df).")
+    try:
+        # --- A) QUERY DB (works in your setup) ---
+        # map_df columns expected: PlanCode, PolicyNumber, PlanName, ProductType
+        map_df = get_manhattan_mapping(
+            load_task_id=load_task_id,
+            company_issuer_id=company_issuer_id,
+            log=log,
+        )
+
+        # Validate columns from SQL
+        for c in ("PlanCode", "PolicyNumber", "PlanName", "ProductType"):
+            if c not in map_df.columns:
+                log(f"[WARN][ManhattanLife] SQL missing '{c}', creating empty column.")
+                map_df[c] = ""
+
+        # --- A) RAW df: find columns and join to map_df on PlanCode ---
+        plan_code_col = next((c for c in df.columns if "plan" in c.lower() and "code" in c.lower()), None)
+        policy_raw_col = next((c for c in df.columns if "policy" in c.lower() and ("number" in c.lower() or c.lower().endswith("no"))), None)
+
+        if not plan_code_col or not policy_raw_col:
+            log(f"[ManhattanLife] Missing RAW columns | plan_code_col={plan_code_col} | policy_raw_col={policy_raw_col}. Skipping enrichment.")
+        else:
+            # Normalize keys
+            raw_link = df[[policy_raw_col, plan_code_col]].copy()
+            raw_link["PolicyKey"]   = raw_link[policy_raw_col].astype(str).str.strip()
+            raw_link["PlanCodeKey"] = raw_link[plan_code_col].astype(str).str.strip().str.upper()
+
+            map_norm = map_df[["PolicyNumber", "PlanCode", "PlanName", "ProductType"]].copy()
+            map_norm["PolicyKey"]   = map_norm["PolicyNumber"].astype(str).str.strip()
+            map_norm["PlanCodeKey"] = map_norm["PlanCode"].astype(str).str.strip().str.upper()
+            map_norm = map_norm.drop_duplicates(subset=["PlanCodeKey"])
+
+            # Join RAW -> SQL by PlanCode to produce (PolicyKey -> PlanName/ProductType)
+            joined = raw_link.merge(
+                map_norm[["PlanCodeKey", "PlanName", "ProductType"]],
+                on="PlanCodeKey",
+                how="left",
+            )
+
+            # Build lookup dicts keyed by PolicyNumber (PolicyKey)
+            plan_by_policy   = dict(zip(joined["PolicyKey"], joined["PlanName"].fillna("")))
+            ptype_by_policy  = dict(zip(joined["PolicyKey"], joined["ProductType"].fillna("")))
+
+            # --- B) APPLY to out_df using PolicyNumber ---
+            # Find Policy column in out_df
+            if "PolicyNumber" in out_df.columns:
+                policy_out_col = "PolicyNumber"
+            elif "PolicyNo" in out_df.columns:
+                policy_out_col = "PolicyNo"
+            else:
+                policy_out_col = next((c for c in out_df.columns if "policy" in c.lower() and ("number" in c.lower() or c.lower().endswith("no"))), None)
+
+            if not policy_out_col:
+                log("[ManhattanLife] No PolicyNumber/PolicyNo in out_df; cannot apply enrichment.")
+            else:
+                policy_series = out_df[policy_out_col].astype(str).str.strip()
+
+                # Ensure destination columns
+                if "PlanName" not in out_df.columns:    out_df["PlanName"] = ""
+                if "ProductType" not in out_df.columns: out_df["ProductType"] = ""
+
+                mapped_plan  = policy_series.map(plan_by_policy)
+                mapped_ptype = policy_series.map(ptype_by_policy)
+
+                has_plan  = mapped_plan.notna()  & (mapped_plan.astype(str).str.len()  > 0)
+                has_ptype = mapped_ptype.notna() & (mapped_ptype.astype(str).str.len() > 0)
+
+                # Overwrite from DB when present
+                out_df.loc[has_plan,  "PlanName"]    = mapped_plan[has_plan]
+                out_df.loc[has_ptype, "ProductType"] = mapped_ptype[has_ptype]
+
+                # Final fallback
+                out_df["PlanName"]    = out_df["PlanName"].replace("", "Unknown").fillna("Unknown")
+                out_df["ProductType"] = out_df["ProductType"].replace("", "Unknown").fillna("Unknown")
+
+                log(f"[ManhattanLife] Applied mappings — PlanName: {int(has_plan.sum())}, ProductType: {int(has_ptype.sum())}")
+
+    except Exception as e:
+        log(f"[WARN] Manhattan Life enrichment failed: {e}")
+        if "PlanName" not in out_df.columns:    out_df["PlanName"] = "Unknown"
+        if "ProductType" not in out_df.columns: out_df["ProductType"] = "Unknown"
