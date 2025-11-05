@@ -148,3 +148,93 @@ def run_llm_pipeline(
     elapsed = time.perf_counter() - start
     log(f"Completed: {out_path.as_posix()} (elapsed {elapsed:.2f}s)")
     return out_path.as_posix()
+
+
+
+#################
+
+# 6) Manhattan Life enrichment — query DB and join to out_df by PolicyNumber
+if issuer == "Manhattan Life":
+    log("[INFO] Manhattan Life detected — enriching PlanName/ProductType from DB via PolicyNumber.")
+    try:
+        # --- 6.1 Query DB ---
+        # Requires: from manhattan_mapping import get_manhattan_mapping (imported at top of file)
+        map_df = get_manhattan_mapping(
+            load_task_id=load_task_id,
+            company_issuer_id=company_issuer_id,
+            log=log,
+        )
+
+        # --- 6.2 Validate required columns from SQL result ---
+        needed_cols = {"PolicyNumber", "PlanName", "ProductType"}
+        missing = needed_cols - set(map_df.columns)
+        if missing:
+            log(f"[WARN][ManhattanLife] SQL result missing columns: {missing}. Creating empty fallbacks.")
+            for c in missing:
+                map_df[c] = ""
+
+        # --- 6.3 Normalize keys on SQL side ---
+        map_norm = (
+            map_df[["PolicyNumber", "PlanName", "ProductType"]]
+            .copy()
+        )
+        map_norm["PolicyKey"] = map_norm["PolicyNumber"].astype(str).str.strip()
+        map_norm = map_norm.drop_duplicates(subset=["PolicyKey"])
+
+        # --- 6.4 Locate PolicyNumber column in out_df (allow common variants) ---
+        if "PolicyNumber" in out_df.columns:
+            policy_col = "PolicyNumber"
+        elif "PolicyNo" in out_df.columns:
+            policy_col = "PolicyNo"
+        else:
+            policy_col = next(
+                (c for c in out_df.columns
+                 if "policy" in c.lower() and ("number" in c.lower() or c.lower().endswith("no"))),
+                None
+            )
+
+        if not policy_col:
+            log("[ManhattanLife] No PolicyNumber/PolicyNo column on out_df; enrichment skipped.")
+        else:
+            # --- 6.5 Merge SQL values to out_df via PolicyNumber ---
+            out_df["_PolicyKey"] = out_df[policy_col].astype(str).str.strip()
+
+            out_df = out_df.merge(
+                map_norm.rename(columns={"PolicyKey": "_PolicyKey"}),
+                on="_PolicyKey",
+                how="left",
+                suffixes=("", "_sql")
+            )
+
+            # --- 6.6 Ensure destination columns exist ---
+            if "PlanName" not in out_df.columns:
+                out_df["PlanName"] = ""
+            if "ProductType" not in out_df.columns:
+                out_df["ProductType"] = ""
+
+            # --- 6.7 Overwrite from SQL when present; otherwise keep existing; final fallback -> "Unknown" ---
+            has_plan  = out_df["PlanName_sql"].notna() & (out_df["PlanName_sql"].astype(str).str.len() > 0)
+            has_ptype = out_df["ProductType_sql"].notna() & (out_df["ProductType_sql"].astype(str).str.len() > 0)
+
+            out_df.loc[has_plan,  "PlanName"]    = out_df.loc[has_plan,  "PlanName_sql"]
+            out_df.loc[has_ptype, "ProductType"] = out_df.loc[has_ptype, "ProductType_sql"]
+
+            out_df["PlanName"]    = out_df["PlanName"].replace("", "Unknown").fillna("Unknown")
+            out_df["ProductType"] = out_df["ProductType"].replace("", "Unknown").fillna("Unknown")
+
+            updated_rows = int((has_plan | has_ptype).sum())
+            log(f"[ManhattanLife] Enrichment applied to {updated_rows} rows (by PolicyNumber).")
+
+            # --- 6.8 Cleanup temp columns ---
+            out_df.drop(columns=["PlanName_sql", "ProductType_sql", "_PolicyKey"], inplace=True, errors="ignore")
+
+    except Exception as e:
+        log(f"[WARN] Manhattan Life enrichment failed: {e}")
+        if "PlanName" not in out_df.columns:
+            out_df["PlanName"] = "Unknown"
+        else:
+            out_df["PlanName"] = out_df["PlanName"].replace("", "Unknown").fillna("Unknown")
+        if "ProductType" not in out_df.columns:
+            out_df["ProductType"] = "Unknown"
+        else:
+            out_df["ProductType"] = out_df["ProductType"].replace("", "Unknown").fillna("Unknown")
