@@ -329,61 +329,84 @@ if issuer == "Manhattan Life":
 
 
 ####
-
-import pandas as pd
-import re
+def _normalize_unc_path(p: str) -> Path:
+    # strip quotes added by shells
+    p = p.strip().strip('"').strip("'")
+    # if path mistakenly starts with a single backslash, fix to UNC
+    if p.startswith("\\") and not p.startswith("\\\\"):
+        p = "\\" + p                           # -> '\\vngic.com\Citrix\...'
+    # allow forward slashes too
+    p = p.replace("/", "\\")
+    return Path(p)
 
 def extract_manhattan_policy_plan_from_csv(csv_path: str, log) -> pd.DataFrame:
-    """
-    Reads the Manhattan Life raw CSV at `csv_path`, flattens 2-row headers,
-    and returns a 2-column df: ['PolicyNumber', 'PlanCode'].
-    """
-    log(f"[ManhattanLife] Reading raw file for policy/plan extraction: {csv_path}")
+    """Read Manhattan Life raw CSV at csv_path, flatten 2-row headers, return PolicyNumber & PlanCode."""
+    p = _normalize_unc_path(csv_path)
+    log(f"[ManhattanLife] Raw CSV path (normalized): {p}")
 
-    # --- Try reading as two-row header first (common for Manhattan Life) ---
+    # Quick sanity check
+    if not p.exists():
+        # Try UNC long path prefix if needed
+        long_unc = Path(r"\\?\UNC" + str(p).lstrip("\\"))
+        if long_unc.exists():
+            p = long_unc
+            log(f"[ManhattanLife] Using long UNC path: {p}")
+        else:
+            parent = p.parent
+            log(f"[ERROR] File not found: {p}")
+            try:
+                if parent.exists():
+                    log(f"[DEBUG] Parent exists. Listing first few files in {parent}:")
+                    for i, f in enumerate(parent.iterdir()):
+                        if i >= 5: break
+                        log(f"  - {f.name}")
+            except Exception:
+                pass
+            raise FileNotFoundError(f"No such file: {p}")
+
+    # Try 2-row header first, with encoding fallbacks
+    read_kwargs = dict(dtype=str, engine="python")
     try:
-        raw = pd.read_csv(csv_path, header=[0, 1], dtype=str, engine="python")
-        two_row = True
+        raw = pd.read_csv(p, header=[0, 1], encoding="utf-8-sig", **read_kwargs)
+    except UnicodeError:
+        raw = pd.read_csv(p, header=[0, 1], encoding="latin1", **read_kwargs)
     except Exception:
-        # Fallback: single header row
-        raw = pd.read_csv(csv_path, header=0, dtype=str, engine="python")
-        two_row = False
+        # fallback to single-row header
+        try:
+            raw = pd.read_csv(p, header=0, encoding="utf-8-sig", **read_kwargs)
+        except UnicodeError:
+            raw = pd.read_csv(p, header=0, encoding="latin1", **read_kwargs)
 
-    # --- Flatten columns ---
+    # Flatten header
     if isinstance(raw.columns, pd.MultiIndex):
         flat_cols = []
-        for tup in raw.columns:
-            # Make a readable, robust flattened name like "PolicyNumber", "PlanCode", "PlanDescription"
-            parts = [str(x) for x in tup if (x is not None and str(x).strip() != "")]
-            name = " ".join(parts)
-            # normalize spacing/case
-            name = re.sub(r"\s+", " ", name).strip()
-            flat_cols.append(name)
+        for parts in raw.columns:
+            parts = [str(x).strip() for x in parts if x is not None and str(x).strip() != ""]
+            flat = " ".join(parts)
+            flat = re.sub(r"\s+", " ", flat).strip()
+            flat_cols.append(flat)
         raw.columns = flat_cols
-        log(f"[ManhattanLife] Flattened 2-row header: {raw.columns.tolist()[:10]} ...")
+        log(f"[ManhattanLife] Flattened 2-row header: {raw.columns.tolist()[:12]} ...")
     else:
-        # Normalize single-row names similarly
         raw.columns = [re.sub(r"\s+", " ", str(c)).strip() for c in raw.columns]
-        log(f"[ManhattanLife] Single-row header: {raw.columns.tolist()[:10]} ...")
+        log(f"[ManhattanLife] Single-row header: {raw.columns.tolist()[:12]} ...")
 
-    # --- Build a normalized lookup index (case/space/punct insensitive) ---
+    # Build a normalized header map for matching
     norm = {c: re.sub(r"[^a-z0-9]", "", c.lower()) for c in raw.columns}
 
-    # Candidate matchers
-    def find_col(*patterns):
+    def find_col(*needles):
         for col, nc in norm.items():
-            if all(p in nc for p in patterns):
+            if all(n in nc for n in needles):
                 return col
         return None
 
-    # PolicyNumber: match "policy"+"number" or "policy"+"no" or "policyno"
+    # Find PolicyNumber (policy+number | policy+no | exact 'policyno')
     policy_col = (
         find_col("policy", "number")
         or find_col("policy", "no")
         or next((col for col, nc in norm.items() if nc == "policyno"), None)
     )
-
-    # PlanCode: match "plan"+"code" or exact "plancode"
+    # Find PlanCode (plan+code | exact plancode)
     plan_code_col = (
         find_col("plan", "code")
         or next((col for col, nc in norm.items() if nc == "plancode"), None)
@@ -392,18 +415,14 @@ def extract_manhattan_policy_plan_from_csv(csv_path: str, log) -> pd.DataFrame:
     if not policy_col or not plan_code_col:
         raise ValueError(
             f"Could not locate PolicyNumber/PlanCode columns. "
-            f"Found headers: {list(raw.columns)[:12]}..."
+            f"Seen headers: {list(raw.columns)[:20]}"
         )
 
     df2 = raw[[policy_col, plan_code_col]].copy()
     df2.columns = ["PolicyNumber", "PlanCode"]
     df2["PolicyNumber"] = df2["PolicyNumber"].astype(str).str.strip()
     df2["PlanCode"]     = df2["PlanCode"].astype(str).str.strip().str.upper()
-
-    # Drop empty policy numbers (just in case)
     df2 = df2[df2["PolicyNumber"] != ""].reset_index(drop=True)
 
-    log(f"[ManhattanLife] Extracted policy/plan rows: {len(df2)}")
+    log(f"[ManhattanLife] Extracted {len(df2)} rows of PolicyNumber/PlanCode.")
     return df2
-
-raw_link_df = extract_manhattan_policy_plan_from_csv(csv_path, log)
