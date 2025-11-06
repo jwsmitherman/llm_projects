@@ -330,97 +330,80 @@ if issuer == "Manhattan Life":
 
 ####
 
-def get_manhattan_policy_plan(df: pd.DataFrame, log: Callable[[str], None]) -> pd.DataFrame:
+import pandas as pd
+import re
+
+def extract_manhattan_policy_plan_from_csv(csv_path: str, log) -> pd.DataFrame:
     """
-    Extracts and returns a DataFrame with 'PolicyNumber' and 'PlanCode' from the raw Manhattan Life file.
-    Handles two-row headers and normalizes column names.
-
-    Args:
-        df: Raw DataFrame loaded from CSV
-        log: logging function from run_llm_pipeline
-
-    Returns:
-        pd.DataFrame with columns ['PolicyNumber', 'PlanCode']
+    Reads the Manhattan Life raw CSV at `csv_path`, flattens 2-row headers,
+    and returns a 2-column df: ['PolicyNumber', 'PlanCode'].
     """
+    log(f"[ManhattanLife] Reading raw file for policy/plan extraction: {csv_path}")
+
+    # --- Try reading as two-row header first (common for Manhattan Life) ---
     try:
-        log("[ManhattanLife] Extracting PolicyNumber and PlanCode from raw file...")
+        raw = pd.read_csv(csv_path, header=[0, 1], dtype=str, engine="python")
+        two_row = True
+    except Exception:
+        # Fallback: single header row
+        raw = pd.read_csv(csv_path, header=0, dtype=str, engine="python")
+        two_row = False
 
-        # --- Step 1: Flatten headers if Manhattan Life uses two rows ---
-        # Example: [['Policy', 'Plan'], ['Number', 'Code']] -> ['PolicyNumber', 'PlanCode']
-        if isinstance(df.columns, pd.MultiIndex):
-            flat_cols = []
-            for a, b in df.columns:
-                if pd.isna(a): a = ""
-                if pd.isna(b): b = ""
-                flat_cols.append((str(a) + str(b)).replace(" ", "").strip())
-            df.columns = flat_cols
-            log(f"[ManhattanLife] Flattened multi-row headers → {df.columns.tolist()}")
+    # --- Flatten columns ---
+    if isinstance(raw.columns, pd.MultiIndex):
+        flat_cols = []
+        for tup in raw.columns:
+            # Make a readable, robust flattened name like "PolicyNumber", "PlanCode", "PlanDescription"
+            parts = [str(x) for x in tup if (x is not None and str(x).strip() != "")]
+            name = " ".join(parts)
+            # normalize spacing/case
+            name = re.sub(r"\s+", " ", name).strip()
+            flat_cols.append(name)
+        raw.columns = flat_cols
+        log(f"[ManhattanLife] Flattened 2-row header: {raw.columns.tolist()[:10]} ...")
+    else:
+        # Normalize single-row names similarly
+        raw.columns = [re.sub(r"\s+", " ", str(c)).strip() for c in raw.columns]
+        log(f"[ManhattanLife] Single-row header: {raw.columns.tolist()[:10]} ...")
 
-        # --- Step 2: Normalize all column names (remove spaces, lower, etc.) ---
-        df.columns = [str(c).strip().replace(" ", "").lower() for c in df.columns]
+    # --- Build a normalized lookup index (case/space/punct insensitive) ---
+    norm = {c: re.sub(r"[^a-z0-9]", "", c.lower()) for c in raw.columns}
 
-        # --- Step 3: Detect possible columns ---
-        policy_col = next((c for c in df.columns if "policy" in c and ("number" in c or c.endswith("no"))), None)
-        plan_col   = next((c for c in df.columns if "plan" in c and "code" in c), None)
+    # Candidate matchers
+    def find_col(*patterns):
+        for col, nc in norm.items():
+            if all(p in nc for p in patterns):
+                return col
+        return None
 
-        if not policy_col or not plan_col:
-            raise ValueError(f"Could not find PolicyNumber or PlanCode columns. Found={df.columns.tolist()}")
+    # PolicyNumber: match "policy"+"number" or "policy"+"no" or "policyno"
+    policy_col = (
+        find_col("policy", "number")
+        or find_col("policy", "no")
+        or next((col for col, nc in norm.items() if nc == "policyno"), None)
+    )
 
-        result = df[[policy_col, plan_col]].copy()
-        result.columns = ["PolicyNumber", "PlanCode"]
+    # PlanCode: match "plan"+"code" or exact "plancode"
+    plan_code_col = (
+        find_col("plan", "code")
+        or next((col for col, nc in norm.items() if nc == "plancode"), None)
+    )
 
-        # --- Step 4: Clean values ---
-        result["PolicyNumber"] = result["PolicyNumber"].astype(str).str.strip()
-        result["PlanCode"]     = result["PlanCode"].astype(str).str.strip().str.upper()
-
-        log(f"[ManhattanLife] Extracted {len(result)} rows of PolicyNumber/PlanCode.")
-        return result
-
-    except Exception as e:
-        log(f"[ERROR][ManhattanLife] Failed to extract PolicyNumber/PlanCode: {e}")
-        return pd.DataFrame(columns=["PolicyNumber", "PlanCode"])
-
-
-####
-
-if issuer == "Manhattan Life":
-    log("[INFO] Manhattan Life detected — retrieving SQL mapping.")
-    try:
-        # Step 1: Extract policy/plan mapping from raw
-        raw_link_df = get_manhattan_policy_plan(df, log)
-
-        # Step 2: Query DB for PlanCode -> PlanName/ProductType
-        map_df = get_manhattan_mapping(
-            load_task_id=load_task_id,
-            company_issuer_id=company_issuer_id,
-            log=log,
+    if not policy_col or not plan_code_col:
+        raise ValueError(
+            f"Could not locate PolicyNumber/PlanCode columns. "
+            f"Found headers: {list(raw.columns)[:12]}..."
         )
 
-        # Step 3: Merge raw_link_df to map_df by PlanCode, then apply to out_df by PolicyNumber
-        map_df["PlanCode"] = map_df["PlanCode"].astype(str).str.strip().str.upper()
-        raw_link_df["PlanCode"] = raw_link_df["PlanCode"].astype(str).str.strip().str.upper()
+    df2 = raw[[policy_col, plan_code_col]].copy()
+    df2.columns = ["PolicyNumber", "PlanCode"]
+    df2["PolicyNumber"] = df2["PolicyNumber"].astype(str).str.strip()
+    df2["PlanCode"]     = df2["PlanCode"].astype(str).str.strip().str.upper()
 
-        merged = raw_link_df.merge(
-            map_df[["PlanCode", "PlanName", "ProductType"]],
-            on="PlanCode", how="left"
-        )
+    # Drop empty policy numbers (just in case)
+    df2 = df2[df2["PolicyNumber"] != ""].reset_index(drop=True)
 
-        # Build lookup by PolicyNumber
-        plan_by_policy = dict(zip(merged["PolicyNumber"], merged["PlanName"].fillna("Unknown")))
-        ptype_by_policy = dict(zip(merged["PolicyNumber"], merged["ProductType"].fillna("Unknown")))
+    log(f"[ManhattanLife] Extracted policy/plan rows: {len(df2)}")
+    return df2
 
-        # Apply to out_df
-        policy_col = next((c for c in out_df.columns if "policy" in c.lower() and ("number" in c.lower() or c.lower().endswith("no"))), None)
-        if policy_col:
-            out_df["PlanName"] = out_df[policy_col].astype(str).str.strip().map(plan_by_policy).fillna("Unknown")
-            out_df["ProductType"] = out_df[policy_col].astype(str).str.strip().map(ptype_by_policy).fillna("Unknown")
-            log("[ManhattanLife] Successfully applied PlanName and ProductType from SQL results.")
-        else:
-            log("[ManhattanLife] No PolicyNumber column found in out_df; skipped mapping.")
-
-    except Exception as e:
-        log(f"[WARN] Manhattan Life enrichment failed: {e}")
-        if "PlanName" not in out_df.columns:
-            out_df["PlanName"] = "Unknown"
-        if "ProductType" not in out_df.columns:
-            out_df["ProductType"] = "Unknown"
+raw_link_df = extract_manhattan_policy_plan_from_csv(csv_path, log)
