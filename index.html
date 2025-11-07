@@ -26,14 +26,10 @@
               <h5 class="card-title">Upload & Run</h5>
               <form method="post" enctype="multipart/form-data">
                 <div class="mb-3">
-                  <label class="form-label">PARSED_PBP (CSV)</label>
-                  <input class="form-control" type="file" name="parsed_pbp" accept=".csv" required>
+                  <label class="form-label">PARSED_PBP (CSV/XLSX)</label>
+                  <input class="form-control" type="file" name="parsed_pbp" accept=".csv,.xlsx,.xls" required>
                 </div>
-                <div class="mb-3">
-                  <label class="form-label">TARGET_BENCHMARK (CSV)</label>
-                  <input class="form-control" type="file" name="target_benchmark" accept=".csv" required>
-                </div>
-                <button class="btn btn-primary w-100" type="submit">Translate</button>
+                <button class="btn btn-primary w-100" type="submit">Show Input + Results</button>
               </form>
               <hr>
               <h6>Logs</h6>
@@ -43,12 +39,12 @@
                     {{ line }}<br/>
                   {% endfor %}
                 {% else %}
-                  Upload your files and click Translate to see logs here.
+                  Upload your PARSED_PBP file to see simulated LLM processing steps here.
                 {% endif %}
               </div>
               {% if download_name %}
                 <div class="mt-3">
-                  <a class="btn btn-outline-secondary w-100" href="{{ url_for('download', filename=download_name) }}">Download CSV</a>
+                  <a class="btn btn-outline-secondary w-100" href="{{ url_for('download', filename=download_name) }}">Download Results</a>
                 </div>
               {% endif %}
               {% with messages = get_flashed_messages() %}
@@ -62,17 +58,30 @@
           </div>
         </div>
 
-        <!-- Right: table -->
+        <!-- Right: tables -->
         <div class="col-lg-8">
-          <div class="card shadow-sm">
+          <div class="card shadow-sm mb-4">
             <div class="card-body">
-              <h5 class="card-title">Results</h5>
-              {% if table_html %}
+              <h5 class="card-title">Input: PARSED_PBP Preview</h5>
+              {% if input_table_html %}
                 <div class="table-responsive">
-                  {{ table_html | safe }}
+                  {{ input_table_html | safe }}
                 </div>
               {% else %}
-                <p class="text-muted">Your translated table preview will appear here.</p>
+                <p class="text-muted">Upload a file to preview it here.</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="card shadow-sm">
+            <div class="card-body">
+              <h5 class="card-title">Results: benefits_translated_llm</h5>
+              {% if results_table_html %}
+                <div class="table-responsive">
+                  {{ results_table_html | safe }}
+                </div>
+              {% else %}
+                <p class="text-muted">Place <code>benefits_translated_llm.csv</code> in the <code>outputs/</code> folder to show it here.</p>
               {% endif %}
             </div>
           </div>
