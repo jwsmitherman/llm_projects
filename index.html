@@ -14,21 +14,23 @@
         overflow: auto; white-space: pre-wrap;
       }
       .card { border-radius: 14px; }
+      .scroll-wrap { max-height: 360px; overflow: auto; } /* scrollable table area */
+      table { margin-bottom: 0; }
     </style>
   </head>
   <body>
     <div class="container-fluid">
       <div class="row g-4">
-        <!-- Left: upload + logs -->
+        <!-- Left: button + logs -->
         <div class="col-lg-4">
           <div class="card shadow-sm">
             <div class="card-body">
-              <h5 class="card-title">Upload & Run</h5>
-              <form method="post" enctype="multipart/form-data">
-                <div class="mb-3">
-                  <label class="form-label">PARSED_PBP (CSV/XLSX)</label>
-                  <input class="form-control" type="file" name="parsed_pbp" accept=".csv,.xlsx,.xls" required>
-                </div>
+              <h5 class="card-title">Load from data/</h5>
+              <form method="post">
+                <p class="text-muted small mb-2">
+                  Input: <code>data/parse_pbp_files.csv</code><br>
+                  Results: <code>data/benefits_translated_llm.csv</code>
+                </p>
                 <button class="btn btn-primary w-100" type="submit">Show Input + Results</button>
               </form>
               <hr>
@@ -39,7 +41,7 @@
                     {{ line }}<br/>
                   {% endfor %}
                 {% else %}
-                  Upload your PARSED_PBP file to see simulated LLM processing steps here.
+                  Click the button to simulate LLM processing (10 steps / ~3 seconds) and show tables.
                 {% endif %}
               </div>
               {% if download_name %}
@@ -62,26 +64,26 @@
         <div class="col-lg-8">
           <div class="card shadow-sm mb-4">
             <div class="card-body">
-              <h5 class="card-title">Input: PARSED_PBP Preview</h5>
+              <h5 class="card-title">Input: parse_pbp_files.csv (first 10 rows)</h5>
               {% if input_table_html %}
-                <div class="table-responsive">
+                <div class="scroll-wrap">
                   {{ input_table_html | safe }}
                 </div>
               {% else %}
-                <p class="text-muted">Upload a file to preview it here.</p>
+                <p class="text-muted">Click the button to load the input preview.</p>
               {% endif %}
             </div>
           </div>
 
           <div class="card shadow-sm">
             <div class="card-body">
-              <h5 class="card-title">Results: benefits_translated_llm</h5>
+              <h5 class="card-title">Results: benefits_translated_llm.csv (first 10 rows)</h5>
               {% if results_table_html %}
-                <div class="table-responsive">
+                <div class="scroll-wrap">
                   {{ results_table_html | safe }}
                 </div>
               {% else %}
-                <p class="text-muted">Place <code>benefits_translated_llm.csv</code> in the <code>outputs/</code> folder to show it here.</p>
+                <p class="text-muted">Place <code>benefits_translated_llm.csv</code> in the <code>data/</code> folder, then click the button.</p>
               {% endif %}
             </div>
           </div>
