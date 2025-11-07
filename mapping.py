@@ -2,6 +2,9 @@ import os, re, json
 import pandas as pd
 from difflib import get_close_matches
 
+from config import AZURE_OPENAI, LLM_ENABLED
+
+# LangChain / Azure OpenAI
 try:
     from langchain_openai import AzureChatOpenAI
     from langchain.schema import SystemMessage, HumanMessage
@@ -9,6 +12,9 @@ except Exception:
     AzureChatOpenAI = None
     SystemMessage = HumanMessage = None
 
+# ------------------------
+# utilities
+# ------------------------
 def normalize_name(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"[^a-z0-9]+", "_", s)
@@ -42,6 +48,9 @@ def pick_best(source_cols, target_col, cache):
     cache[target_col] = best
     return best
 
+# ------------------------
+# rules (expand as needed)
+# ------------------------
 SYNONYMS = {
     "plan_id": ["contract_plan_id","plan_id","contract_plan","pbp_id","contract_pbpid"],
     "segment_id": ["segment_id","seg_id"],
@@ -77,25 +86,39 @@ NUMERIC_LIKE = {
     "tier1_generic","tier2_pref_brand","tier3_nonpref_brand","tier4_specialty",
 }
 
-def propose_mapping_with_llm(source_cols, target_cols, logs):
-    """Return dict[target_col] = best_source_col or None (using Azure OpenAI)."""
+# ------------------------
+# LLM mapping
+# ------------------------
+def _init_llm(logs):
+    if not LLM_ENABLED:
+        logs.append("LLM disabled (LLM_ENABLED=False).")
+        return None
     if AzureChatOpenAI is None:
-        logs.append("LangChain/AzureChatOpenAI not installed; skipping LLM mapping.")
+        logs.append("LangChain/AzureChatOpenAI not installed.")
         return None
-
-    required = ["AZURE_OPENAI_API_KEY","AZURE_OPENAI_ENDPOINT","AZURE_OPENAI_API_VERSION","AZURE_OPENAI_CHAT_DEPLOYMENT"]
-    if not all(os.getenv(k) for k in required):
-        logs.append("Azure OpenAI env vars missing; skipping LLM mapping.")
+    cfg = AZURE_OPENAI
+    missing = [k for k in ("API_KEY","ENDPOINT","API_VERSION","CHAT_DEPLOYMENT") if not cfg.get(k)]
+    if missing:
+        logs.append(f"Azure config missing keys: {missing}")
         return None
-
     try:
         llm = AzureChatOpenAI(
-            azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-            temperature=0
+            azure_deployment=cfg["CHAT_DEPLOYMENT"],
+            api_key=cfg["API_KEY"],
+            azure_endpoint=cfg["ENDPOINT"],
+            api_version=cfg["API_VERSION"],
+            temperature=0,
         )
+        return llm
+    except Exception as e:
+        logs.append(f"Failed to init AzureChatOpenAI: {e}")
+        return None
+
+def propose_mapping_with_llm(source_cols, target_cols, logs):
+    llm = _init_llm(logs)
+    if llm is None:
+        return None
+    try:
         sys = SystemMessage(content=(
             "You are a data integration assistant for Medicare PBP → benefits mapping. "
             "Given source and target headers, return ONLY a compact JSON mapping "
@@ -126,6 +149,9 @@ Return JSON only.
         logs.append(f"LLM mapping error → fallback: {e}")
         return None
 
+# ------------------------
+# main entry
+# ------------------------
 def translate(parsed_path: str, target_benchmark_path: str):
     logs = []
     parsed = pd.read_csv(parsed_path)
