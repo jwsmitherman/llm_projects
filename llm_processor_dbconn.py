@@ -412,3 +412,48 @@ def extract_manhattan_policy_plan_from_csv(csv_path: str, log) -> pd.DataFrame:
     log(f"[ManhattanLife] Extracted rows: {len(df2)} | cols -> PolicyNumber='{policy_col}', PlanCode='{plan_code_col}'")
     return df2
 
+
+
+##############
+
+
+
+
+out_df_col = [
+    "PolicyNo", "PHFirst", "PHLast", "Status", "Issuer", "State",
+    "ProductType", "PlanName", "SubmittedDate", "EffectiveDate", "TermDate",
+    "PaySched", "PayCode", "WritingAgentID", "Premium", "CommPrem",
+    "TranDate", "CommReceived", "PTD", "NoPayMon", "Membercount", "Note"
+]
+
+# Build fallback mapping from payload once
+payload_df = raw_link_df[["PolicyNumber", "PlanId"]].copy()
+payload_df.columns = ["PolicyNo", "PlanName"]   # PlanId used as PlanName fallback
+
+if map_df.shape[0] == 0:
+    # No rows from DB – use only payload (PlanId) mapping
+    out_df = out_df.drop(columns=["PlanName"])
+    out_df = out_df.merge(payload_df[["PolicyNo", "PlanName"]],
+                          on="PolicyNo", how="left")
+    out_df = out_df[out_df_col]
+    out_df = out_df.fillna("")
+else:
+    # Some rows from DB – prefer map_df, fallback to payload for missing
+    out_df = out_df.drop(columns=["PlanName"])
+
+    # First merge with map_df (preferred source)
+    out_df = out_df.merge(map_df[["PolicyNo", "PlanName"]],
+                          on="PolicyNo", how="left")
+
+    # Now merge payload and use it ONLY where map_df left PlanName as null
+    out_df = out_df.merge(payload_df[["PolicyNo", "PlanName"]],
+                          on="PolicyNo", how="left", suffixes=("", "_payload"))
+
+    # If map_df PlanName is null, fill with payload PlanName (PlanId)
+    out_df["PlanName"] = out_df["PlanName"].fillna(out_df["PlanName_payload"])
+    out_df = out_df.drop(columns=["PlanName_payload"])
+
+    out_df = out_df[out_df_col]
+    out_df = out_df.fillna("")
+
+
