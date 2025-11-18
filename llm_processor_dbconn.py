@@ -457,3 +457,45 @@ else:
     out_df = out_df.fillna("")
 
 
+
+######
+
+import pandas as pd
+
+def match_llm_output_to_raw_counts(raw_link_df, llm_df):
+    """
+    Ensures llm_df has exactly the same number of rows for each PolicyNumber
+    as raw_link_df.
+
+    - If llm_df has fewer rows → rows are repeated (cycled)
+    - If llm_df has more rows  → rows are trimmed
+    """
+
+    # Count rows required per policy from raw_link_df
+    target_counts = raw_link_df["PolicyNumber"].value_counts()
+
+    adjusted = []
+
+    for policy, target_n in target_counts.items():
+        block = llm_df[llm_df["PolicyNumber"] == policy]
+
+        if block.empty:
+            # No output produced — create empty rows?
+            continue
+
+        if len(block) == target_n:
+            adjusted.append(block)
+            continue
+
+        if len(block) > target_n:
+            # Trim down
+            adjusted.append(block.head(target_n))
+        else:
+            # Repeat rows to reach target_n
+            repeats = (target_n // len(block)) + 1
+            expanded = pd.concat([block] * repeats, ignore_index=True)
+            adjusted.append(expanded.head(target_n))
+
+    return pd.concat(adjusted, ignore_index=True)
+
+
