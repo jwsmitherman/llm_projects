@@ -1,63 +1,32 @@
-import io
-from run_process import process_data # We will define this next
-
 @app.get("/save/<loadid>")
 def save_load_id(loadid: str):
     try:
-        # 1. Connect to both containers
+        # 1. Get the connection string manually to ensure it's loaded
         conn_str = os.getenv("BLOB_CONNECTION_STRING")
-        service_client = BlobServiceClient.from_connection_string(conn_str)
-        inbound_client = service_client.get_container_client("inbound")
-        outbound_client = service_client.get_container_client("outbound")
+        if not conn_str:
+            return jsonify({"status": "error", "detail": "Connection string not found in .env"}), 500
 
-        # 2. Download your test file (parse_pbp_files.csv)
-        # For testing, we'll ignore the <loadid> and just grab your existing file
-        blob_in = inbound_client.download_blob("parse_pbp_files.csv")
+        service_client = BlobServiceClient.from_connection_string(conn_str)
+        
+        # 2. Specifically target the 'inbound' container to get your file
+        inbound_client = service_client.get_container_client("inbound")
+        
+        # We search for the file you have: parse_pbp_files.csv
+        blob_in_name = f"{loadid}.csv" 
+        blob_in = inbound_client.download_blob(blob_in_name)
         raw_data = blob_in.readall().decode("utf-8")
 
-        # 3. Process the data
+        # 3. Process the data using your script
         processed_csv = process_data(raw_data)
 
-        # 4. Save to Outbound with your requested folder structure
+        # 4. Specifically target the 'outbound' container to save
+        outbound_client = service_client.get_container_client("outbound")
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         output_name = f"{loadid}/{timestamp}/{loadid}_results.csv"
+        
         outbound_client.upload_blob(name=output_name, data=processed_csv, overwrite=True)
 
         return jsonify({"status": "success", "saved_to": output_name})
+
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
-
-
-
-
-import pandas as pd
-import io
-
-def process_data(csv_text):
-    # Load the CSV data into Pandas
-    df = pd.read_csv(io.StringIO(csv_text))
-    
-    # --- Put your data processing logic here ---
-    processed_df = df.copy() # Just a placeholder for now
-    
-    # Return it as a string to be uploaded back to Blob
-    return processed_df.to_csv(index=False)
-
-
-import requests
-
-# This URL matches your Flask route and the file in your inbound container
-url = "http://127.0.0.1:5000/save/parse_pbp_files"
-
-print(f"Sending request to: {url}")
-response = requests.get(url)
-
-if response.status_code == 200:
-    print("Success! Check your 'outbound' container in Azure.")
-    print(response.json())
-else:
-    print(f"Error {response.status_code}: {response.text}")
-
-
-
-BLOB_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=desrblob;..."
