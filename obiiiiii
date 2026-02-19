@@ -69,3 +69,36 @@ def save_load_id(loadid: str):
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+
+
+
+
+import pandas as pd
+from io import StringIO
+
+def process_data(csv_string):
+    """
+    Modularized processing script.
+    Receives: CSV string from main.py
+    Returns: Processed CSV string to be uploaded to 'outbound'
+    """
+    
+    # 1. Convert the string into a DataFrame
+    # This replaces the old local file loading (pd.read_csv('local_path.csv'))
+    try:
+        df = pd.read_csv(StringIO(csv_string))
+    except Exception as e:
+        return f"Error parsing CSV: {str(e)}"
+
+    # 2. YOUR LOGIC GOES HERE
+    # This is the 'stuff' you were doing before.
+    # For example:
+    # df['processed_timestamp'] = pd.Timestamp.now()
+    
+    # 3. Convert the results back to a CSV string
+    # index=False prevents pandas from adding an extra column of numbers
+    output_buffer = StringIO()
+    df.to_csv(output_buffer, index=False)
+    
+    return output_buffer.getvalue()
