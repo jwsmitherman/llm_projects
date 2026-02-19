@@ -1,80 +1,63 @@
-
-import pandas as pd
 import io
-
-def process_load_data(csv_content):
-    """
-    Modular function to process inbound data and return results.
-    """
-    # 1. Convert the raw string content from Blob Storage into a DataFrame
-    # Using StringIO avoids saving a physical file to the server's disk
-    df = pd.read_csv(io.StringIO(csv_content))
-
-    # --- START OF YOUR LOGIC ---
-    # This is where you put all that code you previously had 
-    # that was "saving results" or doing calculations.
-    
-    # Example: filtering or transforming
-    # processed_df = df.dropna() 
-    
-    # For now, we'll assume the 'results' is your transformed DataFrame
-    results_df = df 
-    # --- END OF YOUR LOGIC ---
-
-    # 2. Convert the results DataFrame back into a CSV string
-    # This allows main.py to upload it directly back to 'outbound'
-    output = io.StringIO()
-    results_df.to_csv(output, index=False)
-    
-    return output.getvalue()
-
-
-
-
+from run_process import process_data  # Ensure your function name matches in run_process.py
 
 @app.get("/save/<loadid>")
 def save_load_id(loadid: str):
     try:
-        service_client = get_blob_clients()
+        # Get connection string and initialize client
+        conn_str = os.getenv("BLOB_CONNECTION_STRING")
+        service_client = BlobServiceClient.from_connection_string(conn_str)
         
-        # --- CHANGE 3: Target Specific Containers ---
-        # We now point to 'inbound' for reading and 'outbound' for writing
+        # 1. Setup specific container clients
         inbound_client = service_client.get_container_client("inbound")
         outbound_client = service_client.get_container_client("outbound")
 
-        # --- CHANGE 4: Pull from Blob instead of Local ---
-        # We treat the inbound container like our 'pretend' database
-        input_blob_name = f"{loadid}.csv"
-        download_stream = inbound_client.download_blob(input_blob_name)
-        input_content = download_stream.readall().decode("utf-8")
+        # 2. Download from Inbound (assuming file is named loadid.csv)
+        # We use readall() to keep it in memory
+        blob_name_in = f"{loadid}.csv"
+        input_data = inbound_client.download_blob(blob_name_in).readall().decode("utf-8")
 
-        # --- CHANGE 5: Execute Modular Script ---
-        # This passes the data into your processing logic
-        processed_csv_data = process_load_data(input_content)
+        # 3. Pass data to your modularized process script
+        # This function should take the CSV string and return the result CSV string
+        processed_csv_content = process_data(input_data)
 
-        # --- CHANGE 6: Dynamic Path & Timestamping ---
-        # Requirement: payloadID / timestamp / loadid_results.csv
+        # 4. Generate the path: loadid/timestamp/loadid_results.csv
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        blob_name = f"{loadid}/{timestamp}/{loadid}_results.csv"
+        blob_name_out = f"{loadid}/{timestamp}/{loadid}_results.csv"
 
-        # --- CHANGE 7: Save Results to Outbound ---
+        # 5. Save to Outbound
         outbound_client.upload_blob(
-            name=blob_name, 
-            data=processed_csv_data, 
+            name=blob_name_out,
+            data=processed_csv_content,
             overwrite=True
         )
 
         return jsonify({
             "status": "success",
-            "message": "Data processed and stored in outbound",
             "loadid": loadid,
-            "path": blob_name
+            "saved_to": f"outbound/{blob_name_out}",
+            "timestamp": timestamp
         })
 
-    except AzureError as e:
-        return jsonify({"status": "error", "detail": f"Azure error: {str(e)}"}), 500
     except Exception as e:
+        # Keep your existing error handling from the screenshot
         return jsonify({"status": "error", "detail": str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True)
+
+
+
+import pandas as pd
+import io
+
+def process_data(csv_string):
+    # Read the string into a DataFrame
+    df = pd.read_csv(io.StringIO(csv_string))
+    
+    # --- YOUR PROCESSING LOGIC HERE ---
+    # Example: results = df.groupby('something').sum()
+    results = df 
+    
+    # Convert DataFrame back to a CSV string
+    output = io.StringIO()
+    results.to_csv(output, index=False)
+    return output.getvalue()
