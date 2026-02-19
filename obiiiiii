@@ -1,58 +1,29 @@
-import os
-from fastapi import FastAPI, HTTPException
-from azure.storage.blob import BlobServiceClient
-from datetime import datetime
 
-app = FastAPI()
+import pandas as pd
+import io
 
-# --- Configuration (Read at runtime) ---
-# It is safer to pull these inside the functions or ensure they exist
-BLOB_CONNECTION_STRING = os.getenv("BLOB_CONNECTION_STRING")
-BLOB_CONTAINER = os.getenv("BLOB_CONTAINER", "payloads")
-
-@app.get("/")
-def health():
-    """Basic health check to ensure the app is live."""
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
-
-@app.get("/save/{loadid}")
-async def save_load_id(loadid: str):
+def process_load_data(csv_content):
     """
-    Queries data (placeholder for DB) and saves a file to Azure Blob Storage.
+    Modular function to process inbound data and return results.
     """
-    # 1. Validate Connection String exists
-    if not BLOB_CONNECTION_STRING:
-        raise HTTPException(status_code=500, detail="BLOB_CONNECTION_STRING not configured in Azure.")
+    # 1. Convert the raw string content from Blob Storage into a DataFrame
+    # Using StringIO avoids saving a physical file to the server's disk
+    df = pd.read_csv(io.StringIO(csv_content))
 
-    try:
-        # 2. Initialize the client INSIDE the call to prevent startup hangs
-        blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-        container_client = blob_service_client.get_container_client(BLOB_CONTAINER)
+    # --- START OF YOUR LOGIC ---
+    # This is where you put all that code you previously had 
+    # that was "saving results" or doing calculations.
+    
+    # Example: filtering or transforming
+    # processed_df = df.dropna() 
+    
+    # For now, we'll assume the 'results' is your transformed DataFrame
+    results_df = df 
+    # --- END OF YOUR LOGIC ---
 
-        # 3. Prepare the content
-        # Note: In the next step, we will replace this with your Database Query result
-        content = f"LOADID: {loadid}\nSaved at {datetime.utcnow()} UTC"
-        blob_name = f"{loadid}.txt"
-
-        # 4. Upload to Blob
-        container_client.upload_blob(
-            name=blob_name,
-            data=content,
-            overwrite=True
-        )
-
-        return {
-            "status": "success",
-            "container": BLOB_CONTAINER,
-            "blob": blob_name,
-            "loadid": loadid
-        }
-
-    except Exception as e:
-        # This catches things like Authentication errors or Container not found
-        raise HTTPException(status_code=500, detail=f"Storage Error: {str(e)}")
-
-if __name__ == "__main__":
-    import uvicorn
-    # Azure App Service usually handles the port, but for local testing:
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 2. Convert the results DataFrame back into a CSV string
+    # This allows main.py to upload it directly back to 'outbound'
+    output = io.StringIO()
+    results_df.to_csv(output, index=False)
+    
+    return output.getvalue()
