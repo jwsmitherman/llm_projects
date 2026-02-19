@@ -27,3 +27,54 @@ def process_load_data(csv_content):
     results_df.to_csv(output, index=False)
     
     return output.getvalue()
+
+
+
+
+
+@app.get("/save/<loadid>")
+def save_load_id(loadid: str):
+    try:
+        service_client = get_blob_clients()
+        
+        # --- CHANGE 3: Target Specific Containers ---
+        # We now point to 'inbound' for reading and 'outbound' for writing
+        inbound_client = service_client.get_container_client("inbound")
+        outbound_client = service_client.get_container_client("outbound")
+
+        # --- CHANGE 4: Pull from Blob instead of Local ---
+        # We treat the inbound container like our 'pretend' database
+        input_blob_name = f"{loadid}.csv"
+        download_stream = inbound_client.download_blob(input_blob_name)
+        input_content = download_stream.readall().decode("utf-8")
+
+        # --- CHANGE 5: Execute Modular Script ---
+        # This passes the data into your processing logic
+        processed_csv_data = process_load_data(input_content)
+
+        # --- CHANGE 6: Dynamic Path & Timestamping ---
+        # Requirement: payloadID / timestamp / loadid_results.csv
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        blob_name = f"{loadid}/{timestamp}/{loadid}_results.csv"
+
+        # --- CHANGE 7: Save Results to Outbound ---
+        outbound_client.upload_blob(
+            name=blob_name, 
+            data=processed_csv_data, 
+            overwrite=True
+        )
+
+        return jsonify({
+            "status": "success",
+            "message": "Data processed and stored in outbound",
+            "loadid": loadid,
+            "path": blob_name
+        })
+
+    except AzureError as e:
+        return jsonify({"status": "error", "detail": f"Azure error: {str(e)}"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
