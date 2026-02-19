@@ -44,8 +44,16 @@ def process_data(csv_text):
     return processed_df.to_csv(index=False)
 
 
-
 import requests
-# Hit the local URL
-r = requests.get("http://127.0.0.1:5000/save/my-test-load")
-print(r.json())
+
+# This URL matches your Flask route and the file in your inbound container
+url = "http://127.0.0.1:5000/save/parse_pbp_files"
+
+print(f"Sending request to: {url}")
+response = requests.get(url)
+
+if response.status_code == 200:
+    print("Success! Check your 'outbound' container in Azure.")
+    print(response.json())
+else:
+    print(f"Error {response.status_code}: {response.text}")
