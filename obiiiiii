@@ -1,104 +1,48 @@
-from dotenv import load_dotenv
-import os
-import io
-from datetime import datetime
-from flask import Flask, jsonify
-from azure.storage.blob import BlobServiceClient
-from azure.core.exceptions import AzureError
 
-# Import your modular logic
-from run_process import process_data
+import requests
+import json
 
-load_dotenv()
-app = Flask(__name__)
+# 1. Configuration
+BASE_URL = "http://127.0.0.1:5000"
+LOAD_ID = "your_test_file_name"  # The file sitting in your 'inbound' container (no .csv)
 
-def get_blob_service_client():
-    """Helper to initialize the client from environment variables."""
-    conn_str = os.getenv("BLOB_CONNECTION_STRING")
-    if not conn_str:
-        raise ValueError("BLOB_CONNECTION_STRING is not set in .env")
-    return BlobServiceClient.from_connection_string(conn_str)
+# 2. Trigger the API
+print(f"Triggering process for Load ID: {LOAD_ID}...")
+response = requests.get(f"{BASE_URL}/save/{LOAD_ID}")
 
-@app.get("/")
-def health():
-    return jsonify({
-        "status": "ok",
-        "timestamp": datetime.utcnow().isoformat() + "Z"
-    })
-
-@app.get("/save/<loadid>")
-def save_load_id(loadid: str):
-    try:
-        # 1. Initialize Client
-        service_client = get_blob_service_client()
-        
-        # 2. Pull from 'inbound' container
-        # We assume the file is named {loadid}.csv (e.g., 1234.csv)
-        inbound_client = service_client.get_container_client("inbound")
-        blob_in_name = f"{loadid}.csv"
-        
-        print(f"Fetching {blob_in_name} from inbound...")
-        blob_in = inbound_client.download_blob(blob_in_name)
-        raw_data = blob_in.readall().decode("utf-8")
-
-        # 3. Process the data using your modular script
-        # Ensure run_process.py uses io.StringIO to read this string
-        print(f"Processing data for load: {loadid}")
-        processed_csv = process_data(raw_data)
-
-        # 4. Prepare 'outbound' storage path
-        # Format: loadid / timestamp / loadid_results.csv
-        outbound_client = service_client.get_container_client("outbound")
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        output_name = f"{loadid}/{timestamp}/{loadid}_results.csv"
-
-        # 5. Upload results
-        print(f"Uploading results to: {output_name}")
-        outbound_client.upload_blob(name=output_name, data=processed_csv, overwrite=True)
-
-        return jsonify({
-            "status": "success",
-            "load_id": loadid,
-            "saved_to": f"outbound/{output_name}"
-        })
-
-    except AzureError as ae:
-        return jsonify({"status": "error", "detail": f"Azure Storage Error: {str(ae)}"}), 500
-    except Exception as e:
-        return jsonify({"status": "error", "detail": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(debug=True)
+# 3. Check the Results
+if response.status_code == 200:
+    print("✅ Success!")
+    print(json.dumps(response.json(), indent=2))
+else:
+    print(f"❌ Failed with status code: {response.status_code}")
+    print(response.text)
 
 
 
 
-
+# run_process.py
 import pandas as pd
 from io import StringIO
 
-def process_data(csv_string):
+def process_data(raw_text):
     """
-    Modularized processing script.
-    Receives: CSV string from main.py
-    Returns: Processed CSV string to be uploaded to 'outbound'
+    The Brain: Takes raw CSV string, processes it, returns a CSV string.
     """
-    
-    # 1. Convert the string into a DataFrame
-    # This replaces the old local file loading (pd.read_csv('local_path.csv'))
     try:
-        df = pd.read_csv(StringIO(csv_string))
-    except Exception as e:
-        return f"Error parsing CSV: {str(e)}"
+        # 1. Load the string into a DataFrame
+        # StringIO makes the string act like a file
+        df = pd.read_csv(StringIO(raw_text))
+        
+        # --- YOUR LOGIC HERE ---
+        # Example: Let's say you're adding a 'processed' column
+        df['status'] = 'processed'
+        # -----------------------
 
-    # 2. YOUR LOGIC GOES HERE
-    # This is the 'stuff' you were doing before.
-    # For example:
-    # df['processed_timestamp'] = pd.Timestamp.now()
-    
-    # 3. Convert the results back to a CSV string
-    # index=False prevents pandas from adding an extra column of numbers
-    output_buffer = StringIO()
-    df.to_csv(output_buffer, index=False)
-    
-    return output_buffer.getvalue()
+        # 2. Convert back to CSV string to send back to main.py
+        # index=False prevents Pandas from adding a junk 'Unnamed: 0' column
+        return df.to_csv(index=False)
+
+    except Exception as e:
+        print(f"Error in processing: {e}")
+        return None
