@@ -58,3 +58,6 @@ def save_load_id(loadid: str):
         return jsonify({"status": "error", "detail": f"Azure error: {str(e)}"}), 500
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
+
+#https://desrapi-e9g6awabhmwcc0f5.westcentralus-01.azurewebsites.net/
+#https://desrapi-e9g6awabhmwcc0f5.westcentralus-01.azurewebsites.net/save/12345
