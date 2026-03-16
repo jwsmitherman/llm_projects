@@ -1,48 +1,322 @@
 
-import requests
-import json
-
-# 1. Configuration
-BASE_URL = "http://127.0.0.1:5000"
-LOAD_ID = "your_test_file_name"  # The file sitting in your 'inbound' container (no .csv)
-
-# 2. Trigger the API
-print(f"Triggering process for Load ID: {LOAD_ID}...")
-response = requests.get(f"{BASE_URL}/save/{LOAD_ID}")
-
-# 3. Check the Results
-if response.status_code == 200:
-    print("✅ Success!")
-    print(json.dumps(response.json(), indent=2))
-else:
-    print(f"❌ Failed with status code: {response.status_code}")
-    print(response.text)
-
-
-
-
-# run_process.py
 import pandas as pd
-from io import StringIO
+import json
+import os
+import re
+from typing import Optional, List, Dict, Tuple, Union
 
-def process_data(raw_text):
-    """
-    The Brain: Takes raw CSV string, processes it, returns a CSV string.
-    """
+# Optional: Langchain / Azure OpenAI loading
+try:
+    from langchain_openai import AzureChatOpenAI
+    from langchain.schema import SystemMessage, HumanMessage
+except:
+    AzureChatOpenAI = None
+    SystemMessage = HumanMessage = None
+
+# =================================================================
+# Helpers
+# =================================================================
+
+def normalize_text(s: Optional[str]) -> str:
+    if s is None or pd.isna(s):
+        return ""
+    return re.sub(r"\s+", " ", str(s)).strip()
+
+def derive_planid_from_filename(filename: str) -> str:
+    base = os.path.basename(filename)
+    import re as _re
+    m = _re.search(r"([A-Z0-9]+)-([A-Z0-9]+)-([0-9]{3})", base)
+    if not m:
+        contract, plan, segment = None, None, None
+        m = _re.search(r"([A-Z][0-9]{4})-([0-9]{3})-([0-9]{3})", base)
+        if m:
+            contract, plan, segment = m.group(1), m.group(2), m.group(3)
+        else:
+            nums = _re.findall(r"[A-Z0-9]{3,}", base)
+            if len(nums) >= 3:
+                contract, plan, segment = nums[0], nums[1], nums[2]
+        if not all([contract, plan, segment]):
+            return f"CAM_{base}"
+    else:
+        contract, plan, segment = m.group(1), m.group(2), m.group(3)
+    
+    seq = str(int(segment))
+    return f"CAM_{contract}_{plan}_{seq}"
+
+def extract_plan_metadata(df_plan_rows: pd.DataFrame) -> Tuple[str, str, str]:
+    filename = str(df_plan_rows["filename"].iloc[0])
+    planid = derive_planid_from_filename(filename)
+    planname = None
+    plantype = None
+    
     try:
-        # 1. Load the string into a DataFrame
-        # StringIO makes the string act like a file
-        df = pd.read_csv(StringIO(raw_text))
+        name_row = df_plan_rows[
+            (df_plan_rows["header"] == "Plan Characteristics") &
+            (df_plan_rows["field"].str.contains("Plan Name", na=False))
+        ]
+        if len(name_row) > 0:
+            planname = normalize_text(name_row["value"].iloc[0])
+            
+        type_row = df_plan_rows[
+            (df_plan_rows["header"] == "Plan Characteristics") &
+            (df_plan_rows["category"].str.contains("Plan Details", na=False)) &
+            (df_plan_rows["field"].str.contains("Plan Type", na=False))
+        ]
+        if len(type_row) > 0:
+            plantype = normalize_text(type_row["value"].iloc[0])
+    except:
+        pass
         
-        # --- YOUR LOGIC HERE ---
-        # Example: Let's say you're adding a 'processed' column
-        df['status'] = 'processed'
-        # -----------------------
+    if not planname:
+        import re as _re
+        planname = _re.sub(r"[-_]", " ", os.path.splitext(filename)[0])
+        
+    if not plantype:
+        if (df_plan_rows["category"].astype(str).str.contains("POS (Point of Service)", case=False)).any():
+            plantype = "POS"
+        else:
+            plantype = "General"
+            
+    return planid, planname, plantype
 
-        # 2. Convert back to CSV string to send back to main.py
-        # index=False prevents Pandas from adding a junk 'Unnamed: 0' column
-        return df.to_csv(index=False)
+def coverage_text_to_id_desc(text: str) -> Tuple[int, str]:
+    t = normalize_text(text).lower()
+    if "out of network" in t or "out-of-network" in t or t.startswith("oon"):
+        return 2, "OutOfNetwork"
+    if "point of service" in t or t.startswith("pos"):
+        return 3, "General"
+    if "in-network" in t or t.startswith("inn"):
+        return 1, "InNetwork"
+    return 4, "NA"
 
-    except Exception as e:
-        print(f"Error in processing: {e}")
+# =================================================================
+# LLM
+# =================================================================
+
+LLM_SYSTEM = """
+You are a strict information extraction engine for Medicare PBP parsing.
+Given rows for a single benefit context, map them to the target fields.
+"""
+
+def get_llm():
+    if AzureChatOpenAI is None:
         return None
+    key = os.getenv("AZURE_OPENAI_API_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
+    
+    if not all([key, endpoint, deployment]):
+        return None
+        
+    return AzureChatOpenAI(
+        azure_deployment=deployment,
+        api_key=key,
+        azure_endpoint=endpoint,
+        api_version=api_version,
+        temperature=0.0,
+        max_tokens=1500,
+        request_timeout=60.0
+    )
+
+def llm_map_records(llm, rows, allowed_benefit_names=None, default_coverage="InNetwork"):
+    if llm is None:
+        return None
+        
+    instructions = {
+        "default_coverage": default_coverage,
+        "schema": {"benefitname": "coveragetypedesc", "servicetypedesc": "benefitdesc", "benefitdesc": "tinydescription"},
+        "allowed_benefit_names": allowed_benefit_names or [],
+        "rows": 2500
+    }
+    
+    messages = [
+        SystemMessage(content=LLM_SYSTEM),
+        HumanMessage(content=f"Map these rows to schema. JSON only.\n" + json.dumps(instructions))
+    ]
+    
+    try:
+        resp = llm(messages)
+        data = json.loads(resp.content)
+        if isinstance(data, list):
+            return data
+        return data.get("rows", [])
+    except:
+        return []
+
+# =================================================================
+# CANON FAMILIES 
+# =================================================================
+
+CANON_FAMILIES = {
+    1300: "Dental Services",
+    1301: "Dental - Comprehensive",
+    1400: "Hearing Services",
+    1500: "Vision Services",
+    800: "Inpatient Hospital Care",
+    900: "Doctor Office Visits Select Primary",
+    910: "Doctor Office Visits Select Specialist",
+    970: "Outpatient Services/Surgery",
+    980: "Ambulance Services",
+    990: "Emergency Care",
+    1010: "Durable Medical Equipment",
+    1011: "Prosthetic Devices",
+    1020: "Diabetes Programs and Supplies",
+    1030: "Diagnostic Tests, X-Rays, Lab Services and Radiology Services",
+    1070: "Kidney Disease and Conditions",
+    1100: "Preventive Services",
+    1200: "Transportation",
+    2100: "Over-the-Counter Items"
+}
+
+FAMILY_KEYWORDS = {
+    "Comprehensive Dental": 1301, "Dental Services": 1300,
+    "Dental": 1300, "Dental - Comprehensive": 1301,
+    "Hearing": 1400, "Hearing Services": 1400,
+    "Vision": 1500, "Vision Services": 1500,
+    "Inpatient Hospital": 800, "Inpatient Hospital Care": 800,
+    "Primary Care": 900, "Doctor Office Visits Select Primary": 900,
+    "Specialist": 910, "Doctor Office Visits Select Specialist": 910,
+    "Outpatient": 970, "Outpatient Services/Surgery": 970,
+    "Ambulance": 980, "Ambulance Services": 980,
+    "Emergency": 990, "Emergency Care": 990,
+    "Durable Medical Equipment": 1010, "1010": 1010,
+    "Prosthetic": 1011, "Prosthetic Devices": 1011,
+    "Diabetes": 1020, "Diabetes Programs and Supplies": 1020,
+    "Diagnostic": 1030, "Diagnostic Tests, X-Rays, Lab Services and Radiology Services": 1030,
+    "Kidney": 1070, "Kidney Disease and Conditions": 1070,
+    "Preventive": 1100, "Preventive Services": 1100,
+    "Transportation": 1200, "1200": 1200,
+    "Over-the-Counter": 2100, "Over-the-Counter Items": 2100
+}
+
+def detect_families(grp: pd.DataFrame) -> List[Tuple[int, str]]:
+    found = []
+    text_series = (grp["category"].astype(str) + " " + grp["field"].astype(str)).str.lower()
+    for kw, bid in FAMILY_KEYWORDS.items():
+        if any(text_series.str.contains(kw.lower(), na=False)):
+            found.append((bid, CANON_FAMILIES.get(bid, "Unknown")))
+    
+    seen_out = set()
+    out = []
+    for bid, bname in found:
+        if bid not in seen_out:
+            out.append((bid, bname))
+            seen_out.add(bid)
+    
+    return out or [(900, "Doctor Office Visits Select Primary")]
+
+# =================================================================
+# NEW: CORE PROCESSING FUNCTION FOR API
+# =================================================================
+
+def run_benefit_processing(data_input: Union[list, pd.DataFrame]) -> list:
+    """
+    Main entry point for API calls. 
+    Takes a list of JSON rows, processes them, and returns a list of dictionaries.
+    """
+    if isinstance(data_input, list):
+        df = pd.DataFrame(data_input)
+    else:
+        df = data_input
+
+    # Basic normalization for consistency
+    for col in ["header", "category", "field", "value"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).fillna("").map(normalize_text)
+            
+    out_rows = []
+    llm = get_llm()
+    
+    for fname, grp in df.groupby("filename"):
+        planid, planname, plantype = extract_plan_metadata(grp)
+        default_cov = "POS" if plantype.upper().startswith("POS") else "InNetwork"
+        
+        compact = []
+        for _, r in grp.iterrows():
+            compact.append({
+                "header": normalize_text(r.get("header")),
+                "category": normalize_text(r.get("category")),
+                "field": normalize_text(r.get("field")),
+                "value": normalize_text(r.get("value"))
+            })
+            
+        allowed_names = [name for name in CANON_FAMILIES.values()]
+        mapped = llm_map_records(llm, compact, allowed_benefit_names=allowed_names, default_coverage=default_cov)
+        
+        if not mapped:
+            families = detect_families(grp)
+            mapped = []
+            for bid, bname in families:
+                mapped.append({
+                    "benefitname": bname,
+                    "benefitid": bid,
+                    "coveragetypedesc": default_cov,
+                    "servicetypedesc": "N/A",
+                    "benefitdesc": f"Auto-generated summary for {bname} based on plan materials.",
+                    "tinydescription": "See brochure"
+                })
+        
+        for rec in mapped:
+            bname = normalize_text(rec.get("benefitname")) or "General Benefit"
+            cov_desc = normalize_text(rec.get("coveragetypedesc")) or default_cov
+            st_desc = normalize_text(rec.get("servicetypedesc")) or "N/A"
+            longv = rec.get("benefitdesc") or ""
+            tinyv = rec.get("tinydescription") or ""
+            
+            bid = None
+            for cand_id, cand_name in CANON_FAMILIES.items():
+                if normalize_text(cand_name).lower() == bname.lower():
+                    bid = cand_id
+                    break
+            if bid is None:
+                bid = abs(hash(bname)) % (10**4)
+                
+            cov_id, cov_std = coverage_text_to_id_desc(cov_desc)
+            
+            out_rows.append({
+                "planid": planid,
+                "planname": planname,
+                "plantypeid": plantype,
+                "benefitid": bid,
+                "benefitname": bname,
+                "coveragetypeid": cov_id,
+                "coveragetypedesc": cov_std,
+                "servicetypedesc": st_desc,
+                "benefitdesc": longv,
+                "tinydescription": tinyv
+            })
+            
+    return out_rows
+
+# =================================================================
+# LEGACY MAIN (for local testing)
+# =================================================================
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json_path", help="Path to saved JSON payload")
+    parser.add_argument("--excel_path", help="Path to Excel file (legacy)")
+    parser.add_argument("--out_path", default="benefits_ifp2_output.xlsx")
+    args = parser.parse_args()
+    
+    if args.json_path:
+        with open(args.json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Use the new core function
+        results = run_benefit_processing(data)
+        out_df = pd.DataFrame(results)
+    elif args.excel_path:
+        df = pd.read_excel(args.excel_path, engine="openpyxl")
+        results = run_benefit_processing(df)
+        out_df = pd.DataFrame(results)
+    else:
+        raise ValueError("Provide --json_path or --excel_path")
+        
+    with pd.ExcelWriter(args.out_path, engine="openpyxl") as xw:
+        out_df.to_excel(xw, index=False, sheet_name="Sheet1")
+    print(f"Wrote {len(out_df)} rows to {args.out_path}")
+
+if __name__ == "__main__":
+    main()
