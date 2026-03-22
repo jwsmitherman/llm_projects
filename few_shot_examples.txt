@@ -1,0 +1,119 @@
+════════════════════════════════════════════════════════════════
+FEW-SHOT EXAMPLES — study before processing
+════════════════════════════════════════════════════════════════
+
+── EXAMPLE 1: Simple single-token copay ────────────────────────
+Rules rows for BenefitId=900, TierType=0 (NetworkType=1):
+  DynamicLongValue: "<b>{{Copayment amount}}</b> copay per visit (Medicare Covered)"
+  DynamicTinyValue: "{{Copayment amount}}"
+  field="Copayment amount"   value="$0"
+
+Output:
+  benefitdesc:     "<b>$0</b> copay per visit (Medicare Covered)"
+  tinyDescription: "$0"
+
+── EXAMPLE 2: Min/Max range — two rows, same template ──────────
+Rules rows for BenefitId=950, TierType=169 (Group Therapy, NetworkType=1):
+  DynamicLongValue: "<b>{{Minimum copayment}}</b> - <b>{{Maximum copayment}}</b>"
+  DynamicTinyValue: "{{Minimum copayment}}"
+  Row 1: field="Minimum copayment"   value="$40"
+  Row 2: field="Maximum copayment"   value="$45"
+
+Output:
+  benefitdesc:     "<b>$40</b> - <b>$45</b> copay"
+  tinyDescription: "$40 - $45"   ← always "$min - $max" for range patterns
+
+── EXAMPLE 3: Three tokens: copay + count + periodicity ────────
+Rules rows for BenefitId=1900 (Acupuncture), TierType=0, NetworkType=1:
+  DynamicLongValue: "<b>{{Copayment amount}}</b> copay<br> for {{Indicate limit for Number of Treatments}} treatment(s) ({{Periodicity}})"
+  DynamicTinyValue: "{{Copayment amount}}"
+  Row 1: field="Copayment amount"                         value="$25"
+  Row 2: field="Indicate limit for Number of Treatments"  value="20"
+  Row 3: field="Periodicity"                              value="Every Year"
+
+Output:
+  benefitdesc:     "<b>$25</b> copay<br> for 20 treatment(s) every year"
+  tinyDescription: "$25"
+  Note: "Every Year" → "every year" (Rule 6). Parentheses in template removed in output.
+
+── EXAMPLE 4: Pre-computed group tokens (days) ─────────────────
+Rules rows for BenefitId=800, TierType=125 (days 1 through 8), NetworkType=1:
+  DynamicLongValue: "{{days-LongValue}} per day"
+  DynamicTinyValue: "{{days-TinyValue}}"
+  Row 1: field="days-TinyValue"    value="$245"
+  Row 2: field="days-LongValue"    value="<b>$245</b> copay"
+  Row 3: field="days-ShortValue"   value="<b>$245</b> copay"
+
+Output:
+  benefitdesc:     "<b>$245</b> copay per day"
+  tinyDescription: "$245"
+
+── EXAMPLE 5: Static HERE row ──────────────────────────────────
+Rules row for BenefitId=616, TierType=0, NetworkType=4:
+  DynamicLongValue: "See Summary of Benefits"
+  DynamicTinyValue: "See Brochure"
+  field="HERE"   value="HERE"
+
+Output:
+  benefitdesc:     "See Summary of Benefits"
+  tinyDescription: "See Brochure"
+
+── EXAMPLE 6: Drug Deductible — complex template + tier list ───
+Rules rows for BenefitId=611, TierType=0, NetworkType=4:
+  DynamicLongValue (assembled): "<b>{{Enter Deductible Amount}}</b> per year for
+    Part D prescription drugs except for drugs listed on {{Indicate each tier for
+    which the deductible will NOT apply (select all that apply, please note that
+    the deductible will not apply to any of the drugs on each tier selected)}}
+    which are excluded from the deductible."
+  DynamicTinyValue: "{{Enter Deductible Amount}}"
+  Row 1: field="Enter Deductible Amount"   value="$250"
+  Row 2: field="Indicate each tier..."     value="Tier 1 - Preferred Generic; Tier 2 - Generic; Tier 3 - Preferred Brand"
+
+Output:
+  benefitdesc:     "<b>$250</b> per year for Part D prescription drugs except for drugs listed on Tier 1, Tier 2, Tier 3 which are excluded from the deductible."
+  tinyDescription: "$250"
+
+── EXAMPLE 7: Formulary Exception — field is empty ─────────────
+Rules row for BenefitId=740, TierType=0, NetworkType=4:
+  DynamicLongValue: "{{What is your Formulary Exceptions Tier?}}"
+  DynamicTinyValue: "Tier 4 - Non-Preferred Drug"
+  field=""   value="What is your Formulary Exceptions Tier?"
+
+Look up "What is your Formulary Exceptions Tier?" in pbp rows → "Tier 4 - Non-Preferred Drug"
+
+Output:
+  benefitdesc:     "Tier 4: Non-Preferred Drug"    ← dash → colon
+  tinyDescription: "Tier 4"                        ← tier number only
+
+── EXAMPLE 8: Visit count + periodicity (Hearing Routine Exam) ─
+Rules rows for BenefitId=1400, TierType=67, NetworkType=1:
+  DynamicLongValue: "<b>{{Copayment amount}}</b> copay for {{Indicate number of visits}} visit(s) ({{Periodicity}})"
+  DynamicTinyValue: "{{Copayment amount}}"
+  Row 1: field="Copayment amount"           value="$0"
+  Row 2: field="Indicate number of visits"  value="1"
+  Row 3: field="Periodicity"                value="Every Year"
+
+Output:
+  benefitdesc:     "<b>$0</b> copay<br> for 1 exam(s) every year"
+  tinyDescription: "$0"
+
+── EXAMPLE 9: Pre-computed vision group ────────────────────────
+Rules rows for BenefitId=1500, TierType=0, NetworkType=3 (General):
+  DynamicLongValue: "{{vision-LongValue}}"
+  DynamicTinyValue: "{{vision-TinyValue}}"
+  Row 1: field="vision-TinyValue"   value="100 eyewear"
+  Row 2: field="vision-LongValue"   value="Our plan pays up to <b>100%</b> for contact lenses and eyeglasses (frames and lenses)"
+
+Output:
+  benefitdesc:     "Our plan pays up to <b>100%</b> for contact lenses and eyeglasses (frames and lenses)"
+  tinyDescription: "100 eyewear"
+
+── EXAMPLE 10: Coinsurance percentage ──────────────────────────
+Rules row for BenefitId=1000 (DME), TierType=0, NetworkType=1:
+  DynamicLongValue: "<b>{{Coinsurance percentage}}</b> of the cost per item"
+  DynamicTinyValue: "{{Coinsurance percentage}}"
+  field="Coinsurance percentage"   value="18%"
+
+Output:
+  benefitdesc:     "<b>18%</b> of the cost per item"
+  tinyDescription: "18%"
