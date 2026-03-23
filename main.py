@@ -8,7 +8,10 @@ from flask import Flask, jsonify, request
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.core.exceptions import AzureError
 
-from build_benefits import run_benefit_processing
+# NOTE: build_benefits (langchain/openai/pandas) is imported lazily inside
+# the /save route — NOT at module level. This keeps startup lightweight so
+# Flask boots successfully regardless of whether heavy packages are installed,
+# matching the behaviour of the working backup version.
 
 # Debug print to verify env vars in Azure and local
 print("DEBUG - BLOB_CONNECTION_STRING =", os.getenv("BLOB_CONNECTION_STRING"))
@@ -171,6 +174,8 @@ def save_json_payload():
         prompts = _load_prompts_from_blob()
 
         # ── Step 5: Run benefit processing ────────────────────────────────────
+        # Lazy import — only pulled in here so module-level startup stays fast
+        from build_benefits import run_benefit_processing
         processed_results = run_benefit_processing(input_json, prompts)
 
         # ── Step 6: Save outbound results ─────────────────────────────────────
