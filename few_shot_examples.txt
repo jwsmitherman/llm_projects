@@ -1,119 +1,308 @@
 ════════════════════════════════════════════════════════════════
-FEW-SHOT EXAMPLES — study before processing
+FEW-SHOT EXAMPLES
+Study these complete input→output pairs to learn the patterns.
 ════════════════════════════════════════════════════════════════
 
-── EXAMPLE 1: Simple single-token copay ────────────────────────
-Rules rows for BenefitId=900, TierType=0 (NetworkType=1):
-  DynamicLongValue: "<b>{{Copayment amount}}</b> copay per visit (Medicare Covered)"
-  DynamicTinyValue: "{{Copayment amount}}"
-  field="Copayment amount"   value="$0"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 1 — Simple copay, single row
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Primary Care Physician Services (7a) - Medicare
+    field=Is there a copayment? value=Yes
+    field=Copayment amount      value=$0
+    field=Is there a coinsurance? value=No
+  header=Plan Characteristics, category=Plan Details
+    field=Plan Type  value=HMO
+  FileName=Humana_H0028-014-000
 
-Output:
-  benefitdesc:     "<b>$0</b> copay per visit (Medicare Covered)"
-  tinyDescription: "$0"
+OUTPUT ROW:
+  planid=MOM_H0028_014_0, plantypeid=HMO
+  benefitid=900, benefitname=Doctor Office Visits Select Primary
+  coveragetypeid=1, coveragetypedesc=InNetwork
+  serviceTypeID=0, serviceTypeDesc=N/A
+  benefitdesc=<b>$0</b> copay per visit (Medicare Covered)
+  tinyDescription=$0
 
-── EXAMPLE 2: Min/Max range — two rows, same template ──────────
-Rules rows for BenefitId=950, TierType=169 (Group Therapy, NetworkType=1):
-  DynamicLongValue: "<b>{{Minimum copayment}}</b> - <b>{{Maximum copayment}}</b>"
-  DynamicTinyValue: "{{Minimum copayment}}"
-  Row 1: field="Minimum copayment"   value="$40"
-  Row 2: field="Maximum copayment"   value="$45"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 2 — Copay with treatment limit and periodicity
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Acupuncture - Number of Treatments (13a) - Non-Medicare
+    field=Is there a copayment?                    value=Yes
+    field=Copayment amount                         value=$25
+    field=Is there a coinsurance?                  value=No
+    field=Is this benefit unlimited for Number of Treatments? value=No
+    field=Indicate limit for Number of Treatments  value=20
+    field=Periodicity                              value=Every Year
 
-Output:
-  benefitdesc:     "<b>$40</b> - <b>$45</b> copay"
-  tinyDescription: "$40 - $45"   ← always "$min - $max" for range patterns
+OUTPUT ROW:
+  benefitid=1900, benefitname=Acupuncture
+  coveragetypeid=1, coveragetypedesc=InNetwork
+  serviceTypeID=0, serviceTypeDesc=N/A
+  benefitdesc=<b>$25</b> copay<br> for 20 treatment(s) every year
+  tinyDescription=$25
 
-── EXAMPLE 3: Three tokens: copay + count + periodicity ────────
-Rules rows for BenefitId=1900 (Acupuncture), TierType=0, NetworkType=1:
-  DynamicLongValue: "<b>{{Copayment amount}}</b> copay<br> for {{Indicate limit for Number of Treatments}} treatment(s) ({{Periodicity}})"
-  DynamicTinyValue: "{{Copayment amount}}"
-  Row 1: field="Copayment amount"                         value="$25"
-  Row 2: field="Indicate limit for Number of Treatments"  value="20"
-  Row 3: field="Periodicity"                              value="Every Year"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 3 — Min/Max copay range
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Prescription Hearing Aids (all types) (18b1) - Non-Medicare
+    field=Is there a copayment?     value=Yes with a min & max
+    field=Minimum copayment         value=$699
+    field=Maximum copayment         value=$999
+    field=Indicate quantity for Hearing Aids  value=2
+    field=Periodicity               value=Every Year
 
-Output:
-  benefitdesc:     "<b>$25</b> copay<br> for 20 treatment(s) every year"
-  tinyDescription: "$25"
-  Note: "Every Year" → "every year" (Rule 6). Parentheses in template removed in output.
+OUTPUT ROW:
+  benefitid=1400, benefitname=Hearing Services
+  coveragetypeid=1, coveragetypedesc=InNetwork
+  serviceTypeID=63, serviceTypeDesc=Prescription Hearing Aid
+  benefitdesc=<b>$699 - $999</b> copay<br> for 2 hearing aids for every year
+  tinyDescription=$699 - $999
 
-── EXAMPLE 4: Pre-computed group tokens (days) ─────────────────
-Rules rows for BenefitId=800, TierType=125 (days 1 through 8), NetworkType=1:
-  DynamicLongValue: "{{days-LongValue}} per day"
-  DynamicTinyValue: "{{days-TinyValue}}"
-  Row 1: field="days-TinyValue"    value="$245"
-  Row 2: field="days-LongValue"    value="<b>$245</b> copay"
-  Row 3: field="days-ShortValue"   value="<b>$245</b> copay"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 4 — Copay with visit count and periodicity
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Hearing Exams (18a) - Non-Medicare
+    field=Is there a copayment?       value=Yes
+    field=Copayment amount            value=$0
+    field=Is this benefit unlimited?  value=No
+    field=Indicate number of visits   value=1
+    field=Periodicity                 value=Every year
 
-Output:
-  benefitdesc:     "<b>$245</b> copay per day"
-  tinyDescription: "$245"
+OUTPUT ROW:
+  benefitid=1400, benefitname=Hearing Services
+  coveragetypeid=1, coveragetypedesc=InNetwork
+  serviceTypeID=67, serviceTypeDesc=Exam (Routine)
+  benefitdesc=<b>$0</b> copay<br> for 1 exam(s) every year
+  tinyDescription=$0
 
-── EXAMPLE 5: Static HERE row ──────────────────────────────────
-Rules row for BenefitId=616, TierType=0, NetworkType=4:
-  DynamicLongValue: "See Summary of Benefits"
-  DynamicTinyValue: "See Brochure"
-  field="HERE"   value="HERE"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 5 — Unlimited visits
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Fitting/Evaluation for Hearing Aid (18a2) - Non-Medicare
+    field=Is there a copayment?       value=Yes
+    field=Copayment amount            value=$0
+    field=Is this benefit unlimited?  value=Yes
 
-Output:
-  benefitdesc:     "See Summary of Benefits"
-  tinyDescription: "See Brochure"
+OUTPUT ROW:
+  benefitid=1400, benefitname=Hearing Services
+  coveragetypeid=1, coveragetypedesc=InNetwork
+  serviceTypeID=167, serviceTypeDesc=Fitting Eval
+  benefitdesc=<b>$0</b> copay<br> for unlimited service(s)
+  tinyDescription=$0
 
-── EXAMPLE 6: Drug Deductible — complex template + tier list ───
-Rules rows for BenefitId=611, TierType=0, NetworkType=4:
-  DynamicLongValue (assembled): "<b>{{Enter Deductible Amount}}</b> per year for
-    Part D prescription drugs except for drugs listed on {{Indicate each tier for
-    which the deductible will NOT apply (select all that apply, please note that
-    the deductible will not apply to any of the drugs on each tier selected)}}
-    which are excluded from the deductible."
-  DynamicTinyValue: "{{Enter Deductible Amount}}"
-  Row 1: field="Enter Deductible Amount"   value="$250"
-  Row 2: field="Indicate each tier..."     value="Tier 1 - Preferred Generic; Tier 2 - Generic; Tier 3 - Preferred Brand"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 6 — Coinsurance percentage
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Durable Medical Equipment (DME) (11a) - Medicare
+    field=Is there a copayment?    value=No
+    field=Is there a coinsurance?  value=Yes
+    field=Coinsurance              value=18%
 
-Output:
-  benefitdesc:     "<b>$250</b> per year for Part D prescription drugs except for drugs listed on Tier 1, Tier 2, Tier 3 which are excluded from the deductible."
-  tinyDescription: "$250"
+OUTPUT ROW:
+  benefitid=1000, benefitname=Durable Medical Equipment
+  coveragetypeid=1, coveragetypedesc=InNetwork
+  serviceTypeID=0, serviceTypeDesc=N/A
+  benefitdesc=<b>18%</b> of the cost per item
+  tinyDescription=18%
 
-── EXAMPLE 7: Formulary Exception — field is empty ─────────────
-Rules row for BenefitId=740, TierType=0, NetworkType=4:
-  DynamicLongValue: "{{What is your Formulary Exceptions Tier?}}"
-  DynamicTinyValue: "Tier 4 - Non-Preferred Drug"
-  field=""   value="What is your Formulary Exceptions Tier?"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 7 — Inpatient hospital day tiers (multiple output rows from one benefit)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Inpatient Hospital-Acute (1a) - Medicare
+    field=Is there a copayment?              value=Yes
+    field=Number of day intervals            value=2
+    field=Copayment                          value=$245
+    field=Begin Day                          value=1
+    field=Copayment (days 1-8)               value=$245
+    field=Copayment                          value=$0
+    field=Begin Day                          value=9
+    field=End Day                            value=90
+    field=Is this benefit unlimited?         value=Yes (for days 91+)
 
-Look up "What is your Formulary Exceptions Tier?" in pbp rows → "Tier 4 - Non-Preferred Drug"
+OUTPUT ROWS (3 rows for benefitid=800):
+  Row 1: serviceTypeID=125, serviceTypeDesc=days 1 through 8
+    benefitdesc=<b>$245</b> copay per day
+    tinyDescription=$245
 
-Output:
-  benefitdesc:     "Tier 4: Non-Preferred Drug"    ← dash → colon
-  tinyDescription: "Tier 4"                        ← tier number only
+  Row 2: serviceTypeID=163, serviceTypeDesc=days 9 through 90
+    benefitdesc=<b>$0</b> copay per day
+    tinyDescription=$0
 
-── EXAMPLE 8: Visit count + periodicity (Hearing Routine Exam) ─
-Rules rows for BenefitId=1400, TierType=67, NetworkType=1:
-  DynamicLongValue: "<b>{{Copayment amount}}</b> copay for {{Indicate number of visits}} visit(s) ({{Periodicity}})"
-  DynamicTinyValue: "{{Copayment amount}}"
-  Row 1: field="Copayment amount"           value="$0"
-  Row 2: field="Indicate number of visits"  value="1"
-  Row 3: field="Periodicity"                value="Every Year"
+  Row 3: serviceTypeID=0, serviceTypeDesc=N/A, coveragetypeid=3, coveragetypedesc=General
+    benefitdesc=Our plan covers an unlimited number of days for an inpatient hospital stay
+    tinyDescription=unlimited days
 
-Output:
-  benefitdesc:     "<b>$0</b> copay<br> for 1 exam(s) every year"
-  tinyDescription: "$0"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 8 — Drug deductible with tier exclusions
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Rx, category=Rx Cost Share
+    field=Enter Deductible Amount          value=$250
+    field=Does the Deductible apply to all tiers?  value=No
+    field=Indicate each tier for which the deductible will NOT apply  value=Tier 1 - Preferred Generic; Tier 2 - Generic; Tier 3 - Preferred Brand
 
-── EXAMPLE 9: Pre-computed vision group ────────────────────────
-Rules rows for BenefitId=1500, TierType=0, NetworkType=3 (General):
-  DynamicLongValue: "{{vision-LongValue}}"
-  DynamicTinyValue: "{{vision-TinyValue}}"
-  Row 1: field="vision-TinyValue"   value="100 eyewear"
-  Row 2: field="vision-LongValue"   value="Our plan pays up to <b>100%</b> for contact lenses and eyeglasses (frames and lenses)"
+OUTPUT ROW:
+  benefitid=611, benefitname=Drug Deductible
+  coveragetypeid=4, coveragetypedesc=NA
+  serviceTypeID=0, serviceTypeDesc=N/A
+  benefitdesc=<b>$250</b> per year for Part D prescription drugs except for drugs listed on Tier 1, Tier 2, Tier 3 which are excluded from the deductible.
+  tinyDescription=$250
 
-Output:
-  benefitdesc:     "Our plan pays up to <b>100%</b> for contact lenses and eyeglasses (frames and lenses)"
-  tinyDescription: "100 eyewear"
+Note: Shorten "Tier 1 - Preferred Generic; Tier 2 - Generic; Tier 3 - Preferred Brand" to "Tier 1, Tier 2, Tier 3"
 
-── EXAMPLE 10: Coinsurance percentage ──────────────────────────
-Rules row for BenefitId=1000 (DME), TierType=0, NetworkType=1:
-  DynamicLongValue: "<b>{{Coinsurance percentage}}</b> of the cost per item"
-  DynamicTinyValue: "{{Coinsurance percentage}}"
-  field="Coinsurance percentage"   value="18%"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 9 — Out-of-Pocket Spending Limit (MOOP) — long boilerplate
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Plan Level Cost Sharing, category=Max Enrollee Cost Limit
+    field=Does this plan have an In-Network MOOP?  value=Yes
+    field=In Network MOOP Amount                   value=$2,700
+    (Note: this value may appear split as "$2" and "700" in CSV — reconstruct as "$2,700")
 
-Output:
-  benefitdesc:     "<b>18%</b> of the cost per item"
-  tinyDescription: "18%"
+OUTPUT ROW:
+  benefitid=620, benefitname=Out-of-Pocket Spending Limit
+  coveragetypeid=1, coveragetypedesc=InNetwork
+  serviceTypeID=0, serviceTypeDesc=N/A
+  benefitdesc=Like all Medicare Advantage plans, our plan helps protect you financially by having yearly limits on your out-of-pocket costs for covered medical and hospital care.<br>Your yearly limit(s) in this plan:<br><b>$2,700</b> for covered services you receive from in-network providers.<br>If you reach the limit on out-of-pocket costs, you keep getting covered hospital and medical services and the plan will pay the full cost for the rest of the year.<br>Please note that you will still need to pay your monthly premiums and cost-sharing for your Part D prescription drugs.
+  tinyDescription=$2,700
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 10 — Retail Pharmacy drug tiers (multiple output rows)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Rx, category=Rx Tier 1 Initial Coverage Phase - Preferred Generic
+    field=Cost Share Structure                 value=Copayment
+    field=Standard Retail Cost Sharing 1-Month Supply  Copayment 1-month supply  value=$0
+    field=Standard Retail Cost Sharing 3-Month Supply  Copayment 3-month supply  value=$5
+
+  header=Rx, category=Rx Tier 2 Initial Coverage Phase - Generic
+    field=Standard Retail Cost Sharing 1-Month  Copayment 1-month supply  value=$5
+    field=Standard Retail Cost Sharing 3-Month  Copayment 3-month supply  value=$15
+
+  header=Rx, category=Rx Tier 3 Initial Coverage Phase - Preferred Brand
+    field=Standard Retail Cost Sharing 1-Month  Copayment 1-month supply  value=$47
+    field=Standard Retail Cost Sharing 3-Month  Copayment 3-month supply  value=$141
+
+  header=Rx, category=Rx Tier 4 Initial Coverage Phase - Non-Preferred Drug
+    field=Cost-Share Structure  value=Coinsurance
+    field=Standard Retail Cost Sharing 1-Month  Coinsurance 1-month supply  value=45%
+    field=Standard Retail Cost Sharing 3-Month  Coinsurance 3-month supply  value=45%
+
+  header=Rx, category=Rx Tier 5 Initial Coverage Phase - Specialty Tier
+    field=Cost-Share Structure  value=Coinsurance
+    field=Standard Retail Cost Sharing 1-Month  Coinsurance 1-month supply  value=30%
+
+OUTPUT ROWS (5 rows for benefitid=711 Retail Pharmacy):
+  Tier 1 (serviceTypeID=20): benefitdesc=<b>$0</b> copay for <b>One-month supply</b>, <b>$5</b> copay for <b>Three-month supply</b>   tinyDescription=$0
+  Tier 2 (serviceTypeID=21): benefitdesc=<b>$5</b> copay for <b>One-month supply</b>, <b>$15</b> copay for <b>Three-month supply</b>   tinyDescription=$5
+  Tier 3 (serviceTypeID=22): benefitdesc=<b>$47</b> copay for <b>One-month supply</b>, <b>$141</b> copay for <b>Three-month supply</b>  tinyDescription=$47
+  Tier 4 (serviceTypeID=23): benefitdesc=<b>45%</b> of the cost for <b>One-month supply</b>, <b>45%</b> of the cost for <b>Three-month supply</b>  tinyDescription=45%
+  Tier 5 (serviceTypeID=24): benefitdesc=<b>30%</b> of the cost for <b>One-month supply</b>  tinyDescription=30%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 11 — Vision with max plan benefit and sub-service types
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Eyewear (17b) - Non-Medicare
+    field=Is there a maximum plan benefit coverage?  value=Yes
+    field=Combined maximum amount                    value=100
+    field=Periodicity                                value=Every Year
+
+  header=Benefit Details, category=Eyeglasses (lenses and frames) (17b2) - Non-Medicare
+    field=Is there a copayment?       value=Yes
+    field=Copayment amount            value=$0
+    field=Indicate number of eyeglasses  value=1
+    field=Periodicity                 value=Every Year
+
+  header=Benefit Details, category=Contact Lenses (17b1) - Non-Medicare
+    field=Is there a copayment?    value=Yes
+    field=Copayment amount         value=$0
+    (no visit count = 1 pair assumed)
+
+OUTPUT ROWS for benefitid=1500 Vision Services:
+  Row svc=0/N/A  coveragetypeid=1:
+    benefitdesc=Our plan pays up to <b>$100</b> every year for contact lenses and eyeglasses (frames and lenses).
+    tinyDescription=$100
+
+  Row svc=67/Exam (Routine):
+    benefitdesc=<b>$0</b> copay<br> for 1 service(s) every year
+    tinyDescription=$0
+
+  Row svc=68/Eyeglasses:
+    benefitdesc=<b>$0</b> copay<br> for 1 eyeglasses every year
+    tinyDescription=$0
+
+  Row svc=70/Contacts:
+    benefitdesc=<b>$0</b> copay<br> for 1 pairs of lenses every year
+    tinyDescription=$0
+
+  Row svc=71/Lenses:    benefitdesc=See Brochure  tinyDescription=See Brochure
+  Row svc=72/Frames:    benefitdesc=See Brochure  tinyDescription=See Brochure
+  Row svc=387/Upgrades: benefitdesc=See Brochure  tinyDescription=See Brochure
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 12 — Tier Names (static, no PBP lookup needed)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Rx, category=Rx Setup, field=Select Formulary Tier Model
+  value=Preferred Generic, Generic, Preferred Brand, Non-Preferred Drug, Specialty Tier
+
+OUTPUT ROWS (5 rows for benefitid=700 Tier Names):
+  svc=20/Tier 1: benefitdesc=Preferred Generic   tinyDescription=1
+  svc=21/Tier 2: benefitdesc=Generic              tinyDescription=2
+  svc=22/Tier 3: benefitdesc=Preferred Brand      tinyDescription=3
+  svc=23/Tier 4: benefitdesc=Non-Preferred Drug   tinyDescription=4
+  svc=24/Tier 5: benefitdesc=Specialty Tier       tinyDescription=5
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 13 — Copay + coinsurance combined (mixed cost-sharing)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT (relevant rows):
+  header=Benefit Details, category=Diabetic Supplies and Services (11c) - Medicare
+    field=Is there a copayment?              value=Yes
+    field=Copayment amount                   value=$0
+    field=Is there a coinsurance?            value=Yes
+    field=Minimum coinsurance                value=10%
+    field=Maximum coinsurance                value=20%
+
+OUTPUT ROWS for benefitid=1020 Diabetes Programs and Supplies:
+  Row svc=185/Supplies:
+    benefitdesc=<b>$0</b> copay or <b>10% - 20%</b> of the cost
+    tinyDescription=$0 or 10% - 20%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 14 — Catastrophic Coverage (fixed text)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT:
+  header=Rx, category=Rx Characteristics
+    field=Medicare-defined Part D Annual Out-of-Pocket cost threshold  value=$2,000.00
+
+OUTPUT ROW:
+  benefitid=730, benefitname=Catastrophic Coverage
+  coveragetypeid=4, coveragetypedesc=NA
+  serviceTypeID=0, serviceTypeDesc=N/A
+  benefitdesc=Once your out-of-pocket spending on covered drugs reaches $2,000, you will automatically get catastrophic coverage. This means you will not have to pay out-of-pocket for covered Part D drugs for the rest of the calendar year.
+  tinyDescription=See Brochure
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 15 — SNF Skilled Nursing Facility day tiers
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PBP INPUT:
+  header=Benefit Details, category=Skilled Nursing Facility (SNF) (2) - Medicare
+    field=Copayment (days 1-20)   value=$20
+    field=Copayment (days 21-100) value=$203
+
+OUTPUT ROWS for benefitid=820 Skilled Nursing Facility Select SNF:
+  Row svc=115/days 1 through 20:
+    benefitdesc=<b>$20</b> copay per day
+    tinyDescription=$20
+
+  Row svc=134/days 21 through 100:
+    benefitdesc=<b>$203</b> copay per day
+    tinyDescription=$203

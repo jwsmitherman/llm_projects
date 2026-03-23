@@ -1,14 +1,11 @@
 ════════════════════════════════════════════════════════════════
-NOW PROCESS THIS INPUT
+NOW PROCESS THIS PLAN
 ════════════════════════════════════════════════════════════════
 CARRIER_PREFIX = "{carrier_prefix}"
 plan_type      = "{plan_type}"
 file_name      = "{file_name}"
 
-benefit_rules ({n_rules} rows):
-{rules_json}
-
-pbp lookup rows ({n_pbp} rows):
+PBP data ({n_pbp} rows):
 {pbp_json}
 
-Return the JSON array now.
+Return the JSON array of all benefit description rows now.
