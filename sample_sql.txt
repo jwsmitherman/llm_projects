@@ -1,64 +1,82 @@
--- Claim 1: Count of clients (corpids) with 2+ waves
+-- Claim 1: Count of corpids with 2+ waves (wave = sequential campaign order per corp)
+WITH corp_waves AS (
+    SELECT
+        corpid,
+        campaign_id,
+        strategy,
+        ROW_NUMBER() OVER (
+            PARTITION BY corpid
+            ORDER BY campaign_start_date  -- replace with actual date column
+        ) AS wave_number
+    FROM curatedstore.t_stage_hyperlocal_zip_selection
+    GROUP BY corpid, campaign_id, strategy, campaign_start_date
+)
 SELECT
-    corpid,
     campaign_id,
     strategy,
     COUNT(DISTINCT corpid) AS clients_with_2plus_waves,
     47 AS claimed_value,
     CASE WHEN COUNT(DISTINCT corpid) = 47 THEN 'VERIFIED' ELSE 'MISMATCH' END AS status
 FROM (
-    SELECT
-        corpid,
-        campaign_id,
-        strategy
-    FROM curatedstore.t_stage_hyperlocal_zip_selection
+    SELECT corpid, campaign_id, strategy
+    FROM corp_waves
     GROUP BY corpid, campaign_id, strategy
-    HAVING COUNT(DISTINCT wave_number) >= 2
+    HAVING MAX(wave_number) >= 2
 ) wave_counts
 GROUP BY campaign_id, strategy
 ORDER BY campaign_id;
 
 
 -- Claim 2: Median CPA by wave (trajectory + % drop)
-WITH wave_medians AS (
+WITH corp_waves AS (
     SELECT
         corpid,
+        campaign_id,
+        strategy,
+        cpa,
+        ROW_NUMBER() OVER (
+            PARTITION BY corpid
+            ORDER BY campaign_start_date  -- replace with actual date column
+        ) AS wave_number
+    FROM curatedstore.t_stage_hyperlocal_zip_selection
+    WHERE cpa IS NOT NULL
+),
+wave_medians AS (
+    SELECT
         campaign_id,
         strategy,
         wave_number,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cpa) AS median_cpa,
         COUNT(DISTINCT corpid) AS n_clients
-    FROM curatedstore.t_stage_hyperlocal_zip_selection
-    WHERE cpa IS NOT NULL
-    GROUP BY corpid, campaign_id, strategy, wave_number
+    FROM corp_waves
+    GROUP BY campaign_id, strategy, wave_number
 ),
 wave_with_lag AS (
     SELECT
-        corpid,
         campaign_id,
         strategy,
         wave_number,
         median_cpa,
         n_clients,
         FIRST_VALUE(median_cpa) OVER (
-            PARTITION BY corpid, campaign_id, strategy
+            PARTITION BY campaign_id, strategy
             ORDER BY wave_number
             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
         ) AS wave1_cpa,
         LAST_VALUE(median_cpa) OVER (
-            PARTITION BY corpid, campaign_id, strategy
+            PARTITION BY campaign_id, strategy
             ORDER BY wave_number
             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
         ) AS last_wave_cpa
     FROM wave_medians
 )
 SELECT
-    corpid,
     campaign_id,
     strategy,
     wave_number,
-    ROUND(median_cpa, 0) AS median_cpa,
-    ROUND(wave1_cpa, 0) AS starting_cpa,
+    n_clients,
+    ROUND(median_cpa, 0)  AS median_cpa,
+    ROUND(wave1_cpa, 0)   AS starting_cpa,
     ROUND(last_wave_cpa, 0) AS ending_cpa,
     ROUND(100.0 * (wave1_cpa - last_wave_cpa) / NULLIF(wave1_cpa, 0), 1) AS pct_drop,
     CASE
@@ -67,12 +85,33 @@ SELECT
         ELSE 'MISMATCH'
     END AS status
 FROM wave_with_lag
-ORDER BY corpid, campaign_id, wave_number;
+ORDER BY campaign_id, wave_number;
 
 
 -- Claim 3: Full CPA trajectory per wave (pivot)
+WITH corp_waves AS (
+    SELECT
+        corpid,
+        campaign_id,
+        strategy,
+        cpa,
+        ROW_NUMBER() OVER (
+            PARTITION BY corpid
+            ORDER BY campaign_start_date  -- replace with actual date column
+        ) AS wave_number
+    FROM curatedstore.t_stage_hyperlocal_zip_selection
+    WHERE cpa IS NOT NULL
+),
+wave_medians AS (
+    SELECT
+        campaign_id,
+        strategy,
+        wave_number,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cpa) AS median_cpa
+    FROM corp_waves
+    GROUP BY campaign_id, strategy, wave_number
+)
 SELECT
-    corpid,
     campaign_id,
     strategy,
     MAX(CASE WHEN wave_number = 1 THEN ROUND(median_cpa, 0) END) AS w1_cpa,
@@ -86,16 +125,6 @@ SELECT
         THEN 'VERIFIED'
         ELSE 'MISMATCH'
     END AS status
-FROM (
-    SELECT
-        corpid,
-        campaign_id,
-        strategy,
-        wave_number,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cpa) AS median_cpa
-    FROM curatedstore.t_stage_hyperlocal_zip_selection
-    WHERE cpa IS NOT NULL
-    GROUP BY corpid, campaign_id, strategy, wave_number
-) wave_medians
-GROUP BY corpid, campaign_id, strategy
-ORDER BY corpid, campaign_id;
+FROM wave_medians
+GROUP BY campaign_id, strategy
+ORDER BY campaign_id;
