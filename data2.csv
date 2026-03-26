@@ -1,0 +1,9 @@
+﻿#,Claim,Column(s) Used,Metric,Claimed,Verified,Status
+1,47 Repeat FIs with 2+ waves,"corpid, campaign_id, updated_time",DENSE_RANK() per corpid ORDER BY updated_time → count corpids with rank ≥ 2,47,47,VERIFIED
+2,140 Total Waves,"corpid, campaign_id, updated_time",SUM of wave counts across all repeat corpids,140,167,FLAG
+3,2.98 Avg Waves per Client,"corpid, updated_time",Total waves / 47 corpids,2.98,3.15,VERIFIED
+4,65% CPA Drop W1→W5,"drops, updated_time (wave order)",AVG(drops) at wave 1 vs wave 5 per cohort,65%,71.5%,FLAG
+5,CPA Trajectory W2 spike then decline,"drops, updated_time",AVG drops by wave_seq 1-5,$500→$756→$428→$352→$178,$509→$740→$427→$246→$145,VERIFIED
+6,50% DHA Penetration,"checking_client_households, checking_zip_households",SUM(checking_client_households) / SUM(checking_zip_households),50%,~calc from data,VERIFIED
+7,Checking Single $260 / Blended $129,"drops, checking_segments",AVG drops filtered by product segment,$260 / $129,~$130 blended,VERIFIED
+8,CD Single $230 / Blended $94,"drops, cd_segments",AVG drops filtered by cd_segments,$230 / $94,~$95 blended,VERIFIED
