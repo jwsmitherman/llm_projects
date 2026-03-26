@@ -1,15 +1,15 @@
--- Claim 1: Count of corpids with 2+ waves (wave = sequential campaign order per corp)
+-- Claim 1: Count of corpids with 2+ waves (wave = campaign rank by campaign_id order)
 WITH corp_waves AS (
     SELECT
         corpid,
         campaign_id,
         strategy,
-        ROW_NUMBER() OVER (
+        DENSE_RANK() OVER (
             PARTITION BY corpid
-            ORDER BY campaign_start_date  -- replace with actual date column
+            ORDER BY campaign_id
         ) AS wave_number
     FROM curatedstore.t_stage_hyperlocal_zip_selection
-    GROUP BY corpid, campaign_id, strategy, campaign_start_date
+    GROUP BY corpid, campaign_id, strategy
 )
 SELECT
     campaign_id,
@@ -28,25 +28,26 @@ ORDER BY campaign_id;
 
 
 -- Claim 2: Median CPA by wave (trajectory + % drop)
+-- Using 'drops' column as CPA proxy — update if wrong
 WITH corp_waves AS (
     SELECT
         corpid,
         campaign_id,
         strategy,
-        cpa,
-        ROW_NUMBER() OVER (
+        drops,
+        DENSE_RANK() OVER (
             PARTITION BY corpid
-            ORDER BY campaign_start_date  -- replace with actual date column
+            ORDER BY campaign_id
         ) AS wave_number
     FROM curatedstore.t_stage_hyperlocal_zip_selection
-    WHERE cpa IS NOT NULL
+    WHERE drops IS NOT NULL
 ),
 wave_medians AS (
     SELECT
         campaign_id,
         strategy,
         wave_number,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cpa) AS median_cpa,
+        PERCENTILE(drops, 0.5) AS median_cpa,
         COUNT(DISTINCT corpid) AS n_clients
     FROM corp_waves
     GROUP BY campaign_id, strategy, wave_number
@@ -61,7 +62,6 @@ wave_with_lag AS (
         FIRST_VALUE(median_cpa) OVER (
             PARTITION BY campaign_id, strategy
             ORDER BY wave_number
-            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
         ) AS wave1_cpa,
         LAST_VALUE(median_cpa) OVER (
             PARTITION BY campaign_id, strategy
@@ -75,8 +75,8 @@ SELECT
     strategy,
     wave_number,
     n_clients,
-    ROUND(median_cpa, 0)  AS median_cpa,
-    ROUND(wave1_cpa, 0)   AS starting_cpa,
+    ROUND(median_cpa, 0)    AS median_cpa,
+    ROUND(wave1_cpa, 0)     AS starting_cpa,
     ROUND(last_wave_cpa, 0) AS ending_cpa,
     ROUND(100.0 * (wave1_cpa - last_wave_cpa) / NULLIF(wave1_cpa, 0), 1) AS pct_drop,
     CASE
@@ -94,20 +94,20 @@ WITH corp_waves AS (
         corpid,
         campaign_id,
         strategy,
-        cpa,
-        ROW_NUMBER() OVER (
+        drops,
+        DENSE_RANK() OVER (
             PARTITION BY corpid
-            ORDER BY campaign_start_date  -- replace with actual date column
+            ORDER BY campaign_id
         ) AS wave_number
     FROM curatedstore.t_stage_hyperlocal_zip_selection
-    WHERE cpa IS NOT NULL
+    WHERE drops IS NOT NULL
 ),
 wave_medians AS (
     SELECT
         campaign_id,
         strategy,
         wave_number,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cpa) AS median_cpa
+        PERCENTILE(drops, 0.5) AS median_cpa
     FROM corp_waves
     GROUP BY campaign_id, strategy, wave_number
 )
