@@ -1,4 +1,4 @@
--- Claim 1: Count of corpids with 2+ waves (wave = campaign rank by campaign_id order)
+-- Claim 1: Count of corpids with 2+ waves
 WITH corp_waves AS (
     SELECT
         corpid,
@@ -8,7 +8,7 @@ WITH corp_waves AS (
             PARTITION BY corpid
             ORDER BY campaign_id
         ) AS wave_number
-    FROM curatedstore.t_stage_hyperlocal_zip_selection
+    FROM lakehouse.curatedstore.t_stage_hyperlocal_zip_selection
     GROUP BY corpid, campaign_id, strategy
 )
 SELECT
@@ -28,7 +28,6 @@ ORDER BY campaign_id;
 
 
 -- Claim 2: Median CPA by wave (trajectory + % drop)
--- Using 'drops' column as CPA proxy — update if wrong
 WITH corp_waves AS (
     SELECT
         corpid,
@@ -39,7 +38,7 @@ WITH corp_waves AS (
             PARTITION BY corpid
             ORDER BY campaign_id
         ) AS wave_number
-    FROM curatedstore.t_stage_hyperlocal_zip_selection
+    FROM lakehouse.curatedstore.t_stage_hyperlocal_zip_selection
     WHERE drops IS NOT NULL
 ),
 wave_medians AS (
@@ -47,7 +46,7 @@ wave_medians AS (
         campaign_id,
         strategy,
         wave_number,
-        PERCENTILE(drops, 0.5) AS median_cpa,
+        PERCENTILE_APPROX(drops, 0.5) AS median_cpa,
         COUNT(DISTINCT corpid) AS n_clients
     FROM corp_waves
     GROUP BY campaign_id, strategy, wave_number
@@ -99,7 +98,7 @@ WITH corp_waves AS (
             PARTITION BY corpid
             ORDER BY campaign_id
         ) AS wave_number
-    FROM curatedstore.t_stage_hyperlocal_zip_selection
+    FROM lakehouse.curatedstore.t_stage_hyperlocal_zip_selection
     WHERE drops IS NOT NULL
 ),
 wave_medians AS (
@@ -107,7 +106,7 @@ wave_medians AS (
         campaign_id,
         strategy,
         wave_number,
-        PERCENTILE(drops, 0.5) AS median_cpa
+        PERCENTILE_APPROX(drops, 0.5) AS median_cpa
     FROM corp_waves
     GROUP BY campaign_id, strategy, wave_number
 )
