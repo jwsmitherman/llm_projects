@@ -1,27 +1,25 @@
-
-//Claim 1: Count of clients with 2+ waves
+-- Claim 1: Count of clients (corpids) with 2+ waves
 SELECT
     corpid,
     campaign_id,
     strategy,
-    COUNT(DISTINCT client_id) AS clients_with_2plus_waves,
+    COUNT(DISTINCT corpid) AS clients_with_2plus_waves,
     47 AS claimed_value,
-    CASE WHEN COUNT(DISTINCT client_id) = 47 THEN 'VERIFIED' ELSE 'MISMATCH' END AS status
+    CASE WHEN COUNT(DISTINCT corpid) = 47 THEN 'VERIFIED' ELSE 'MISMATCH' END AS status
 FROM (
     SELECT
         corpid,
         campaign_id,
-        strategy,
-        client_id
+        strategy
     FROM curatedstore.t_stage_hyperlocal_zip_selection
-    GROUP BY corpid, campaign_id, strategy, client_id
+    GROUP BY corpid, campaign_id, strategy
     HAVING COUNT(DISTINCT wave_number) >= 2
 ) wave_counts
-GROUP BY corpid, campaign_id, strategy
-ORDER BY corpid, campaign_id;
+GROUP BY campaign_id, strategy
+ORDER BY campaign_id;
 
 
-//Claim 2: Median CPA by wave (trajectory + % drop)
+-- Claim 2: Median CPA by wave (trajectory + % drop)
 WITH wave_medians AS (
     SELECT
         corpid,
@@ -29,7 +27,7 @@ WITH wave_medians AS (
         strategy,
         wave_number,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cpa) AS median_cpa,
-        COUNT(DISTINCT client_id) AS n_clients
+        COUNT(DISTINCT corpid) AS n_clients
     FROM curatedstore.t_stage_hyperlocal_zip_selection
     WHERE cpa IS NOT NULL
     GROUP BY corpid, campaign_id, strategy, wave_number
@@ -63,7 +61,6 @@ SELECT
     ROUND(wave1_cpa, 0) AS starting_cpa,
     ROUND(last_wave_cpa, 0) AS ending_cpa,
     ROUND(100.0 * (wave1_cpa - last_wave_cpa) / NULLIF(wave1_cpa, 0), 1) AS pct_drop,
-    -- Claimed: ~65% drop from $500 to $178
     CASE
         WHEN ROUND(100.0 * (wave1_cpa - last_wave_cpa) / NULLIF(wave1_cpa, 0), 0) BETWEEN 60 AND 70
         THEN 'VERIFIED'
@@ -73,10 +70,7 @@ FROM wave_with_lag
 ORDER BY corpid, campaign_id, wave_number;
 
 
-
-
-
-//Claim 3: Full CPA trajectory per wave (pivot)
+-- Claim 3: Full CPA trajectory per wave (pivot)
 SELECT
     corpid,
     campaign_id,
@@ -86,7 +80,6 @@ SELECT
     MAX(CASE WHEN wave_number = 3 THEN ROUND(median_cpa, 0) END) AS w3_cpa,
     MAX(CASE WHEN wave_number = 4 THEN ROUND(median_cpa, 0) END) AS w4_cpa,
     MAX(CASE WHEN wave_number = 5 THEN ROUND(median_cpa, 0) END) AS w5_cpa,
-    -- Compare to claimed: $500 → $756 → $428 → $352 → $178
     CASE
         WHEN MAX(CASE WHEN wave_number = 1 THEN ROUND(median_cpa, 0) END) = 500
          AND MAX(CASE WHEN wave_number = 5 THEN ROUND(median_cpa, 0) END) = 178
