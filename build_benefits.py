@@ -11,14 +11,13 @@ Optimizations vs prior version:
   3. max_tokens dropped from 16000 → 4000 (reserves less TPM, fits more in parallel)
   4. 429 retry with backoff using Retry-After-Ms header
   5. Larger chunks (~30K input tokens each) → fewer total LLM round-trips
-  6. Single shared httpx.AsyncClient with HTTP/2 + connection pooling
+  6. Single shared httpx.AsyncClient with connection pooling
 
 Result for 5K-row plan: 6 chunks fire in one wave under TPM cap → ~45-90s.
 """
 
 import asyncio
 import json
-import os
 import random
 import re
 import time
@@ -35,26 +34,33 @@ except Exception:
     _ENC = None
 
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Hard-coded config — UPDATE THE TWO PLACEHOLDERS BELOW BEFORE RUNNING
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Target *input tokens per chunk* — pack rows until we hit this budget.
-# 30K leaves room for system prompt + few-shot + output, fits comfortably in a
-# 128K-context model with TPM headroom for parallel calls.
-CHUNK_TOKEN_BUDGET = int(os.environ.get("PBP_CHUNK_TOKEN_BUDGET", "30000"))
+# Azure OpenAI credentials
+AZURE_OPENAI_ENDPOINT    = "<YOUR_ENDPOINT>"   # e.g. "https://my-resource.openai.azure.com/"
+AZURE_OPENAI_API_KEY     = "<YOUR_API_KEY>"
+AZURE_OPENAI_DEPLOYMENT  = "gpt-4o"
+AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
+AZURE_OPENAI_TEMPERATURE = 0.0
 
-# Max parallel LLM calls. With max_tokens=4000 and ~30K input each, 8 parallel
-# calls peak around ~270K TPM — fits the 450K Global Standard, tight on 240K.
-# Tune down to 6 if you're on a 240K-TPM deployment.
-MAX_CONCURRENCY = int(os.environ.get("PBP_MAX_CONCURRENCY", "8"))
+# Carrier prefix used when constructing planid
+CARRIER_PREFIX = "MOM"
 
-# Output cap. Output JSON for ~800 rows of benefits is typically 2-3K tokens.
-# Keep this tight — Azure reserves it from your TPM budget on every request.
-LLM_MAX_TOKENS = int(os.environ.get("AZURE_OPENAI_MAX_TOKENS", "4000"))
+# Chunking + concurrency tuning
+# - 30K input tokens per chunk leaves headroom for system prompt + output
+# - 8 parallel calls × ~34K total tokens each = ~270K TPM peak
+#   Drop MAX_CONCURRENCY to 6 if your deployment is 240K TPM (East US default)
+CHUNK_TOKEN_BUDGET = 30000
+MAX_CONCURRENCY    = 8
+LLM_MAX_TOKENS     = 4000
 
 # Retry config for 429s and transient errors
-MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "5"))
-BASE_BACKOFF_S = float(os.environ.get("LLM_BASE_BACKOFF_S", "2.0"))
+MAX_RETRIES    = 5
+BASE_BACKOFF_S = 2.0
 
+# Output column order
 COLS = [
     "planid", "plantypeid", "benefitid", "benefitname",
     "coveragetypeid", "coveragetypedesc",
@@ -84,7 +90,7 @@ def _assemble_prompts(prompts):
 
 # ── Plan metadata ─────────────────────────────────────────────────────────────
 
-def _extract_plan_meta(pbp_rows, carrier_prefix="MOM"):
+def _extract_plan_meta(pbp_rows, carrier_prefix=CARRIER_PREFIX):
     file_name = pbp_rows[0].get("FileName", "").strip() if pbp_rows else ""
     remainder = file_name[file_name.index("_") + 1:] if "_" in file_name else file_name
     parts = remainder.split("-")
@@ -108,7 +114,6 @@ def _chunk_rows_by_tokens(pbp_rows: list, token_budget: int) -> list:
     approximately `token_budget` tokens. Keeps category groups together
     when possible so the LLM sees coherent benefit data per call.
     """
-    # Pre-compute per-row token estimates once
     row_tokens = [_estimate_tokens(r) for r in pbp_rows]
 
     # Group rows by category to keep them adjacent
@@ -125,7 +130,6 @@ def _chunk_rows_by_tokens(pbp_rows: list, token_budget: int) -> list:
 
         # If a single category exceeds budget on its own, split it directly
         if cat_total > token_budget:
-            # flush current first
             if current_rows:
                 chunks.append(current_rows)
                 current_rows, current_tokens = [], 0
@@ -159,28 +163,22 @@ def _chunk_rows_by_tokens(pbp_rows: list, token_budget: int) -> list:
 
 async def _call_llm_async(
     client: httpx.AsyncClient,
-    endpoint: str,
-    deployment: str,
-    api_version: str,
-    api_key: str,
     system_message: str,
     human_text: str,
     chunk_idx: int,
 ) -> str:
-    """
-    Single async LLM call with 429-aware retry. Returns raw response content.
-    """
+    """Single async LLM call with 429-aware retry. Returns raw response content."""
     url = (
-        f"{endpoint.rstrip('/')}/openai/deployments/{deployment}"
-        f"/chat/completions?api-version={api_version}"
+        f"{AZURE_OPENAI_ENDPOINT.rstrip('/')}/openai/deployments/{AZURE_OPENAI_DEPLOYMENT}"
+        f"/chat/completions?api-version={AZURE_OPENAI_API_VERSION}"
     )
-    headers = {"api-key": api_key, "Content-Type": "application/json"}
+    headers = {"api-key": AZURE_OPENAI_API_KEY, "Content-Type": "application/json"}
     body = {
         "messages": [
             {"role": "system", "content": system_message},
             {"role": "user", "content": human_text},
         ],
-        "temperature": float(os.environ.get("AZURE_OPENAI_TEMPERATURE", "0")),
+        "temperature": AZURE_OPENAI_TEMPERATURE,
         "max_tokens": LLM_MAX_TOKENS,
     }
 
@@ -189,7 +187,6 @@ async def _call_llm_async(
         try:
             resp = await client.post(url, headers=headers, json=body)
             if resp.status_code == 429 or resp.status_code >= 500:
-                # Honor Retry-After-Ms / Retry-After when available
                 retry_ms = resp.headers.get("retry-after-ms")
                 retry_s = resp.headers.get("retry-after")
                 if retry_ms and retry_ms.isdigit():
@@ -233,16 +230,11 @@ def _parse_json_array(raw: str, chunk_idx: int) -> list:
 async def _process_chunk_async(
     sem: asyncio.Semaphore,
     client: httpx.AsyncClient,
-    endpoint: str,
-    deployment: str,
-    api_version: str,
-    api_key: str,
     system_message: str,
     human_template: str,
     chunk: list,
     chunk_idx: int,
     n_chunks: int,
-    carrier_prefix: str,
     meta: dict,
 ) -> tuple:
     """Returns (chunk_idx, list_of_rows). Empty list on failure."""
@@ -253,7 +245,7 @@ async def _process_chunk_async(
             if n_chunks > 1 else ""
         )
         human_text = human_template.format_map({
-            "carrier_prefix": carrier_prefix,
+            "carrier_prefix": CARRIER_PREFIX,
             "file_name": meta["file_name"],
             "plan_type": meta["plan_type"],
             "n_pbp": len(chunk),
@@ -262,10 +254,7 @@ async def _process_chunk_async(
 
         t0 = time.monotonic()
         try:
-            raw = await _call_llm_async(
-                client, endpoint, deployment, api_version, api_key,
-                system_message, human_text, chunk_idx,
-            )
+            raw = await _call_llm_async(client, system_message, human_text, chunk_idx)
             rows = _parse_json_array(raw, chunk_idx)
             elapsed = time.monotonic() - t0
             print(f"  Chunk {chunk_idx+1}/{n_chunks} done in {elapsed:.1f}s "
@@ -297,20 +286,12 @@ def _merge_results(all_chunk_results: list) -> list:
 # ── Async orchestration ───────────────────────────────────────────────────────
 
 async def _run_async(pbp_rows: list, prompts: dict) -> list:
-    endpoint = os.environ["AZURE_OPENAI_ENDPOINT"]
-    api_key = os.environ["AZURE_OPENAI_API_KEY"]
-    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-    api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-    carrier_prefix = os.environ.get("CARRIER_PREFIX", "MOM")
-
     system_message, human_tmpl = _assemble_prompts(prompts)
-    meta = _extract_plan_meta(pbp_rows, carrier_prefix)
+    meta = _extract_plan_meta(pbp_rows)
 
-    # Token-aware chunking
     chunks = _chunk_rows_by_tokens(pbp_rows, CHUNK_TOKEN_BUDGET)
     n_chunks = len(chunks)
 
-    # Estimate prompt overhead (system + few-shot) once for logging
     system_tokens = _estimate_tokens(system_message)
     chunk_token_estimates = [_estimate_tokens(c) for c in chunks]
 
@@ -323,7 +304,6 @@ async def _run_async(pbp_rows: list, prompts: dict) -> list:
         f"max_tokens out={LLM_MAX_TOKENS}"
     )
 
-    # Single shared async client with HTTP/2 and generous pool
     limits = httpx.Limits(
         max_connections=MAX_CONCURRENCY * 2,
         max_keepalive_connections=MAX_CONCURRENCY * 2,
@@ -336,16 +316,14 @@ async def _run_async(pbp_rows: list, prompts: dict) -> list:
     async with httpx.AsyncClient(limits=limits, timeout=timeout, http2=False) as client:
         tasks = [
             _process_chunk_async(
-                sem, client, endpoint, deployment, api_version, api_key,
-                system_message, human_tmpl,
-                chunk, i, n_chunks, carrier_prefix, meta,
+                sem, client, system_message, human_tmpl,
+                chunk, i, n_chunks, meta,
             )
             for i, chunk in enumerate(chunks)
         ]
         results = await asyncio.gather(*tasks)
 
     elapsed = time.monotonic() - t0
-    # Sort by chunk_idx to preserve order
     results.sort(key=lambda x: x[0])
     chunk_results = [rows for _, rows in results]
 
@@ -373,7 +351,6 @@ def run_benefit_processing(pbp_rows, prompts: dict) -> list:
     -------
     list[dict] — one dict per (benefitid, serviceTypeID), 10 columns each
     """
-    # Accept either the raw list or the input_json dict
     if isinstance(pbp_rows, dict) and "pbp" in pbp_rows:
         pbp_rows = pbp_rows["pbp"]
 
