@@ -61,8 +61,18 @@ MAX_CONCURRENCY    = 8
 LLM_MAX_TOKENS     = 8000
 
 # Retry config for 429s and transient errors
-MAX_RETRIES    = 5
+# Keep retries low — a chunk that fails 2x is unlikely to succeed on a 5th try,
+# and long retry storms hide the root cause. With BASE_BACKOFF_S=2.0 and
+# MAX_RETRIES=2: max wait per chunk = 1 attempt + 2s + retry + 4s + retry ≈ 6s
+# of backoff plus actual call time.
+MAX_RETRIES    = 2
 BASE_BACKOFF_S = 2.0
+
+# Per-request HTTP timeouts (seconds). read=180 gives reasoning models room
+# to think; lower this to 60 if you're on plain gpt-4o.
+HTTP_CONNECT_TIMEOUT = 10.0
+HTTP_READ_TIMEOUT    = 180.0
+HTTP_WRITE_TIMEOUT   = 30.0
 
 # Output column order
 COLS = [
@@ -330,7 +340,12 @@ async def _run_async(pbp_rows: list, prompts: dict) -> list:
         max_connections=MAX_CONCURRENCY * 2,
         max_keepalive_connections=MAX_CONCURRENCY * 2,
     )
-    timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
+    timeout = httpx.Timeout(
+        connect=HTTP_CONNECT_TIMEOUT,
+        read=HTTP_READ_TIMEOUT,
+        write=HTTP_WRITE_TIMEOUT,
+        pool=10.0,
+    )
 
     sem = asyncio.Semaphore(MAX_CONCURRENCY)
     t0 = time.monotonic()
