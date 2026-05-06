@@ -186,6 +186,8 @@ async def _call_llm_async(
     for attempt in range(MAX_RETRIES):
         try:
             resp = await client.post(url, headers=headers, json=body)
+
+            # Retryable: throttling and 5xx
             if resp.status_code == 429 or resp.status_code >= 500:
                 retry_ms = resp.headers.get("retry-after-ms")
                 retry_s = resp.headers.get("retry-after")
@@ -199,6 +201,17 @@ async def _call_llm_async(
                       f"retry {attempt+1}/{MAX_RETRIES} in {sleep_s:.1f}s")
                 await asyncio.sleep(sleep_s)
                 continue
+
+            # Non-retryable 4xx: Azure puts the real reason in the body, surface it
+            if 400 <= resp.status_code < 500:
+                try:
+                    err_body = resp.json()
+                except Exception:
+                    err_body = resp.text
+                raise RuntimeError(
+                    f"HTTP {resp.status_code} from Azure OpenAI. Body: {err_body}"
+                )
+
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
