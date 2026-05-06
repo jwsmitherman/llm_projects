@@ -287,10 +287,23 @@ async def _process_chunk_async(
         t0 = time.monotonic()
         try:
             raw = await _call_llm_async(client, system_message, human_text, chunk_idx)
+            elapsed_call = time.monotonic() - t0
+            preview = raw[:200].replace("\n", " ")
+            print(f"  Chunk {chunk_idx+1}/{n_chunks}: LLM returned {len(raw)} chars in {elapsed_call:.1f}s")
+            print(f"    raw preview: {preview!r}")
+
+            # Dump full raw response of chunk 1 to disk for inspection
+            if chunk_idx == 0:
+                try:
+                    with open(f"/tmp/chunk_{chunk_idx+1}_raw.txt", "w", encoding="utf-8") as f:
+                        f.write(raw)
+                except Exception:
+                    pass  # best-effort logging only
+
             rows = _parse_json_array(raw, chunk_idx)
             elapsed = time.monotonic() - t0
             print(f"  Chunk {chunk_idx+1}/{n_chunks} done in {elapsed:.1f}s "
-                  f"— {len(rows)} rows")
+                  f"— {len(rows)} rows parsed")
             return chunk_idx, rows
         except Exception as e:
             elapsed = time.monotonic() - t0
