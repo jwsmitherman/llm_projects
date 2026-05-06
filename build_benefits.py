@@ -43,7 +43,9 @@ AZURE_OPENAI_ENDPOINT    = "<YOUR_ENDPOINT>"   # e.g. "https://my-resource.opena
 AZURE_OPENAI_API_KEY     = "<YOUR_API_KEY>"
 AZURE_OPENAI_DEPLOYMENT  = "gpt-4o"
 AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
-AZURE_OPENAI_TEMPERATURE = 0.0
+# Set to None to omit (required for some gpt-5 / o-series deployments which
+# only accept the default temperature). Set to 0.0 for deterministic gpt-4o output.
+AZURE_OPENAI_TEMPERATURE = None
 
 # Carrier prefix used when constructing planid
 CARRIER_PREFIX = "MOM"
@@ -52,9 +54,11 @@ CARRIER_PREFIX = "MOM"
 # - 30K input tokens per chunk leaves headroom for system prompt + output
 # - 8 parallel calls × ~34K total tokens each = ~270K TPM peak
 #   Drop MAX_CONCURRENCY to 6 if your deployment is 240K TPM (East US default)
+# - LLM_MAX_TOKENS: for reasoning-class models this also covers "thinking"
+#   tokens, so keep it generous (8K). Lower to 4K for plain gpt-4o.
 CHUNK_TOKEN_BUDGET = 30000
 MAX_CONCURRENCY    = 8
-LLM_MAX_TOKENS     = 4000
+LLM_MAX_TOKENS     = 8000
 
 # Retry config for 429s and transient errors
 MAX_RETRIES    = 5
@@ -178,9 +182,14 @@ async def _call_llm_async(
             {"role": "system", "content": system_message},
             {"role": "user", "content": human_text},
         ],
-        "temperature": AZURE_OPENAI_TEMPERATURE,
-        "max_tokens": LLM_MAX_TOKENS,
+        # Newer Azure OpenAI deployments (gpt-5 / gpt-4.1 / o-series) require
+        # max_completion_tokens instead of the legacy max_tokens parameter.
+        "max_completion_tokens": LLM_MAX_TOKENS,
     }
+    # Some reasoning-class deployments only accept the default temperature (1.0).
+    # Only include it if it's been changed from the default sentinel.
+    if AZURE_OPENAI_TEMPERATURE is not None:
+        body["temperature"] = AZURE_OPENAI_TEMPERATURE
 
     last_err: Optional[Exception] = None
     for attempt in range(MAX_RETRIES):
@@ -314,7 +323,7 @@ async def _run_async(pbp_rows: list, prompts: dict) -> list:
         f"chunk sizes (rows): {[len(c) for c in chunks]} | "
         f"chunk tokens (est): {chunk_token_estimates} | "
         f"max_concurrency={MAX_CONCURRENCY} | "
-        f"max_tokens out={LLM_MAX_TOKENS}"
+        f"max_completion_tokens={LLM_MAX_TOKENS}"
     )
 
     limits = httpx.Limits(
