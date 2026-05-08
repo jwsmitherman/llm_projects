@@ -46,6 +46,10 @@ def blob_exists(cc, blob_name) -> bool:
 def utc_now_iso():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
+def utc_now_compact():
+    """Compact UTC timestamp for blob naming, e.g. 20260508T193000Z."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
 # ── Prompt loader ─────────────────────────────────────────────────────────────
 
 PROMPT_FILES = {
@@ -59,6 +63,8 @@ def _load_prompts_from_blob():
     return {key: read_text_from_blob(cc, fname) for key, fname in PROMPT_FILES.items()}
 
 # ── Required PBP columns ──────────────────────────────────────────────────────
+# FileName is critical — it identifies the plan. Multi-plan inputs are grouped
+# by FileName in build_benefits.py, so we MUST preserve it through validation.
 
 REQUIRED_COLS = ["LoadID", "FileName", "ID", "header", "category", "field", "value", "DT"]
 
@@ -73,7 +79,6 @@ def _process_in_background(normalized: list, blob_name: str,
     status_blob  = blob_name.replace(".json", "-status.json")
     outbound_cc  = _get_or_create_container(outbound_container)
 
-    # Mark as processing
     save_json_to_blob(outbound_cc, status_blob,
                       {"status": "processing", "started_at": utc_now_iso()})
     try:
@@ -110,7 +115,8 @@ def save_json_payload():
         if not isinstance(body, list):
             return jsonify({"status": "error", "detail": "Body must be a JSON array"}), 400
 
-        # Validate rows
+        # Validate rows. CRITICAL: REQUIRED_COLS includes FileName because
+        # build_benefits.py groups by FileName to handle multi-plan loads.
         normalized: List[Dict[str, Any]] = []
         for idx, row in enumerate(body):
             if not isinstance(row, dict):
@@ -127,9 +133,12 @@ def save_json_payload():
         if len(load_ids) > 1:
             return jsonify({"status": "error", "detail": f"Multiple LoadIDs: {sorted(load_ids)}"}), 400
 
+        # Diagnostic: how many distinct plans does this load contain?
+        plans: Set[str] = {str(r["FileName"]).strip() for r in normalized if r.get("FileName")}
+        print(f"[/save] LoadID={list(load_ids)[0]} contains {len(plans)} plan(s): {sorted(plans)}")
+
         load_id   = list(load_ids)[0]
-        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        blob_name = f"{load_id}-{timestamp}.json"
+        blob_name = f"{load_id}-{utc_now_compact()}.json"
 
         inbound_container  = os.getenv("BLOB_INBOUND_CONTAINER",  "payloads")
         outbound_container = os.getenv("BLOB_OUTBOUND_CONTAINER", "outbound")
@@ -150,6 +159,7 @@ def save_json_payload():
         return jsonify({
             "status":    "accepted",
             "load_id":   load_id,
+            "plan_count": len(plans),
             "blob_name": blob_name,
             "message":   "Processing started. Poll GET /results/<load_id> for status.",
             "poll_url":  f"/results/{load_id}",
@@ -163,12 +173,6 @@ def save_json_payload():
 
 
 # ── GET /results/<load_id>  — returns status or final results ─────────────────
-#
-# Response shapes:
-#   {"status": "processing"}                          — LLM still running
-#   {"status": "success", "result_count": N, "results": [...]}  — done
-#   {"status": "error",   "error": "..."}             — something failed
-#   {"status": "not_found"}                           — unknown load_id
 
 @app.route("/results/<load_id>", methods=["GET"])
 def get_results(load_id):
@@ -213,22 +217,29 @@ def get_results(load_id):
 
             if job_status == "success" and blobs:
                 data = read_json_from_blob(cc, blobs[-1].name)
+                # Diagnostic: how many distinct plans are in the output?
+                plan_ids = sorted({r.get("planid") for r in data if r.get("planid")})
                 return jsonify({
                     "status":       "success",
                     "load_id":      load_id,
                     "blob":         blobs[-1].name,
                     "result_count": len(data),
+                    "plan_count":   len(plan_ids),
+                    "plan_ids":     plan_ids,
                     "results":      data,
                 }), 200
 
         # Fallback: status blob missing but result blob exists (legacy runs)
         if blobs:
             data = read_json_from_blob(cc, blobs[-1].name)
+            plan_ids = sorted({r.get("planid") for r in data if r.get("planid")})
             return jsonify({
                 "status":       "success",
                 "load_id":      load_id,
                 "blob":         blobs[-1].name,
                 "result_count": len(data),
+                "plan_count":   len(plan_ids),
+                "plan_ids":     plan_ids,
                 "results":      data,
             }), 200
 
@@ -248,4 +259,12 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
+    # threaded=True lets Flask handle /save and /results concurrently. Without
+    # this, the dev server is single-threaded and polling can stall behind a
+    # slow inbound POST. Azure App Service uses a real WSGI server so this
+    # only matters for local dev — but it's also harmless on App Service.
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8080")),
+        threaded=True,
+    )
