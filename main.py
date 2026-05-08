@@ -259,6 +259,15 @@ def health():
 
 
 if __name__ == "__main__":
+    # Diagnostic: print the build version of build_benefits so the Flask logs
+    # make it obvious which code is loaded. If you don't see this line on
+    # startup, the new code didn't ship.
+    try:
+        import build_benefits as _bb
+        print(f"[main] build_benefits version: {getattr(_bb, '__BUILD_VERSION__', 'UNKNOWN')}")
+    except Exception as e:
+        print(f"[main] could not import build_benefits: {e}")
+
     # threaded=True lets Flask handle /save and /results concurrently. Without
     # this, the dev server is single-threaded and polling can stall behind a
     # slow inbound POST. Azure App Service uses a real WSGI server so this

@@ -10,17 +10,22 @@ Strategy
 Instead of one huge LLM call (which fragments context across chunks) or one
 gigantic single call (which is slow and may not fit), we:
 
-  1. Pre-classify every PBP row into one or more benefit groups using the
-     CMS PBP section codes embedded in the `category` field (e.g. "(7a)" → 900).
-  2. Fire one focused LLM call per benefit group IN PARALLEL via asyncio.
-  3. Each call sees only the rows relevant to its benefit + plan-wide context
+  1. Group rows by FileName — each FileName = one plan (a load can have many).
+  2. For each plan, pre-classify PBP rows into ~47 benefit groups using CMS
+     section codes embedded in `category` (e.g. "(7a)" → 900).
+  3. Fire one focused LLM call per benefit IN PARALLEL via asyncio.
+  4. Each call sees only the rows relevant to its benefit + plan-wide context
      rows (Plan Type, FileName, MOOP, etc.), so input is small (~1-3K tokens).
-  4. Each call returns just its rows. Concat the lot.
+  5. Concat the lot — no dedup needed since each call owns a unique benefit.
 
-Result for ANY plan size: ~10-25s wall time (limited by slowest single call,
-not number of benefits or rows). Each call is fast because input is small.
-Accurate because the LLM sees focused, complete data per benefit.
+Result for ANY plan size: ~10-25s wall time per plan. Multiple plans run in
+parallel under MAX_PLANS_IN_PARALLEL.
 """
+
+# Build version marker — printed on import so logs make it obvious which
+# code is actually running. Bump this whenever you ship a meaningful change.
+__BUILD_VERSION__ = "2026-05-08-multi-plan-targeted-v3"
+print(f"[build_benefits] loaded build {__BUILD_VERSION__}")
 
 import asyncio
 import json
