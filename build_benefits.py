@@ -24,7 +24,7 @@ parallel under MAX_PLANS_IN_PARALLEL.
 
 # Build version marker — printed on import so logs make it obvious which
 # code is actually running. Bump this whenever you ship a meaningful change.
-__BUILD_VERSION__ = "2026-05-08-multi-plan-targeted-v3"
+__BUILD_VERSION__ = "2026-05-11-HCSC-targets-v4"
 print(f"[build_benefits] loaded build {__BUILD_VERSION__}")
 
 import asyncio
@@ -105,13 +105,15 @@ COLS = [
 BENEFIT_TARGETS = [
     # (benefitid, benefitname, [pbp_section_codes], [extra_category_keywords], coverage_type)
     # Plan-level / premium / deductibles ---------------------------------------
-    ("600",  "Monthly Premium",                    [],         ["Monthly Premium", "Plan Premium"], "4/NA"),
-    ("610",  "Health Plan Deductible",             [],         ["Health Plan Deductible", "Medical Deductible"], "1/InNetwork"),
+    # NOTE: 600 (Monthly Premium), 614 (Health Monthly Premium), 2111 (Health
+    # Plan Rating), 2110 (Plan Rating), 2112 (Drug Plan Rating) are intentionally
+    # OMITTED — these don't live in PBP data; they come from CMS plan registry /
+    # star ratings files. Pulling them from PBP just produces empty LLM calls.
+    ("610",  "Health Plan Deductible",             [],         ["Health Plan Deductible", "Medical Deductible", "Annual Plan Deductible"], "1/InNetwork"),
     ("611",  "Drug Deductible",                    [],         ["Drug Deductible", "Rx Deductible", "Enter Deductible Amount"], "4/NA"),
-    ("614",  "Health Monthly Premium",             [],         ["Health Monthly Premium", "Health Premium"], "4/NA"),
     ("615",  "Drug Monthly Premium",               [],         ["Drug Monthly Premium", "Rx Premium", "Part D Premium"], "4/NA"),
     ("616",  "Part B Premium Reduction",           [],         ["Part B Premium", "Part B Reduction", "Part B giveback"], "4/NA"),
-    ("620",  "Out-of-Pocket Spending Limit",       [],         ["MOOP", "Max Enrollee Cost", "Out of Pocket"], "1/InNetwork"),
+    ("620",  "Out-of-Pocket Spending Limit",       [],         ["MOOP", "Max Enrollee Cost", "Out of Pocket", "OOP"], "1/InNetwork"),
     # Pharmacy / Rx ------------------------------------------------------------
     ("700",  "Tier Names",                         [],         ["Rx Tier", "Formulary Tier", "Tier Names"], "4/NA"),
     ("710",  "Initial Coverage",                   [],         ["Initial Coverage Phase", "Rx Setup"], "3/General"),
@@ -126,38 +128,51 @@ BENEFIT_TARGETS = [
     ("820",  "Skilled Nursing Facility",           ["2"],      ["Skilled Nursing", "SNF"], "1/InNetwork"),
     # Professional / outpatient services ---------------------------------------
     ("900",  "Doctor Office Visits Primary",       ["7a"],     ["Primary Care", "PCP"], "1/InNetwork"),
-    ("910",  "Doctor Office Visits Specialist",    ["7b"],     ["Specialist", "Specialty Care"], "1/InNetwork"),
-    ("911",  "Telehealth",                         ["7d"],     ["Telehealth", "Telemedicine", "Virtual"], "1/InNetwork"),
+    ("910",  "Doctor Office Visits Specialist",    ["7b", "7d"], ["Specialist", "Specialty Care", "Physician Specialist"], "1/InNetwork"),
+    ("911",  "Telehealth",                         ["7d", "7j"], ["Telehealth", "Telemedicine", "Virtual", "Additional Telehealth", "Remote Access"], "1/InNetwork"),
     ("920",  "Chiropractic Services",              ["8"],      ["Chiropractic"], "1/InNetwork"),
     ("930",  "Podiatry Services",                  ["9a"],     ["Podiatry"], "1/InNetwork"),
     ("940",  "Outpatient Mental Health",           ["4a"],     ["Outpatient Mental Health", "Outpatient Psychiatric"], "1/InNetwork"),
     ("950",  "Outpatient Substance Abuse",         ["4b"],     ["Substance Abuse"], "1/InNetwork"),
-    ("960",  "Outpatient Services/Surgery",        ["4c"],     ["Outpatient Surgery", "Outpatient Services", "Ambulatory Surgical"], "1/InNetwork"),
-    ("970",  "Ambulance Services",                 ["5"],      ["Ambulance"], "1/InNetwork"),
-    ("981",  "Emergency Care",                     ["6a"],     ["Emergency"], "4/NA"),
-    ("982",  "Urgently Needed Care",               ["6b"],     ["Urgent Care", "Urgently Needed"], "4/NA"),
-    ("990",  "Outpatient Rehabilitation",          ["10"],     ["Outpatient Rehabilitation", "Physical Therapy", "Occupational Therapy", "Speech Therapy", "Cardiac Rehab"], "1/InNetwork"),
+    # 960 broadened — HCSC uses (9a1)/(9a2)/(9b)/(9d) for outpatient hospital,
+    # observation, ambulatory surgical center, and outpatient blood
+    ("960",  "Outpatient Services/Surgery",        ["4c", "9a1", "9a2", "9b", "9d"], ["Outpatient Surgery", "Outpatient Hospital", "Ambulatory Surgical", "Observation Services"], "1/InNetwork"),
+    # 970 Ambulance often (5a) or (5b)
+    ("970",  "Ambulance Services",                 ["5", "5a", "5b"], ["Ambulance"], "1/InNetwork"),
+    # 981 Emergency — HCSC uses (4a) for "Emergency Services"
+    ("981",  "Emergency Care",                     ["4a", "6a"],   ["Emergency Services", "Emergency Care"], "4/NA"),
+    ("982",  "Urgently Needed Care",               ["4b", "6b"],   ["Urgent Care", "Urgently Needed"], "4/NA"),
+    ("990",  "Outpatient Rehabilitation",          ["10", "5b"],   ["Outpatient Rehabilitation", "Physical Therapy", "Occupational Therapy", "Speech Therapy", "Cardiac Rehab"], "1/InNetwork"),
     # Equipment / supplies / labs ----------------------------------------------
     ("1000", "Durable Medical Equipment",          ["11a"],    ["Durable Medical Equipment", "DME"], "1/InNetwork"),
     ("1020", "Diabetes Programs and Supplies",     ["11c"],    ["Diabetic", "Diabetes"], "1/InNetwork"),
-    ("1030", "Diagnostic Tests, X-Rays, Lab Services and Radiology Services", ["3"], ["Diagnostic", "X-Ray", "Lab", "Radiology"], "1/InNetwork"),
+    # 1030 Lab/X-Ray — HCSC uses (8a2), (8b2) for labs and radiology
+    ("1030", "Diagnostic Tests, X-Rays, Lab Services and Radiology", ["3", "8a2", "8b2"], ["Diagnostic", "X-Ray", "Lab Services", "Radiology", "Therapeutic Radiological"], "1/InNetwork"),
     # Supplemental benefits ----------------------------------------------------
-    ("1050", "Fitness",                            ["13b"],    ["Fitness", "SilverSneakers"], "1/InNetwork"),
+    # 1050 Fitness — HCSC uses (14c4) Fitness Benefit
+    ("1050", "Fitness",                            ["13b", "14c4"], ["Fitness", "SilverSneakers", "Fitness Benefit"], "1/InNetwork"),
     ("1060", "Meals",                              ["13c"],    ["Meals", "Meal Benefit"], "1/InNetwork"),
     ("1200", "Kidney Disease",                     ["12"],     ["Kidney", "Renal", "Dialysis"], "1/InNetwork"),
-    ("1300", "Dental Services",                    ["16a"],    ["Preventive Dental", "Dental Services"], "1/InNetwork"),
-    ("1301", "Dental - Comprehensive",             ["16b"],    ["Comprehensive Dental", "Non-routine"], "1/InNetwork"),
-    ("1400", "Hearing Services",                   ["18a", "18b"], ["Hearing Exam", "Hearing Aid", "Fitting/Evaluation"], "1/InNetwork"),
-    ("1500", "Vision Services",                    ["17a", "17b"], ["Vision", "Eyewear", "Eyeglasses", "Contact Lenses"], "1/InNetwork"),
+    # 1300 / 1301 Dental — HCSC uses (16a) for Medicare-covered, (16c1) for restorative
+    ("1300", "Dental Services",                    ["16a"],    ["Preventive Dental", "Dental Services", "Medicare Dental"], "1/InNetwork"),
+    ("1301", "Dental - Comprehensive",             ["16b", "16c1", "16c"], ["Comprehensive Dental", "Restorative Services", "Non-routine Dental"], "1/InNetwork"),
+    # 1400 Hearing — split into sub-targets so LLM has focused input per call.
+    # The original single 1400 target matched 3,690 rows and the LLM bailed.
+    # Each sub-target now matches ~1K rows, all using benefitid=1400 in output.
+    ("1400", "Hearing - Exams",                    ["18a"],    ["Hearing Exam"], "1/InNetwork"),
+    ("1400", "Hearing - Aids",                     ["18b", "18b1"], ["Hearing Aid", "Prescription Hearing Aid", "Fitting/Evaluation"], "1/InNetwork"),
+    # 1500 Vision — split into sub-targets for the same reason as Hearing.
+    # The original 1500 matched 3,833 rows and the LLM bailed.
+    ("1500", "Vision - Eye Exams",                 ["17a", "17a1"], ["Eye Exam", "Routine Eye"], "1/InNetwork"),
+    ("1500", "Vision - Eyewear",                   ["17b", "17b2", "17b3"], ["Eyewear", "Eyeglasses", "Contact Lenses", "Eyeglass lenses", "Frames"], "1/InNetwork"),
     ("1610", "Prosthetic Devices",                 ["11b"],    ["Prosthetic"], "1/InNetwork"),
-    ("1700", "Preventive Services",                ["14a", "14b", "14c"], ["Preventive", "Wellness Visit"], "1/InNetwork"),
+    ("1700", "Preventive Services",                ["14a", "14b", "14c"], ["Preventive", "Wellness Visit", "Annual Physical"], "1/InNetwork"),
     ("1800", "Transportation",                     ["15"],     ["Transportation"], "1/InNetwork"),
-    ("1900", "Acupuncture",                        ["13a"],    ["Acupuncture"], "1/InNetwork"),
-    ("2100", "Over-the-Counter Items",             ["13e"],    ["Over-the-Counter", "OTC"], "1/InNetwork"),
-    # Star ratings (constant, not data-driven) ---------------------------------
-    ("2110", "Medicare Overall Plan Rating",       [],         ["Plan Rating", "Star Rating"], "4/NA"),
-    ("2111", "Medicare Health Plan Rating",        [],         ["Health Plan Rating"], "4/NA"),
-    ("2112", "Medicare Drug Plan Rating",          [],         ["Drug Plan Rating"], "4/NA"),
+    # 1900 Acupuncture — broadened keywords. HCSC may bury this in an "Other
+    # Alternative Therapies" category that doesn't use a clean (13a) section code.
+    ("1900", "Acupuncture",                        ["13a"],    ["Acupuncture", "Alternative Therapies"], "1/InNetwork"),
+    # 2100 OTC — HCSC uses (13b) for OTC Items, my old code looked for (13e)
+    ("2100", "Over-the-Counter Items",             ["13b", "13e"], ["Over-the-Counter", "OTC Items", "OTC"], "1/InNetwork"),
 ]
 
 
@@ -404,9 +419,8 @@ async def _process_benefit(
 # data even when no benefit-specific rows match. Allow them to call the LLM
 # even with empty specific_rows.
 _PLAN_LEVEL_ONLY_BENEFITS = {
-    "600", "610", "611", "614", "615", "616", "620",
+    "610", "611", "615", "616", "620",
     "700", "710", "711", "730", "740", "755", "760",
-    "2110", "2111", "2112",
 }
 
 
