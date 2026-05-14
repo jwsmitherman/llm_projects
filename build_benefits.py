@@ -24,7 +24,7 @@ parallel under MAX_PLANS_IN_PARALLEL.
 
 # Build version marker - printed on import so logs make it obvious which
 # code is actually running. Bump this whenever you ship a meaningful change.
-__BUILD_VERSION__ = "2026-05-12-sweeper-and-retry-v5"
+__BUILD_VERSION__ = "2026-05-14-fast-pipeline-v5.2"
 print(f"[build_benefits] loaded build {__BUILD_VERSION__}")
 
 import asyncio
@@ -77,6 +77,13 @@ MAX_PLANS_IN_PARALLEL = 4
 
 # Output cap per call. Each call returns 1-15 rows, so 2K is plenty.
 LLM_MAX_TOKENS = 2000
+
+# Sweeper toggle. The sweeper pass sends "uncovered" PBP rows (rows not matched
+# by any targeted benefit filter) to the LLM in 200-row chunks to catch any
+# benefits missed by pass 1. In practice it adds ~2-3x runtime per plan for
+# minimal coverage gain (most uncovered rows are admin metadata, not benefits).
+# Disabled by default; set ENABLE_SWEEPER=1 to turn back on.
+ENABLE_SWEEPER = os.getenv("ENABLE_SWEEPER", "0") == "1"
 
 # Retry config
 MAX_RETRIES    = 3
@@ -709,14 +716,30 @@ async def _run_one_plan(
     covered_row_ids: set = set()
     for r in plan_level_rows:
         covered_row_ids.add(id(r))  # plan-level rows always considered covered
+
+    # OPTIMIZATION: pre-filter each target. Skip benefits whose filter finds
+    # zero input rows AND that aren't plan-level (plan-level benefits like
+    # MOOP/tiers always get a call because they read from plan_level_rows).
+    plan_level_bids = {t[0] for t in PLAN_LEVEL_TARGETS}
+    targets_to_run = []
+    targets_skipped = 0
     for target in plan_targets:
-        for r in _filter_rows_for_target(plan_rows, target):
+        bid = target[0]
+        matched = _filter_rows_for_target(plan_rows, target)
+        for r in matched:
             covered_row_ids.add(id(r))
+        if matched or bid in plan_level_bids:
+            targets_to_run.append(target)
+        else:
+            targets_skipped += 1
+
+    if targets_skipped:
+        print(f"  skipping {targets_skipped} benefit(s) with no matching input rows")
 
     tasks = [
         _process_benefit(sem_per_call, client, system_message, target,
                          plan_level_rows, plan_rows, meta)
-        for target in plan_targets
+        for target in targets_to_run
     ]
     results = await asyncio.gather(*tasks)
     pass1_elapsed = time.monotonic() - t0
@@ -728,21 +751,24 @@ async def _run_one_plan(
     benefits_with_rows = sum(1 for _, rows in results if rows)
     pass1_rows = len(plan_rows_out)
     print(f"  pass1 done: {pass1_rows} rows from "
-          f"{benefits_with_rows}/{len(plan_targets)} benefits in {pass1_elapsed:.1f}s")
+          f"{benefits_with_rows}/{len(targets_to_run)} benefits in {pass1_elapsed:.1f}s")
 
-    # Pass 2: sweeper over uncovered PBP rows
-    remaining = [r for r in plan_rows if id(r) not in covered_row_ids]
-    print(f"  pass2 input: {len(remaining)} uncovered rows out of {len(plan_rows)} total")
+    # Pass 2: sweeper over uncovered PBP rows (disabled by default - see ENABLE_SWEEPER)
+    if ENABLE_SWEEPER:
+        remaining = [r for r in plan_rows if id(r) not in covered_row_ids]
+        print(f"  pass2 input: {len(remaining)} uncovered rows out of {len(plan_rows)} total")
 
-    if remaining:
-        t1 = time.monotonic()
-        sweeper_rows = await _run_sweeper_pass(
-            sem_per_call, client, system_message,
-            plan_level_rows, remaining, meta,
-        )
-        plan_rows_out.extend(sweeper_rows)
-        sweeper_elapsed = time.monotonic() - t1
-        print(f"  pass2 done: {len(sweeper_rows)} sweeper rows in {sweeper_elapsed:.1f}s")
+        if remaining:
+            t1 = time.monotonic()
+            sweeper_rows = await _run_sweeper_pass(
+                sem_per_call, client, system_message,
+                plan_level_rows, remaining, meta,
+            )
+            plan_rows_out.extend(sweeper_rows)
+            sweeper_elapsed = time.monotonic() - t1
+            print(f"  pass2 done: {len(sweeper_rows)} sweeper rows in {sweeper_elapsed:.1f}s")
+    else:
+        print(f"  pass2 skipped (ENABLE_SWEEPER=0)")
 
     total_elapsed = time.monotonic() - t0
     print(f"--- {meta['planid']} done: {len(plan_rows_out)} rows total "

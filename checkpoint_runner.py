@@ -36,7 +36,9 @@ import json
 import os
 import re
 import time
+import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -47,6 +49,12 @@ from build_benefits import (
     run_one_plan_processing,
     __BUILD_VERSION__ as BUILD_VERSION,
 )
+
+# How many plans to process concurrently. Each plan internally runs many LLM
+# calls in parallel (MAX_CONCURRENCY in build_benefits.py), so this multiplies
+# the effective parallelism. With 500K TPM Azure OpenAI deployment and 4 plans
+# at once, expect ~120K-400K TPM usage. Lower this if you hit throttling.
+CONCURRENT_PLANS = int(os.getenv("CONCURRENT_PLANS", "4"))
 
 
 # -----------------------------------------------------------------------------
@@ -248,33 +256,45 @@ def process_load_with_checkpoints(
 
     _write_status(load_id, status)
 
-    # Process each plan
+    # Process each plan. Plans run in parallel via a thread pool. Each thread
+    # writes its checkpoint independently; status updates are serialized via
+    # a lock to avoid clobbering.
     cp_container = _checkpoints_container()
     n_processed_this_call = 0
+    status_lock = threading.Lock()
+    processed_counter = [0]   # mutable holder for thread-safe increment
+    deferred_counter = [0]    # count plans skipped due to max_plans_this_run cap
 
-    for i, fn in enumerate(plan_filenames, 1):
+    def _process_one_plan(idx_and_fn):
+        i, fn = idx_and_fn
         cp_name = checkpoint_blob_name(load_id, fn)
         already_done = _blob_exists(cp_container, cp_name)
 
         if already_done and not force_reprocess:
-            if status["plans"][fn].get("status") != "done":
-                # Sync status with reality
-                rows = _read_json(cp_container, cp_name)
-                status["plans"][fn] = {"status": "done", "rows": len(rows)}
-                status["n_plans_done"] = sum(1 for p in status["plans"].values() if p.get("status") == "done")
-                _write_status(load_id, status)
+            with status_lock:
+                if status["plans"][fn].get("status") != "done":
+                    rows = _read_json(cp_container, cp_name)
+                    status["plans"][fn] = {"status": "done", "rows": len(rows)}
+                    status["n_plans_done"] = sum(1 for p in status["plans"].values() if p.get("status") == "done")
+                    _write_status(load_id, status)
             print(f"[{i:>3}/{len(plan_filenames)}] SKIP  {fn}  (checkpoint exists)")
-            continue
+            return
 
-        if max_plans_this_run and n_processed_this_call >= max_plans_this_run:
-            print(f"[{i:>3}/{len(plan_filenames)}] DEFER {fn}  (hit max_plans_this_run cap)")
-            continue
+        # Defer if we have a per-run cap and we've already processed enough
+        with status_lock:
+            if max_plans_this_run and processed_counter[0] >= max_plans_this_run:
+                deferred_counter[0] += 1
+                print(f"[{i:>3}/{len(plan_filenames)}] DEFER {fn}  (hit max_plans_this_run cap)")
+                return
+            # Reserve a slot now so other threads see the updated count
+            processed_counter[0] += 1
 
         plan_rows = plan_groups[fn]
         print(f"[{i:>3}/{len(plan_filenames)}] PROCESS  {fn}  ({len(plan_rows):,} rows)")
 
-        status["plans"][fn] = {"status": "processing", "started_at": _utc_now_iso()}
-        _write_status(load_id, status)
+        with status_lock:
+            status["plans"][fn] = {"status": "processing", "started_at": _utc_now_iso()}
+            _write_status(load_id, status)
 
         t0 = time.monotonic()
         try:
@@ -284,14 +304,14 @@ def process_load_with_checkpoints(
             # Persist checkpoint FIRST (durability) THEN update status
             _save_json(cp_container, cp_name, plan_output)
 
-            status["plans"][fn] = {
-                "status":    "done",
-                "rows":      len(plan_output),
-                "elapsed_s": round(elapsed, 1),
-            }
-            status["n_plans_done"] = sum(1 for p in status["plans"].values() if p.get("status") == "done")
-            _write_status(load_id, status)
-            n_processed_this_call += 1
+            with status_lock:
+                status["plans"][fn] = {
+                    "status":    "done",
+                    "rows":      len(plan_output),
+                    "elapsed_s": round(elapsed, 1),
+                }
+                status["n_plans_done"] = sum(1 for p in status["plans"].values() if p.get("status") == "done")
+                _write_status(load_id, status)
 
             print(f"           DONE in {elapsed:.1f}s - {len(plan_output)} rows -> '{cp_name}'")
             if on_plan_complete:
@@ -303,18 +323,36 @@ def process_load_with_checkpoints(
         except Exception as e:
             elapsed = time.monotonic() - t0
             tb = traceback.format_exc()
-            status["plans"][fn] = {
-                "status":    "failed",
-                "error":     str(e),
-                "elapsed_s": round(elapsed, 1),
-            }
-            status["n_plans_failed"] = sum(1 for p in status["plans"].values() if p.get("status") == "failed")
-            _write_status(load_id, status)
+            with status_lock:
+                status["plans"][fn] = {
+                    "status":    "failed",
+                    "error":     str(e),
+                    "elapsed_s": round(elapsed, 1),
+                }
+                status["n_plans_failed"] = sum(1 for p in status["plans"].values() if p.get("status") == "failed")
+                _write_status(load_id, status)
             print(f"           FAILED after {elapsed:.1f}s: {e}")
             print(tb)
-            # Continue with the next plan - DON'T crash the whole run
-            n_processed_this_call += 1
-            continue
+            # Don't re-raise - we want other plans to keep going
+
+    # Submit all plans to the thread pool
+    print(f"[checkpoint_runner] running with {CONCURRENT_PLANS} plan(s) in parallel")
+    with ThreadPoolExecutor(max_workers=CONCURRENT_PLANS) as executor:
+        # Submit in order so log lines are roughly sequential
+        futures = [executor.submit(_process_one_plan, (i, fn))
+                   for i, fn in enumerate(plan_filenames, 1)]
+        # Wait for all to complete (or raise) - exceptions inside _process_one_plan
+        # are already caught and logged
+        for f in as_completed(futures):
+            try:
+                f.result()
+            except Exception as e:
+                # Defensive - any exception that escaped _process_one_plan
+                print(f"[checkpoint_runner] unexpected error from worker: {e}")
+                traceback.print_exc()
+
+    n_processed_this_call = processed_counter[0]
+
 
     # Assemble combined output - even if partial, downstream may want what we have
     combined, missing = assemble_combined_output(load_id, plan_filenames)
