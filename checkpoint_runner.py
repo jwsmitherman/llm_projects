@@ -1,5 +1,5 @@
 """
-checkpoint_runner.py — shared plan-by-plan checkpoint processing
+checkpoint_runner.py - shared plan-by-plan checkpoint processing
 
 Used by both run_benefits_creation.py (batch) and main.py (Flask /save) so the
 two pathways share one code path. Each plan is processed independently, its
@@ -49,9 +49,9 @@ from build_benefits import (
 )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Blob helpers — internal; callers should use the public API at the bottom
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Blob helpers - internal; callers should use the public API at the bottom
+# -----------------------------------------------------------------------------
 
 def _svc() -> BlobServiceClient:
     conn = os.environ["BLOB_CONNECTION_STRING"]
@@ -96,16 +96,16 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Container names — single source of truth, override via env
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Container names - single source of truth, override via env
+# -----------------------------------------------------------------------------
 
 def _checkpoints_container() -> str:
     return os.getenv("BLOB_CHECKPOINTS_CONTAINER", "checkpoints")
 
 
 def outbound_container_name() -> str:
-    """Public — name of the outbound container where combined outputs are written."""
+    """Public - name of the outbound container where combined outputs are written."""
     return os.getenv("BLOB_OUTBOUND_CONTAINER", "outbound")
 
 
@@ -113,9 +113,9 @@ def outbound_container_name() -> str:
 _outbound_container = outbound_container_name
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Naming
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _safe_filename(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_")
@@ -133,9 +133,9 @@ def output_blob_name(load_id: str) -> str:
     return f"output_benefits_{load_id}.json"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Status helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _init_status(load_id: str, plan_filenames: list) -> dict:
     return {
@@ -158,15 +158,15 @@ def _write_status(load_id: str, status: dict) -> None:
 
 
 def read_status(load_id: str) -> Optional[dict]:
-    """Public — used by /results endpoint to report progress."""
+    """Public - used by /results endpoint to report progress."""
     if not _blob_exists(_checkpoints_container(), status_blob_name(load_id)):
         return None
     return _read_json(_checkpoints_container(), status_blob_name(load_id))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Combined output assembly
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def assemble_combined_output(load_id: str, plan_filenames: list) -> tuple:
     """
@@ -192,9 +192,9 @@ def write_combined_output(load_id: str, combined_rows: list) -> str:
     return out_blob
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# THE MAIN ENTRY POINT — process one load end-to-end with checkpointing
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# THE MAIN ENTRY POINT - process one load end-to-end with checkpointing
+# -----------------------------------------------------------------------------
 
 def process_load_with_checkpoints(
     load_id: str,
@@ -215,7 +215,7 @@ def process_load_with_checkpoints(
     prompts            : dict with system_prompt, few_shot_examples, human_template
     force_reprocess    : if True, ignore existing checkpoints and reprocess everything
     max_plans_this_run : if set, stop after processing this many plans this invocation
-                         (remaining plans picked up on next call — useful for time-budgeting)
+                         (remaining plans picked up on next call - useful for time-budgeting)
     on_plan_complete   : optional callable(plan_filename, n_rows) called after each plan
 
     Returns
@@ -236,13 +236,13 @@ def process_load_with_checkpoints(
     # Initialize or resume status
     existing_status = read_status(load_id)
     if existing_status and not force_reprocess:
-        # Resume — preserve completed plans, reset failed/pending
+        # Resume - preserve completed plans, reset failed/pending
         status = existing_status
         for fn in plan_filenames:
             if fn not in status["plans"]:
                 status["plans"][fn] = {"status": "pending"}
         status["status"] = "processing"
-        print(f"[checkpoint_runner] resuming — {status['n_plans_done']} plan(s) already done")
+        print(f"[checkpoint_runner] resuming - {status['n_plans_done']} plan(s) already done")
     else:
         status = _init_status(load_id, plan_filenames)
 
@@ -293,7 +293,7 @@ def process_load_with_checkpoints(
             _write_status(load_id, status)
             n_processed_this_call += 1
 
-            print(f"           DONE in {elapsed:.1f}s — {len(plan_output)} rows → '{cp_name}'")
+            print(f"           DONE in {elapsed:.1f}s - {len(plan_output)} rows -> '{cp_name}'")
             if on_plan_complete:
                 try:
                     on_plan_complete(fn, len(plan_output))
@@ -312,11 +312,11 @@ def process_load_with_checkpoints(
             _write_status(load_id, status)
             print(f"           FAILED after {elapsed:.1f}s: {e}")
             print(tb)
-            # Continue with the next plan — DON'T crash the whole run
+            # Continue with the next plan - DON'T crash the whole run
             n_processed_this_call += 1
             continue
 
-    # Assemble combined output — even if partial, downstream may want what we have
+    # Assemble combined output - even if partial, downstream may want what we have
     combined, missing = assemble_combined_output(load_id, plan_filenames)
     out_blob = write_combined_output(load_id, combined)
 

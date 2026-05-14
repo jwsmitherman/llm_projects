@@ -1,8 +1,8 @@
 """
-run_benefits_creation.py — batch runner
+run_benefits_creation.py - batch runner
 
 Reads inputs from blob, processes plan-by-plan via checkpoint_runner, writes
-combined output to blob. Resumable — re-run the same LOAD_ID to pick up where
+combined output to blob. Resumable - re-run the same LOAD_ID to pick up where
 the previous run stopped.
 
 Required environment variables
@@ -18,8 +18,8 @@ Optional environment variables
   BLOB_PROMPTS_CONTAINER      (default: prompts)
   BLOB_OUTBOUND_CONTAINER     (default: outbound)
   BLOB_CHECKPOINTS_CONTAINER  (default: checkpoints)
-  FORCE_REPROCESS             (default: "0" — set to "1" to ignore checkpoints)
-  MAX_PLANS_THIS_RUN          (default: "" — process ALL plans; set to e.g. "10" to cap)
+  FORCE_REPROCESS             (default: "0" - set to "1" to ignore checkpoints)
+  MAX_PLANS_THIS_RUN          (default: "" - process ALL plans; set to e.g. "10" to cap)
 """
 
 import io
@@ -110,14 +110,14 @@ summary = process_load_with_checkpoints(
 # ============================================================
 
 if summary["status"] == "success":
-    print(f"\n✓ All plans complete.")
+    print(f"\n[SUCCESS] All plans complete.")
     raise SystemExit(0)
 elif summary["status"] == "partial":
-    print(f"\n⚠ INCOMPLETE — {summary['n_plans_pending']} plan(s) pending, "
+    print(f"\n[INCOMPLETE] {summary['n_plans_pending']} plan(s) pending, "
           f"{summary['n_plans_failed']} failed.")
     print(f"  Re-run this script to resume. Existing checkpoints will be reused.")
     print(f"  To force reprocessing of completed plans, set FORCE_REPROCESS=1")
     raise SystemExit(1)
 else:
-    print(f"\n✗ ERROR")
+    print(f"\n[ERROR]")
     raise SystemExit(2)

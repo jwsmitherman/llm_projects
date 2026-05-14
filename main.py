@@ -1,5 +1,5 @@
 """
-main.py — Flask API for desert/DESR Medicare benefits pipeline
+main.py - Flask API for desert/DESR Medicare benefits pipeline
 
 Endpoints
 ---------
@@ -19,7 +19,7 @@ checkpoint blob immediately. Progress is tracked in a status blob.
 it reads the combined output blob and returns the rows. If incomplete, it
 returns counts.
 
-If Flask is restarted mid-run, the worker thread is lost — BUT the partial
+If Flask is restarted mid-run, the worker thread is lost - BUT the partial
 progress is durable in blob storage. A subsequent run (Flask or batch script)
 for the same LOAD_ID will resume from the last completed plan.
 """
@@ -46,9 +46,9 @@ from checkpoint_runner import (
 app = Flask(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Blob helpers (only for inbound payload save + final result read)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _svc():
     conn = os.getenv("BLOB_CONNECTION_STRING")
@@ -102,9 +102,9 @@ def utc_now_compact():
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Prompt loader (shared with batch script — same blob source)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Prompt loader (shared with batch script - same blob source)
+# -----------------------------------------------------------------------------
 
 PROMPT_FILES = {
     "system_prompt":     "system_prompt.txt",
@@ -119,9 +119,9 @@ def _load_prompts() -> Dict[str, str]:
             for key, fname in PROMPT_FILES.items()}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Payload validation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 REQUIRED_COLS = ["LoadID", "FileName", "ID", "header", "category", "field", "value", "DT"]
 
@@ -147,14 +147,14 @@ def _validate_and_normalize(body: list) -> tuple:
     return normalized, list(load_ids)[0], sorted(plans)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Background worker
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _process_in_background(load_id: str, normalized_rows: list):
     """
     Runs in a daemon thread so /save can return 202 immediately. Uses the
-    shared checkpoint_runner — same code path as the batch script.
+    shared checkpoint_runner - same code path as the batch script.
     """
     try:
         prompts = _load_prompts()
@@ -174,9 +174,9 @@ def _process_in_background(load_id: str, normalized_rows: list):
         traceback.print_exc()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # POST /save
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @app.route("/save", methods=["POST"])
 def save_json_payload():
@@ -225,9 +225,9 @@ def save_json_payload():
         return jsonify({"status": "error", "detail": str(e)}), 500
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # GET /results/<load_id>
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @app.route("/results/<load_id>", methods=["GET"])
 def get_results(load_id):
@@ -288,9 +288,9 @@ def get_results(load_id):
         return jsonify({"status": "error", "detail": str(e)}), 500
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /status/<load_id>  — same info as /results but never returns the rows
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# GET /status/<load_id>  - same info as /results but never returns the rows
+# -----------------------------------------------------------------------------
 
 @app.route("/status/<load_id>", methods=["GET"])
 def get_status_only(load_id):
@@ -308,9 +308,9 @@ def get_status_only(load_id):
         return jsonify({"status": "error", "detail": str(e)}), 500
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GET / — health
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# GET / - health
+# -----------------------------------------------------------------------------
 
 @app.route("/", methods=["GET"])
 def health():

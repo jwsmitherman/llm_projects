@@ -10,19 +10,19 @@ Strategy
 Instead of one huge LLM call (which fragments context across chunks) or one
 gigantic single call (which is slow and may not fit), we:
 
-  1. Group rows by FileName — each FileName = one plan (a load can have many).
+  1. Group rows by FileName - each FileName = one plan (a load can have many).
   2. For each plan, pre-classify PBP rows into ~47 benefit groups using CMS
-     section codes embedded in `category` (e.g. "(7a)" → 900).
+     section codes embedded in `category` (e.g. "(7a)" -> 900).
   3. Fire one focused LLM call per benefit IN PARALLEL via asyncio.
   4. Each call sees only the rows relevant to its benefit + plan-wide context
      rows (Plan Type, FileName, MOOP, etc.), so input is small (~1-3K tokens).
-  5. Concat the lot — no dedup needed since each call owns a unique benefit.
+  5. Concat the lot - no dedup needed since each call owns a unique benefit.
 
 Result for ANY plan size: ~10-25s wall time per plan. Multiple plans run in
 parallel under MAX_PLANS_IN_PARALLEL.
 """
 
-# Build version marker — printed on import so logs make it obvious which
+# Build version marker - printed on import so logs make it obvious which
 # code is actually running. Bump this whenever you ship a meaningful change.
 __BUILD_VERSION__ = "2026-05-12-sweeper-and-retry-v5"
 print(f"[build_benefits] loaded build {__BUILD_VERSION__}")
@@ -39,20 +39,20 @@ import httpx
 import pandas as pd
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Hard-coded config — UPDATE THE TWO PLACEHOLDERS BELOW BEFORE RUNNING
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Hard-coded config - UPDATE THE TWO PLACEHOLDERS BELOW BEFORE RUNNING
+# -----------------------------------------------------------------------------
 
 AZURE_OPENAI_ENDPOINT    = "<YOUR_ENDPOINT>"
 AZURE_OPENAI_API_KEY     = "<YOUR_API_KEY>"
 AZURE_OPENAI_DEPLOYMENT  = "gpt-4o"
 AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
-AZURE_OPENAI_TEMPERATURE = None   # None → omit (works on all model families)
+AZURE_OPENAI_TEMPERATURE = None   # None -> omit (works on all model families)
 
 # Carrier prefix override. Leave None to auto-detect from FileName.
 CARRIER_PREFIX_OVERRIDE = None
 
-# FileName-prefix → carrier ID. Add carriers as you onboard them.
+# FileName-prefix -> carrier ID. Add carriers as you onboard them.
 CARRIER_PREFIX_MAP = {
     "humana":   "MOM",
     "aetna":    "AETNA",
@@ -66,7 +66,7 @@ CARRIER_PREFIX_MAP = {
 
 # Concurrency. With 500K TPM available, we can run many calls in parallel.
 # Each per-benefit call is ~3-5K tokens, so MAX_CONCURRENCY=24 peaks around
-# ~120K TPM — well within a 500K-TPM deployment, with room for multiple plans
+# ~120K TPM - well within a 500K-TPM deployment, with room for multiple plans
 # to run simultaneously.
 MAX_CONCURRENCY = 24
 
@@ -96,25 +96,25 @@ COLS = [
 ]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # BENEFIT CATALOG
 # Maps benefit IDs to their identifying PBP section codes and category keywords.
 # One target per benefit ID = one parallel LLM call.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # BENEFIT CATALOG
 # Hybrid approach: plan-level benefits stay hardcoded (no section codes in PBP),
-# data-driven benefits get built from the input by mapping section codes →
+# data-driven benefits get built from the input by mapping section codes ->
 # benefit IDs at runtime.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
-# Plan-level benefits — these live in plan-level rows or are scattered across
+# Plan-level benefits - these live in plan-level rows or are scattered across
 # rows by keyword, not by section code. The "section codes" list is always
 # empty; matching is keyword-only.
 #
 # NOTE: 600/614/2110/2111/2112 (Monthly Premium and Star Ratings) are
-# intentionally omitted — these come from CMS plan registry / star ratings
+# intentionally omitted - these come from CMS plan registry / star ratings
 # files, not from PBP data.
 PLAN_LEVEL_TARGETS = [
     # (benefitid, benefitname, [section_codes], [keywords], coverage_type)
@@ -132,19 +132,19 @@ PLAN_LEVEL_TARGETS = [
     ("760",  "Initial Coverage Standard Mail Order",   [], ["Standard Mail Order"], "1/InNetwork"),
 ]
 
-# Comprehensive CMS PBP section-code → benefit-ID map.
+# Comprehensive CMS PBP section-code -> benefit-ID map.
 # Built from the official CMS PBP file schema. Each section code maps to
 # exactly one benefit ID + benefit name + default coverage type.
 #
 # When the data-driven target builder finds a section code in the input
 # categories that's in this map, it creates a target for that benefit. Section
-# codes not in this map go to the sweeper pass — nothing is silently dropped.
+# codes not in this map go to the sweeper pass - nothing is silently dropped.
 SECTION_CODE_TO_BENEFIT = {
-    # Inpatient / facility — section 1, 2
+    # Inpatient / facility - section 1, 2
     "1a":     ("800",  "Inpatient Hospital - Acute",          "1/InNetwork"),
     "1b":     ("810",  "Inpatient Hospital - Psychiatric",    "1/InNetwork"),
     "2":      ("820",  "Skilled Nursing Facility",            "1/InNetwork"),
-    # Diagnostic / lab / radiology — section 3, 8
+    # Diagnostic / lab / radiology - section 3, 8
     "3":      ("1030", "Diagnostic Tests, Labs, Radiology",   "1/InNetwork"),
     "8a":     ("1030", "Outpatient Diagnostic Procedures",    "1/InNetwork"),
     "8a1":    ("1030", "Outpatient X-Ray Services",           "1/InNetwork"),
@@ -152,41 +152,41 @@ SECTION_CODE_TO_BENEFIT = {
     "8b":     ("1030", "Outpatient Radiology",                "1/InNetwork"),
     "8b1":    ("1030", "Outpatient Radiology - Diagnostic",   "1/InNetwork"),
     "8b2":    ("1030", "Outpatient Radiology - Therapeutic",  "1/InNetwork"),
-    # Mental health outpatient + substance abuse — section 4
+    # Mental health outpatient + substance abuse - section 4
     "4a":     ("940",  "Outpatient Mental Health",            "1/InNetwork"),
     "4b":     ("950",  "Outpatient Substance Abuse",          "1/InNetwork"),
     "4c":     ("960",  "Outpatient Surgery",                  "1/InNetwork"),
-    # Ambulance / Emergency — section 5, 6
+    # Ambulance / Emergency - section 5, 6
     "5":      ("970",  "Ambulance Services",                  "1/InNetwork"),
     "5a":     ("970",  "Ground Ambulance",                    "1/InNetwork"),
     "5b":     ("970",  "Air Ambulance",                       "1/InNetwork"),
     "6a":     ("981",  "Emergency Care",                      "4/NA"),
     "6b":     ("982",  "Urgently Needed Care",                "4/NA"),
-    # Professional / outpatient visits — section 7
+    # Professional / outpatient visits - section 7
     "7a":     ("900",  "Primary Care Physician Visits",       "1/InNetwork"),
     "7b":     ("910",  "Specialist Visits",                   "1/InNetwork"),
     "7c":     ("910",  "Occupational Therapy",                "1/InNetwork"),
     "7d":     ("911",  "Telehealth - Physician Specialist",   "1/InNetwork"),
     "7g":     ("910",  "Other Health Care Professional",      "1/InNetwork"),
     "7j":     ("911",  "Additional Telehealth Benefits",      "1/InNetwork"),
-    # Chiropractic / Podiatry / Outpatient Hospital — section 8, 9
+    # Chiropractic / Podiatry / Outpatient Hospital - section 8, 9
     "8":      ("920",  "Chiropractic Services",               "1/InNetwork"),
     "9a":     ("930",  "Podiatry Services",                   "1/InNetwork"),
     "9a1":    ("960",  "Outpatient Hospital Services",        "1/InNetwork"),
     "9a2":    ("960",  "Observation Services",                "1/InNetwork"),
     "9b":     ("960",  "Ambulatory Surgical Center",          "1/InNetwork"),
     "9d":     ("960",  "Outpatient Blood Services",           "1/InNetwork"),
-    # Outpatient Rehab — section 10
+    # Outpatient Rehab - section 10
     "10":     ("990",  "Outpatient Rehabilitation",           "1/InNetwork"),
     "10a":    ("990",  "Physical Therapy",                    "1/InNetwork"),
     "10b":    ("990",  "Speech Therapy",                      "1/InNetwork"),
-    # Equipment / supplies / Diabetic — section 11, 12
+    # Equipment / supplies / Diabetic - section 11, 12
     "11a":    ("1000", "Durable Medical Equipment",           "1/InNetwork"),
     "11b":    ("1610", "Prosthetic Devices",                  "1/InNetwork"),
     "11c":    ("1020", "Diabetes Programs and Supplies",      "1/InNetwork"),
     "11d":    ("1020", "Diabetic Therapeutic Shoes/Inserts",  "1/InNetwork"),
     "12":     ("1200", "Kidney Disease / Dialysis",           "1/InNetwork"),
-    # Supplemental benefits — section 13, 14
+    # Supplemental benefits - section 13, 14
     "13a":    ("1900", "Acupuncture",                         "1/InNetwork"),
     "13b":    ("2100", "Over-the-Counter Items",              "1/InNetwork"),
     "13c":    ("1060", "Meals",                               "1/InNetwork"),
@@ -198,15 +198,15 @@ SECTION_CODE_TO_BENEFIT = {
     "14c7":   ("911",  "Remote Access Technologies",          "1/InNetwork"),
     "14e4":   ("1700", "Digital Rectal Exams",                "1/InNetwork"),
     "14e5":   ("1700", "EKG following Welcome Visit",         "1/InNetwork"),
-    # Transportation / Part B drugs — section 15
+    # Transportation / Part B drugs - section 15
     "15":     ("1800", "Transportation",                      "1/InNetwork"),
     "15-1":   ("1700", "Medicare Part B Insulin",             "1/InNetwork"),
-    # Dental — section 16
+    # Dental - section 16
     "16a":    ("1300", "Preventive Dental",                   "1/InNetwork"),
     "16b":    ("1301", "Comprehensive Dental",                "1/InNetwork"),
     "16c":    ("1301", "Dental - Comprehensive (other)",      "1/InNetwork"),
     "16c1":   ("1301", "Dental - Restorative Services",       "1/InNetwork"),
-    # Vision — section 17
+    # Vision - section 17
     "17a":    ("1500", "Eye Exams",                           "1/InNetwork"),
     "17a1":   ("1500", "Routine Eye Exams",                   "1/InNetwork"),
     "17b":    ("1500", "Eyewear",                             "1/InNetwork"),
@@ -214,7 +214,7 @@ SECTION_CODE_TO_BENEFIT = {
     "17b2":   ("1500", "Eyeglasses (lenses and frames)",      "1/InNetwork"),
     "17b3":   ("1500", "Eyeglass Lenses",                     "1/InNetwork"),
     "17b4":   ("1500", "Eyeglass Frames",                     "1/InNetwork"),
-    # Hearing — section 18
+    # Hearing - section 18
     "18a":    ("1400", "Hearing Exams",                       "1/InNetwork"),
     "18b":    ("1400", "Hearing Aids",                        "1/InNetwork"),
     "18b1":   ("1400", "Prescription Hearing Aids",           "1/InNetwork"),
@@ -222,7 +222,7 @@ SECTION_CODE_TO_BENEFIT = {
 
 
 # Regex to extract section codes from a category string like
-# "Medicare Services.Inpatient Hospital-Acute (1a)" → "1a"
+# "Medicare Services.Inpatient Hospital-Acute (1a)" -> "1a"
 _SECTION_CODE_RE = re.compile(r"\(([0-9]+[a-z]?[0-9]?(?:-[0-9]+)?)\)")
 
 
@@ -240,7 +240,7 @@ def _build_data_driven_targets(pbp_rows: list) -> list:
       (benefitid, benefitname, [section_codes], [keywords], coverage_type)
 
     Section codes the LLM produces that are NOT in SECTION_CODE_TO_BENEFIT are
-    NOT silently dropped — those rows will be picked up by the sweeper pass.
+    NOT silently dropped - those rows will be picked up by the sweeper pass.
     """
     # Group section codes by the benefit ID they map to
     by_benefit: dict = defaultdict(lambda: {"codes": set(), "name": None, "coverage": "1/InNetwork"})
@@ -251,7 +251,7 @@ def _build_data_driven_targets(pbp_rows: list) -> list:
             if code in SECTION_CODE_TO_BENEFIT:
                 bid, bname, coverage = SECTION_CODE_TO_BENEFIT[code]
                 by_benefit[bid]["codes"].add(code)
-                # First name wins — multiple section codes can map to same
+                # First name wins - multiple section codes can map to same
                 # benefit ID (e.g. 1030 covers 3, 8a, 8a1, 8a2, 8b, 8b1, 8b2)
                 if by_benefit[bid]["name"] is None:
                     by_benefit[bid]["name"] = bname
@@ -289,9 +289,9 @@ def _build_targets_for_plan(plan_rows: list) -> list:
 BENEFIT_TARGETS = []
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Filtering — pick out PBP rows relevant to one benefit
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Filtering - pick out PBP rows relevant to one benefit
+# -----------------------------------------------------------------------------
 
 # Categories whose rows are needed by EVERY benefit call (plan-wide context)
 PLAN_LEVEL_HEADERS = {"Plan Characteristics", "Plan Level Cost Sharing"}
@@ -327,9 +327,9 @@ def _plan_level_rows(pbp_rows: list) -> list:
     return [r for r in pbp_rows if r.get("header") in PLAN_LEVEL_HEADERS]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Carrier detection + plan metadata
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _detect_carrier_prefix(file_name: str) -> str:
     if CARRIER_PREFIX_OVERRIDE:
@@ -369,9 +369,9 @@ def _extract_plan_meta(pbp_rows: list) -> dict:
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Async LLM call with retry
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 async def _call_llm_async(client: httpx.AsyncClient, system_message: str,
                           human_text: str, label: str) -> str:
@@ -430,7 +430,7 @@ def _parse_json_array(raw: str, label: str) -> list:
     start = text.find("[")
     end = text.rfind("]") + 1
     if start == -1 or end == 0:
-        # The model can legitimately return an empty array as "[]" — handle
+        # The model can legitimately return an empty array as "[]" - handle
         # the case where it returns just "no data" prose
         if "no data" in text.lower() or "not applicable" in text.lower() or text == "":
             return []
@@ -441,7 +441,7 @@ def _parse_json_array(raw: str, label: str) -> list:
 SWEEPER_PROMPT_TEMPLATE = """\
 You are doing a final-pass extraction. The targeted benefit calls have already
 been made for this Medicare Advantage plan. These remaining PBP rows were NOT
-covered by any targeted benefit call — but they may still contain benefits
+covered by any targeted benefit call - but they may still contain benefits
 that should be in the output.
 
 Plan context:
@@ -481,11 +481,11 @@ async def _run_sweeper_pass(
 ) -> list:
     """
     Final-pass extraction over PBP rows not covered by any targeted benefit
-    call. Returns whatever rows the LLM produces — could be empty.
+    call. Returns whatever rows the LLM produces - could be empty.
     """
     label = "sweeper"
     if not remaining_rows:
-        print(f"  [{label}] no uncovered rows — skipping")
+        print(f"  [{label}] no uncovered rows - skipping")
         return []
 
     # Cap input to keep the call manageable. If there are too many uncovered
@@ -512,7 +512,7 @@ async def _run_sweeper_pass(
                 raw = await _call_llm_async(client, system_message, human_text, chunk_label)
                 rows = _parse_json_array(raw, chunk_label)
                 elapsed = time.monotonic() - t0
-                print(f"  [{chunk_label}] {elapsed:.1f}s → {len(rows)} rows")
+                print(f"  [{chunk_label}] {elapsed:.1f}s -> {len(rows)} rows")
                 return rows
             except Exception as e:
                 elapsed = time.monotonic() - t0
@@ -527,9 +527,9 @@ async def _run_sweeper_pass(
     return sweeper_rows
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Per-benefit processor
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 PER_BENEFIT_PROMPT_TEMPLATE = """\
 You are extracting ONE specific Medicare Advantage benefit from a subset of PBP rows.
@@ -560,7 +560,7 @@ INSTRUCTIONS:
 - If the benefit-specific rows are empty AND there's no plan-wide data
   indicating this benefit, output an empty array: [].
 - Apply ALL formatting rules from the system prompt (HTML <b> tags, periodicity
-  normalization, $0.00 → $0, etc.).
+  normalization, $0.00 -> $0, etc.).
 - Always populate planid="{planid}" and plantypeid="{plan_type}" on every row.
 
 Return ONLY a valid JSON array. No markdown, no explanation.
@@ -608,7 +608,7 @@ async def _process_benefit(
             raw = await _call_llm_async(client, system_message, human_text, label)
             rows = _parse_json_array(raw, label)
 
-            # ── Empty-result retry ────────────────────────────────────────────
+            # -- Empty-result retry --------------------------------------------
             # If the LLM returned [] but the filter found a meaningful number
             # of input rows for this benefit, retry once with a more explicit
             # prompt. This catches the failure mode where the model gets
@@ -617,17 +617,17 @@ async def _process_benefit(
                 retry_text = human_text + (
                     f"\n\nIMPORTANT: The input above contains {len(specific_rows)} "
                     f"PBP rows that relate to {benefit_name}. The previous attempt "
-                    f"returned no rows. Look carefully — there IS data here for this "
+                    f"returned no rows. Look carefully - there IS data here for this "
                     f"benefit. Extract whatever you can find. If a value is "
                     f"genuinely missing, output the benefit row with "
                     f'benefitdesc="Not Covered". Do NOT return an empty array.'
                 )
-                print(f"  [{label}] empty result with {len(specific_rows)} input rows — retrying")
+                print(f"  [{label}] empty result with {len(specific_rows)} input rows - retrying")
                 raw = await _call_llm_async(client, system_message, retry_text, label + "[retry]")
                 rows = _parse_json_array(raw, label + "[retry]")
 
             elapsed = time.monotonic() - t0
-            print(f"  [{label}] {elapsed:.1f}s → {len(rows)} rows "
+            print(f"  [{label}] {elapsed:.1f}s -> {len(rows)} rows "
                   f"(input: {len(specific_rows)} pbp rows)")
             return benefit_id, rows
         except Exception as e:
@@ -649,13 +649,13 @@ def _benefit_might_use_plan_level_only(benefit_id: str) -> bool:
     return benefit_id in _PLAN_LEVEL_ONLY_BENEFITS
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Orchestration
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Multi-plan grouping
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _group_rows_by_plan(pbp_rows: list) -> dict:
     """
@@ -675,9 +675,9 @@ def _group_rows_by_plan(pbp_rows: list) -> dict:
     return dict(groups)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Orchestration
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 async def _run_one_plan(
     sem_per_call: asyncio.Semaphore,
@@ -754,7 +754,7 @@ async def _run_one_plan(
 async def _run_async(pbp_rows: list, prompts: dict) -> list:
     system_message = prompts["system_prompt"] + "\n\n" + prompts["few_shot_examples"]
 
-    # Group rows by FileName — each unique FileName = one plan
+    # Group rows by FileName - each unique FileName = one plan
     plan_groups = _group_rows_by_plan(pbp_rows)
     n_plans = len(plan_groups)
 
@@ -807,12 +807,12 @@ def run_benefit_processing(pbp_rows, prompts: dict) -> list:
 
     Parameters
     ----------
-    pbp_rows : list | dict   — raw PBP rows or input_json dict with "pbp" key
-    prompts  : dict          — keys: system_prompt, few_shot_examples, human_template
+    pbp_rows : list | dict   - raw PBP rows or input_json dict with "pbp" key
+    prompts  : dict          - keys: system_prompt, few_shot_examples, human_template
 
     Returns
     -------
-    list[dict] — benefit rows with the standard 10 columns
+    list[dict] - benefit rows with the standard 10 columns
     """
     if isinstance(pbp_rows, dict) and "pbp" in pbp_rows:
         pbp_rows = pbp_rows["pbp"]
@@ -828,9 +828,9 @@ def run_benefit_processing(pbp_rows, prompts: dict) -> list:
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Public per-plan API (for checkpoint-based batch processing of large loads)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def group_rows_by_plan(pbp_rows) -> dict:
     """
@@ -851,12 +851,12 @@ def run_one_plan_processing(plan_rows: list, prompts: dict) -> list:
 
     Parameters
     ----------
-    plan_rows : list   — rows for a single plan (one FileName). NOT a dict.
-    prompts   : dict   — keys: system_prompt, few_shot_examples, human_template
+    plan_rows : list   - rows for a single plan (one FileName). NOT a dict.
+    prompts   : dict   - keys: system_prompt, few_shot_examples, human_template
 
     Returns
     -------
-    list[dict] — benefit rows for this one plan, standard 10 columns
+    list[dict] - benefit rows for this one plan, standard 10 columns
     """
     if not plan_rows:
         return []
@@ -864,7 +864,7 @@ def run_one_plan_processing(plan_rows: list, prompts: dict) -> list:
     async def _run_one(rows):
         system_message = (
             prompts["system_prompt"] + "\n\n"
-            + "─── FEW-SHOT EXAMPLES ───────────────────────────────────────────\n"
+            + "--- FEW-SHOT EXAMPLES -------------------------------------------\n"
             + prompts["few_shot_examples"]
         )
 
