@@ -1,5 +1,32 @@
-flask
-pandas
-langchain
-langchain-openai
-python-dotenv
+# requirements.txt — desert/DESR Medicare benefits pipeline (v5)
+#
+# Changes from previous version:
+#   ADDED:    httpx (build_benefits.py calls Azure OpenAI directly with httpx)
+#   REMOVED:  langchain stack — v5 no longer uses LangChain
+#               (langchain, langchain-core, langchain-openai,
+#                langchain-text-splitters, langsmith)
+#   REMOVED:  openai SDK — v5 calls the REST API directly via httpx
+#   KEPT:     openpyxl — used elsewhere in the repo, not the LLM pipeline
+
+# Web framework — main.py
+Flask==3.0.2
+
+# Production WSGI server for Azure App Service
+gunicorn==21.2.0
+
+# Azure blob storage — main.py, checkpoint_runner.py, run_benefits_creation.py
+azure-storage-blob==12.19.1
+
+# Azure core exceptions (AzureError used in main.py error handling)
+azure-core==1.30.2
+
+# HTTP client for direct Azure OpenAI calls — build_benefits.py async pipeline
+# (Previously pulled in transitively by langchain/openai; now explicit since
+# those are removed.)
+httpx==0.27.2
+
+# Tabular ops — build_benefits.py output sorting, run_benefits_creation.py
+pandas==2.2.1
+
+# Excel reading/writing — kept for adjacent tooling outside the four core files
+openpyxl==3.1.2
