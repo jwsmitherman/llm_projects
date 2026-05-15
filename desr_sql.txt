@@ -1,0 +1,24 @@
+-- First Mapped Output
+SELECT * FROM [MedicareFeed].dbo.medicare_PlanBenefits WITH (NOLOCK) WHERE LoadID = 210 AND planID LIKE 'WH3822_002_0%'
+--AND description != 'Not Applicable' -- Why there are so many benefits not coming into MedicareParse_Benefits so in here we show them as Not Applicable by default
+SELECT * FROM [MedicareFeed].dbo.medicare_PlanBenefitsFull WITH (NOLOCK) WHERE LoadID = 210 AND planID LIKE 'WH3822_002_0%'
+
+-- Expected Results
+SELECT bv.*, FROM [IFP2].dbo.PlanBenefits pb WITH (NOLOCK)
+JOIN [IFP2].dbo.benefitsView bv (NOLOCK) ON bv.periodID = 336 AND bv.benefitID = pb.benefitID
+WHERE pb.endingPeriodID = 336 AND pb.planID = 'WH_H3822_002_0'
+
+-- LLM Output
+
+
+SELECT * FROM [MedicareFeed].dbo.medicare_PlanBenefitsFull WITH (NOLOCK) WHERE LoadID = 210 AND planID LIKE 'WH3822_002_0%'
+
+-- Expected Results
+SELECT bv.benefitName, pb.* FROM [IFP2].dbo.PlanBenefits pb WITH (NOLOCK)
+JOIN [IFP2].dbo.benefitsView bv (NOLOCK) ON bv.periodID = 336 AND bv.benefitID = pb.benefitID
+WHERE pb.endingPeriodID = 336 AND pb.planID = 'WH_H3822_002_0'
+
+-- LLM Output
+SELECT * FROM [MedicareFeed].dbo.MedicareParse_Benefits WITH (NOLOCK) WHERE LoadID = 210 AND contractID = 'H3822' AND planID = '002'
+
+SELECT * FROM [MedicareFeed].dbo.medicare_PlanBenefits WITH (NOLOCK) WHERE LoadID = 210 AND planID LIKE 'WH3822_002_0%' AND description != 'Not Applicable'
