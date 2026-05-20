@@ -1,0 +1,90 @@
+================================================================
+FEW-SHOT EXAMPLES (v6)
+Each example shows: input rows for ONE benefit + the two text fields
+the LLM should produce. Python handles all the IDs and names.
+================================================================
+
+--- EXAMPLE 1: Simple copay ---
+CONTEXT:
+  benefit: 900 - Doctor Office Visits Primary
+  coverage: InNetwork, service: N/A
+INPUT ROWS:
+  [Primary Care Physician Services (7a) - Medicare] Is there a copayment? = Yes
+  [Primary Care Physician Services (7a) - Medicare] Copayment amount = $0
+  [Primary Care Physician Services (7a) - Medicare] Is there a coinsurance? = No
+OUTPUT:
+  {"benefitdesc": "<b>$0</b> copay per visit (Medicare Covered)", "tinyDescription": "$0"}
+
+--- EXAMPLE 2: Copay with treatment limit and periodicity ---
+CONTEXT:
+  benefit: 1900 - Acupuncture
+  coverage: InNetwork, service: N/A
+INPUT ROWS:
+  [Acupuncture - Number of Treatments (13a) - Non-Medicare] Is there a copayment? = Yes
+  [Acupuncture - Number of Treatments (13a) - Non-Medicare] Copayment amount = $25
+  [Acupuncture - Number of Treatments (13a) - Non-Medicare] Indicate limit for Number of Treatments = 20
+  [Acupuncture - Number of Treatments (13a) - Non-Medicare] Periodicity = Every Year
+OUTPUT:
+  {"benefitdesc": "<b>$25</b> copay<br> for 20 treatment(s) every year", "tinyDescription": "$25"}
+
+--- EXAMPLE 3: Min/Max copay range ---
+CONTEXT:
+  benefit: 1400 - Hearing Services
+  coverage: InNetwork, service: Prescription Hearing Aid
+INPUT ROWS:
+  [Prescription Hearing Aids (18b1) - Non-Medicare] Is there a copayment? = Yes with a min & max
+  [Prescription Hearing Aids (18b1) - Non-Medicare] Minimum copayment = $699
+  [Prescription Hearing Aids (18b1) - Non-Medicare] Maximum copayment = $999
+  [Prescription Hearing Aids (18b1) - Non-Medicare] Indicate quantity for Hearing Aids = 2
+  [Prescription Hearing Aids (18b1) - Non-Medicare] Periodicity = Every Year
+OUTPUT:
+  {"benefitdesc": "<b>$699 - $999</b> copay<br> for 2 hearing aids for every year", "tinyDescription": "$699 - $999"}
+
+--- EXAMPLE 4: Unlimited visits ---
+CONTEXT:
+  benefit: 1400 - Hearing Services
+  coverage: InNetwork, service: Fitting Eval
+INPUT ROWS:
+  [Fitting/Evaluation for Hearing Aid (18a2) - Non-Medicare] Is there a copayment? = Yes
+  [Fitting/Evaluation for Hearing Aid (18a2) - Non-Medicare] Copayment amount = $0
+  [Fitting/Evaluation for Hearing Aid (18a2) - Non-Medicare] Is this benefit unlimited? = Yes
+OUTPUT:
+  {"benefitdesc": "<b>$0</b> copay<br> for unlimited service(s)", "tinyDescription": "$0"}
+
+--- EXAMPLE 5: Coinsurance percentage ---
+CONTEXT:
+  benefit: 900 - Doctor Office Visits Primary
+  coverage: InNetwork, service: N/A
+INPUT ROWS:
+  [Primary Care Physician Services (7a) - Medicare] Is there a copayment? = No
+  [Primary Care Physician Services (7a) - Medicare] Is there a coinsurance? = Yes
+  [Primary Care Physician Services (7a) - Medicare] Coinsurance percentage = 50
+OUTPUT:
+  {"benefitdesc": "<b>50%</b> per visit (Medicare Covered)", "tinyDescription": "50%"}
+
+--- EXAMPLE 6: Not Covered ---
+CONTEXT:
+  benefit: 1500 - Vision Services
+  coverage: InNetwork, service: Eyeglasses
+INPUT ROWS:
+  [Eyewear - Glasses (17b1) - Non-Medicare] Is this benefit covered? = No
+OUTPUT:
+  {"benefitdesc": "Not Covered", "tinyDescription": "Not Covered"}
+
+--- EXAMPLE 7: MOOP / boilerplate ---
+CONTEXT:
+  benefit: 620 - Out-of-Pocket Spending Limit
+  coverage: InNetwork, service: N/A
+INPUT ROWS:
+  [Plan Characteristics] In Network MOOP Amount = $2700
+OUTPUT:
+  {"benefitdesc": "<b>$2,700</b>", "tinyDescription": "$2,700"}
+
+--- EXAMPLE 8: Premium / dollar only ---
+CONTEXT:
+  benefit: 600 - Monthly Premium
+  coverage: NA, service: N/A
+INPUT ROWS:
+  [Plan Characteristics] Monthly Premium = $34.50
+OUTPUT:
+  {"benefitdesc": "<b>$34.50</b>", "tinyDescription": "$34.50"}

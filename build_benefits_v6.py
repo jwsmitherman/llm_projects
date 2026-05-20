@@ -42,7 +42,7 @@ from typing import Optional
 import httpx
 import pandas as pd
 
-__BUILD_VERSION__ = "2026-05-20-v6.1-notebook-safe"
+__BUILD_VERSION__ = "2026-05-20-v6.2-canonical-mappings"
 
 
 # ----------------------------------------------------------------------------
@@ -114,7 +114,7 @@ SECTION_CODE_TO_BENEFIT_ID = {
     "18a": 1050, "18a1":1050, "18a2":1050,
     "18b": 1800, "18b1":1800,
     # Other
-    "19a":  670, "19b":  670,
+    # (Note: section 19 is omitted - benefit 670 isn't in the canonical list)
 }
 
 
@@ -152,9 +152,11 @@ class Lookups:
     @classmethod
     def from_dir(cls, lookup_dir: str | Path) -> "Lookups":
         d = Path(lookup_dir)
-        bn = pd.read_csv(d / "benefit_id_name.csv")
-        ct = pd.read_csv(d / "coverage_type_lookup.csv")
-        st = pd.read_csv(d / "service_type_lookup.csv")
+        # keep_default_na=False prevents pandas turning the string "NA" into NaN
+        # (the coverage type 4 has description "NA" per the CMS schema)
+        bn = pd.read_csv(d / "benefit_id_name.csv",       keep_default_na=False)
+        ct = pd.read_csv(d / "coverage_type_lookup.csv",  keep_default_na=False)
+        st = pd.read_csv(d / "service_type_lookup.csv",   keep_default_na=False)
         return cls(
             benefit_name  = dict(zip(bn["benefitid"].astype(int),    bn["benefitname"])),
             coverage_type = dict(zip(ct["coverageTypeid"].astype(int), ct["coverageTypedesc"])),
@@ -274,32 +276,66 @@ def _group_rows_by_benefit(plan_rows: pd.DataFrame) -> dict[tuple[int, bool], Be
 
 
 # ----------------------------------------------------------------------------
+# Canonical per-benefit defaults from system_prompt.txt
+# ----------------------------------------------------------------------------
+# For each benefit ID, what coverageTypeid does it use by default?
+# This comes straight from system_prompt.txt's "BENEFIT ID AND COVERAGE TYPE
+# REFERENCE" section. If is_oon=True we override to 2 (OutOfNetwork) for
+# benefits that have an in/out distinction.
+BENEFIT_DEFAULT_COVERAGE_TYPE = {
+    600: 4, 610: 1, 611: 4, 614: 4, 615: 4, 616: 4, 620: 1,
+    700: 4, 710: 3, 711: 1, 730: 4, 740: 4, 755: 1, 760: 1,
+    800: 1, 810: 1, 820: 1,
+    900: 1, 910: 1, 911: 1, 920: 1, 930: 1, 940: 1,
+    950: 1, 960: 1, 970: 1,
+    981: 4, 982: 4, 990: 1,
+    1000: 1, 1020: 1, 1030: 1, 1050: 1, 1060: 1, 1200: 1,
+    1300: 1, 1301: 1, 1400: 1, 1500: 1, 1610: 1,
+    1700: 1, 1800: 1, 1900: 1, 2100: 1,
+    2110: 4, 2111: 4, 2112: 4,
+}
+
+# Benefits where is_oon=True should NOT override coveragetype to 2 because the
+# benefit is plan-level/NA in nature (e.g. monthly premium, star ratings).
+COVERAGE_TYPE_NA_BENEFITS = {
+    600, 611, 614, 615, 616, 700, 730, 740, 981, 982,
+    2110, 2111, 2112,
+}
+
+
+# ----------------------------------------------------------------------------
 # Determine coverage_type_id / service_type_id from rows + plan metadata
 # ----------------------------------------------------------------------------
 def _infer_coverage_type(group: BenefitGroup, plantypeid: str) -> int:
     """
-    Coverage type heuristic:
-    - PDP plans -> 4 (Standard - no network distinction for drug-only)
-    - PPO/HMO plans:
-        - is_oon -> 2 (Out-of-Network)
-        - else -> 1 (In-Network)
-    Refine later when real lookup table arrives.
+    Per-benefit canonical mapping from system_prompt.txt.
+
+    OutOfNetwork override: if the input rows indicate out-of-network AND the
+    benefit has an in/out distinction (not in COVERAGE_TYPE_NA_BENEFITS),
+    flip to 2.
     """
-    if plantypeid == "PDP":
-        return 4
-    if group.is_oon:
+    default_ct = BENEFIT_DEFAULT_COVERAGE_TYPE.get(group.benefit_id, 1)
+    if group.is_oon and group.benefit_id not in COVERAGE_TYPE_NA_BENEFITS:
         return 2
-    return 1
+    return default_ct
 
 
 def _infer_service_type(group: BenefitGroup) -> int:
     """
-    Service type heuristic. Most benefits use 0 (Standard). Inpatient = per day/stay.
-    Refine when real lookup arrives.
+    Service type heuristic. Most benefits use 0 (N/A). Inpatient + pharmacy
+    tiers use specific serviceTypeID values from the system_prompt.
+
+    This is a STARTING POINT - real serviceTypeID assignment varies by
+    sub-benefit (e.g. inpatient has 115/125/134/163 for day ranges; pharmacy
+    has 20-24 for tiers). Refine this once we see the per-benefit row patterns.
     """
-    if group.benefit_id in (800, 810, 820):  # inpatient
-        return 22  # Per Day
+    bid = group.benefit_id
+    # Pharmacy tier defaults to N/A (the LLM will use the right one from text)
+    # Inpatient default to "days 1 through 20" - common starting range
+    if bid in (800, 810, 820):
+        return 115  # days 1 through 20
     return 0
+
 
 
 # ----------------------------------------------------------------------------
@@ -560,10 +596,17 @@ def run_load(input_csv_path: str | Path,
     sys_path = Path(prompts_dir) / "system_prompt_v6.txt"
     if sys_path.exists():
         system_message = sys_path.read_text(encoding="utf-8")
+        print(f"[v6] loaded system_prompt_v6.txt ({len(system_message)} chars)")
     else:
-        # Fallback: use a baked-in minimal system prompt
         system_message = _default_system_prompt()
         print(f"[v6] WARNING: no system_prompt_v6.txt at {sys_path}, using default")
+
+    # Optionally append few-shot examples
+    examples_path = Path(prompts_dir) / "few_shot_examples_v6.txt"
+    if examples_path.exists():
+        examples = examples_path.read_text(encoding="utf-8")
+        system_message = system_message + "\n\n" + examples
+        print(f"[v6] appended few_shot_examples_v6.txt ({len(examples)} chars)")
 
     # Group input rows by plan
     plan_filenames = df_input["FileName"].unique().tolist()
