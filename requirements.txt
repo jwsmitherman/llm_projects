@@ -1,32 +1,35 @@
-# requirements.txt — desert/DESR Medicare benefits pipeline (v5)
-#
-# Changes from previous version:
-#   ADDED:    httpx (build_benefits.py calls Azure OpenAI directly with httpx)
-#   REMOVED:  langchain stack — v5 no longer uses LangChain
-#               (langchain, langchain-core, langchain-openai,
-#                langchain-text-splitters, langsmith)
-#   REMOVED:  openai SDK — v5 calls the REST API directly via httpx
-#   KEPT:     openpyxl — used elsewhere in the repo, not the LLM pipeline
+# =============================================================================
+# requirements.txt - v6 local pipeline
+# =============================================================================
+# Tested with Python 3.11 - 3.13. Install with:
+#     pip install -r requirements.txt
+# =============================================================================
 
-# Web framework — main.py
-Flask==3.0.2
+# --- Core data processing ------------------------------------------------
+pandas>=2.0.0
+numpy>=1.24.0
 
-# Production WSGI server for Azure App Service
-gunicorn==21.2.0
+# --- HTTP client for Azure OpenAI calls ----------------------------------
+httpx>=0.27.0
 
-# Azure blob storage — main.py, checkpoint_runner.py, run_benefits_creation.py
-azure-storage-blob==12.19.1
+# --- Notebook (Jupyter / VS Code Python kernel) --------------------------
+# nest_asyncio lets the pipeline run inside the notebook's existing event loop.
+# Without it, you get "asyncio.run() cannot be called from a running event loop".
+nest_asyncio>=1.6.0
+ipykernel>=6.29.0
+jupyter>=1.0.0
+ipywidgets>=8.1.0
 
-# Azure core exceptions (AzureError used in main.py error handling)
-azure-core==1.30.2
+# --- Optional: Azure blob storage --------------------------------------
+# Only needed if you want to read prompts / write outputs to Azure Blob storage.
+# Safe to leave installed even if not using blob - just won't be imported.
+azure-storage-blob>=12.19.0
+azure-core>=1.30.0
 
-# HTTP client for direct Azure OpenAI calls — build_benefits.py async pipeline
-# (Previously pulled in transitively by langchain/openai; now explicit since
-# those are removed.)
-httpx==0.27.2
+# --- Optional: env var loading from .env file --------------------------
+# Lets you put AZURE_OPENAI_ENDPOINT etc. in a local .env file instead of
+# setting them in your shell every time.
+python-dotenv>=1.0.0
 
-# Tabular ops — build_benefits.py output sorting, run_benefits_creation.py
-pandas==2.2.1
-
-# Excel reading/writing — kept for adjacent tooling outside the four core files
-openpyxl==3.1.2
+# --- Optional: reading/writing Excel for ad-hoc analysis ---------------
+openpyxl>=3.1.0
