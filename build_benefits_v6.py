@@ -42,7 +42,7 @@ from typing import Optional
 import httpx
 import pandas as pd
 
-__BUILD_VERSION__ = "2026-05-20-v6.2-canonical-mappings"
+__BUILD_VERSION__ = "2026-05-20-v6.3-better-diagnostics"
 
 
 # ----------------------------------------------------------------------------
@@ -54,11 +54,11 @@ AZURE_OPENAI_DEPLOYMENT  = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 AZURE_OPENAI_TEMPERATURE: Optional[float] = None  # gpt-5 family rejects explicit temp
 
-LLM_MAX_TOKENS    = int(os.getenv("LLM_MAX_TOKENS", "800"))
+LLM_MAX_TOKENS    = int(os.getenv("LLM_MAX_TOKENS", "1500"))
 MAX_RETRIES       = int(os.getenv("MAX_RETRIES", "5"))
-BASE_BACKOFF_S    = float(os.getenv("BASE_BACKOFF_S", "1.0"))
-MAX_CONCURRENCY   = int(os.getenv("MAX_CONCURRENCY", "16"))
-CONCURRENT_PLANS  = int(os.getenv("CONCURRENT_PLANS", "4"))
+BASE_BACKOFF_S    = float(os.getenv("BASE_BACKOFF_S", "2.0"))
+MAX_CONCURRENCY   = int(os.getenv("MAX_CONCURRENCY", "4"))
+CONCURRENT_PLANS  = int(os.getenv("CONCURRENT_PLANS", "1"))
 
 
 # ----------------------------------------------------------------------------
@@ -390,12 +390,22 @@ async def _call_llm_async(client: httpx.AsyncClient, system_message: str,
     if AZURE_OPENAI_TEMPERATURE is not None:
         body["temperature"] = AZURE_OPENAI_TEMPERATURE
 
-    last_err: Optional[Exception] = None
+    last_err:           Optional[Exception] = None
+    last_status:        Optional[int]       = None
+    last_body_preview:  Optional[str]       = None
+    last_finish_reason: Optional[str]       = None
+
     for attempt in range(MAX_RETRIES):
         try:
             resp = await client.post(url, headers=headers, json=body)
+            last_status = resp.status_code
 
             if resp.status_code == 429 or resp.status_code >= 500:
+                # Capture the body so we know WHY it's throttling
+                try:
+                    last_body_preview = resp.text[:300] if resp.text else "(empty body)"
+                except Exception:
+                    last_body_preview = "(could not read body)"
                 retry_ms = resp.headers.get("retry-after-ms")
                 retry_s  = resp.headers.get("retry-after")
                 if retry_ms and retry_ms.isdigit():
@@ -416,12 +426,34 @@ async def _call_llm_async(client: httpx.AsyncClient, system_message: str,
 
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"] or ""
+            content = data["choices"][0]["message"]["content"] or ""
+            last_finish_reason = data["choices"][0].get("finish_reason")
+
+            # Empty content with finish_reason=length is a usable signal -
+            # the model ran out of tokens before producing output. Treat as retry-worthy.
+            if not content.strip() and last_finish_reason == "length":
+                last_body_preview = (
+                    f"empty content, finish_reason=length (max_completion_tokens={LLM_MAX_TOKENS})"
+                )
+                await asyncio.sleep(BASE_BACKOFF_S * (2 ** attempt) + random.uniform(0, 1))
+                continue
+
+            return content
         except httpx.RequestError as e:
             last_err = e
             await asyncio.sleep(BASE_BACKOFF_S * (2 ** attempt) + random.uniform(0, 1))
 
-    raise RuntimeError(f"[{label}] exhausted {MAX_RETRIES} retries: {last_err}")
+    # Build a rich diagnostic message
+    parts = [f"[{label}] exhausted {MAX_RETRIES} retries"]
+    if last_status is not None:
+        parts.append(f"last_status={last_status}")
+    if last_finish_reason is not None:
+        parts.append(f"finish_reason={last_finish_reason}")
+    if last_err is not None:
+        parts.append(f"network_error={last_err}")
+    if last_body_preview:
+        parts.append(f"body={last_body_preview[:200]}")
+    raise RuntimeError(" | ".join(parts))
 
 
 def _build_user_message_for_benefit(base_row: dict) -> str:
