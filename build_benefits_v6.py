@@ -42,7 +42,7 @@ from typing import Optional
 import httpx
 import pandas as pd
 
-__BUILD_VERSION__ = "2026-05-20-v6.3-better-diagnostics"
+__BUILD_VERSION__ = "2026-05-20-v6.4-morteza-json-envelope"
 
 
 # ----------------------------------------------------------------------------
@@ -598,14 +598,22 @@ def _run_async(coro):
 def run_load(input_csv_path: str | Path,
              lookup_dir:     str | Path,
              prompts_dir:    str | Path,
-             output_csv_path: str | Path,
+             output_json_path: str | Path,
+             output_csv_path:  Optional[str | Path] = None,
+             load_id: Optional[str] = None,
              plan_filter: Optional[list[str]] = None,
              progress_callback: Optional[callable] = None) -> dict:
     """
-    Top-level entry. Reads input CSV, runs all plans, writes output CSV.
+    Top-level entry. Reads input CSV, runs all plans, writes:
+      - output_json_path: REQUIRED. JSON in {load_id, results: [...]} shape
+        for Morteza's SQL ingest (OPENJSON expects this envelope).
+      - output_csv_path:  OPTIONAL. Same data as flat CSV for spot-checking.
 
-    plan_filter: if provided, only process plans whose FileName is in this list.
-                 Useful for dev iteration on a single plan.
+    load_id:       Optional. If provided, used as the top-level load_id in the
+                   JSON envelope. If not provided, extracted from the input
+                   file's LoadID column (must be a single value; if multiple
+                   appear, the most-frequent one is used with a warning).
+    plan_filter:   If provided, only process plans whose FileName is in this list.
     progress_callback: called as fn(planname, n_done, n_total) after each plan.
     """
     print(f"[v6] build version: {__BUILD_VERSION__}")
@@ -614,6 +622,23 @@ def run_load(input_csv_path: str | Path,
     # Load input
     df_input = pd.read_csv(input_csv_path)
     print(f"[v6] loaded {len(df_input):,} input rows from {input_csv_path}")
+
+    # Resolve load_id: caller wins, else infer from data
+    if load_id is not None:
+        load_id = str(load_id).strip()
+        print(f"[v6] load_id (from parameter): {load_id}")
+    else:
+        load_id_counts = df_input["LoadID"].dropna().astype(str).str.strip().value_counts()
+        if len(load_id_counts) == 0:
+            raise SystemExit("STOP - no load_id provided and input has no LoadID values")
+        if len(load_id_counts) > 1:
+            top_id = load_id_counts.index[0]
+            print(f"[v6] WARNING: input has multiple LoadIDs: "
+                  f"{dict(load_id_counts)}; using most-frequent: {top_id!r}")
+            load_id = top_id
+        else:
+            load_id = load_id_counts.index[0]
+            print(f"[v6] load_id (from input): {load_id}")
 
     if plan_filter:
         df_input = df_input[df_input["FileName"].isin(plan_filter)]
@@ -700,27 +725,49 @@ def run_load(input_csv_path: str | Path,
         else:
             n_failed += 1
 
-    # Write output
-    if all_output_rows:
-        out_df = pd.DataFrame(all_output_rows)
-        # Enforce the column order the user asked for
-        cols = ["planid", "plantypeid", "benefitid", "benefitname",
+    # Write output - JSON envelope is the canonical deliverable for Morteza's SQL ingest
+    out_cols = ["planid", "plantypeid", "benefitid", "benefitname",
                 "coverageTypeid", "coverageTypedesc",
                 "serviceTypeID", "serviceTypeDesc",
                 "benefitdesc", "tinyDescription"]
-        out_df = out_df.reindex(columns=cols)
+
+    # Filter each row down to the canonical 10 columns in the required order
+    canonical_rows = []
+    for r in all_output_rows:
+        canonical_rows.append({k: r.get(k) for k in out_cols})
+
+    # Required: JSON in Morteza's envelope shape
+    envelope = {
+        "load_id": load_id,
+        "results": canonical_rows,
+    }
+    output_json_path = Path(output_json_path)
+    output_json_path.parent.mkdir(parents=True, exist_ok=True)
+    output_json_path.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
+    print(f"[v6] wrote {len(canonical_rows):,} rows to {output_json_path} "
+          f"(JSON, with load_id={load_id!r})")
+
+    # Optional: flat CSV for spot-checking in Excel
+    csv_path_written: Optional[str] = None
+    if output_csv_path and canonical_rows:
+        out_df = pd.DataFrame(canonical_rows).reindex(columns=out_cols)
+        output_csv_path = Path(output_csv_path)
+        output_csv_path.parent.mkdir(parents=True, exist_ok=True)
         out_df.to_csv(output_csv_path, index=False)
-        print(f"[v6] wrote {len(out_df):,} rows to {output_csv_path}")
+        csv_path_written = str(output_csv_path)
+        print(f"[v6] wrote CSV side artifact to {output_csv_path}")
 
     total_elapsed = time.monotonic() - t0
     summary = {
         "build_version":    __BUILD_VERSION__,
+        "load_id":          load_id,
         "plans_total":      len(plan_filenames),
         "plans_done":       n_done,
         "plans_failed":     n_failed,
-        "rows_out":         len(all_output_rows),
+        "rows_out":         len(canonical_rows),
         "elapsed_s":        round(total_elapsed, 1),
-        "output_csv_path":  str(output_csv_path),
+        "output_json_path": str(output_json_path),
+        "output_csv_path":  csv_path_written,
     }
     print(f"[v6] DONE: {summary}")
     return summary
