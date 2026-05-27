@@ -1,0 +1,18 @@
+# Copy this file to .env and fill in your real keys (NEVER commit .env to git)
+# Get keys + endpoint URL + deployment names from Azure Portal -> the Cognitive
+# Services resource -> Deployments tab. The deployment NAME is what goes in
+# the URL after /deployments/ - it can differ between resources even if the
+# underlying model is the same.
+
+# Endpoint A - joshu-mebu0lvp-swedencentral
+# Confirmed deployment name uses UNDERSCORE: gpt-5-mini_ng
+ENDPOINT_A_URL=https://joshu-mebu0lvp-swedencentral.cognitiveservices.azure.com/
+ENDPOINT_A_KEY=<paste-rotated-key-here>
+ENDPOINT_A_DEPLOYMENT=gpt-5-mini_ng
+
+# Endpoint B - comissio-poc
+# Confirmed deployment name uses HYPHEN: gpt-5-mini-ng
+# (verified in Azure Portal screenshot - this is NOT the same as endpoint A)
+ENDPOINT_B_URL=https://comissio-poc.openai.azure.com/
+ENDPOINT_B_KEY=<paste-rotated-key-here>
+ENDPOINT_B_DEPLOYMENT=gpt-5-mini-ng
