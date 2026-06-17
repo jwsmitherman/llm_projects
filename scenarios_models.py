@@ -1,7 +1,6 @@
-# IDEN-43831 ANM spike (3/3) models: GBM-class + baselines across every scenario.
-# Consumes Feat (feature superset), SCN (scenario -> feature columns), meta (label + no_strong_id).
-# One stratified split shared across all scenarios for a fair comparison. Reports overall AUC/AP/F1
-# and the same on the no-strong-id slice; plus single-feature separation (f_fin/f_ssn leakage guard).
+# IDEN-43831 ANM spike (models). Reads the featurized training table written by the data file,
+# runs GBM-class models + baselines across the scenario matrix, evaluates each overall and on the
+# no-strong-id slice, prints a leakage check, and appends the results to a table.
 
 import numpy as np
 import pandas as pd
@@ -13,19 +12,44 @@ from sklearn.pipeline import make_pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
-SEED = 43831
+SEED          = 43831
+TRAIN_TABLE   = "eciscor_prod.pcis_data_science.anm_training_data_sample_featurized"
+RESULTS_TABLE = "eciscor_prod.pcis_data_science.anm_scenario_results"
+SAVE_RESULTS  = True
+
+FEATURE_NAMES = ["f_dob", "f_cob", "f_anum", "f_ssn", "f_fin",
+                 "f_dl", "f_passport", "f_i94", "f_travel_doc", "f_cartos", "f_name"]
+
+src  = spark.table(TRAIN_TABLE).toPandas()
+Feat = src[FEATURE_NAMES].copy()
+meta = src[["label", "no_strong_id", "dl_present"]].copy()
+# Feat = Feat.replace(-9.0, np.nan)   # optional: treat pcs -9 sentinel as missing (cleaner for GBMs)
+
+# scenario matrix (column subsets of Feat) covering no-ID / Driver's License / other identifiers
+NAME = ["f_cartos", "f_name", "f_dob", "f_cob"]
+SCN = {
+    "baseline":             NAME + ["f_anum", "f_ssn", "f_fin"],
+    "no_ssn":               NAME + ["f_anum", "f_fin"],
+    "no_strong_id":         NAME,
+    "with_dl":              NAME + ["f_anum", "f_ssn", "f_fin", "f_dl"],
+    "with_dl_no_strong_id": NAME + ["f_dl"],
+    "with_other_ids":       NAME + ["f_anum", "f_ssn", "f_fin", "f_dl", "f_passport", "f_i94", "f_travel_doc"],
+    "other_ids_no_strong":  NAME + ["f_dl", "f_passport", "f_i94", "f_travel_doc"],
+    "all_ids":              FEATURE_NAMES,
+}
+
 y = meta["label"].astype(int).values
 tr, te = train_test_split(np.arange(len(Feat)), test_size=0.25, stratify=y, random_state=SEED)
 noid_mask = meta["no_strong_id"].values
 te_noid = te[noid_mask[te]]
-print(f"train={len(tr)} test={len(te)} no-strong-id test={len(te_noid)} "
+print(f"rows={len(Feat)} train={len(tr)} test={len(te)} no-strong-id test={len(te_noid)} "
       f"(pos rate {y[te].mean():.3f} / {(y[te_noid].mean() if len(te_noid) else float('nan')):.3f})")
 
 print("\nsingle-feature separation (AUC; >0.97 = likely crutch / leakage):")
 for c in Feat.columns:
     s = Feat.iloc[tr][c].fillna(Feat[c].median())
     auc = roc_auc_score(y[tr], s)
-    print(f"  {c:9s} {max(auc, 1 - auc):.3f}")
+    print(f"  {c:13s} {max(auc, 1 - auc):.3f}")
 
 def build_models():
     m = {}
@@ -69,13 +93,12 @@ def best_f1_threshold(y_true, p):
             best_f, best_t = f, t
     return best_t
 
-rows, fitted = [], {}
+rows = []
 for scn, cols in SCN.items():
     Xtr = Feat.iloc[tr][cols]
     for name, model in build_models().items():
         model.fit(Xtr, y[tr])
         thr = best_f1_threshold(y[tr], model.predict_proba(Xtr)[:, 1])
-        fitted[(scn, name)] = model
         for slice_name, idx in [("all", te), ("no_strong_id", te_noid)]:
             if len(idx) == 0:
                 continue
@@ -87,15 +110,18 @@ for scn, cols in SCN.items():
                 f1=round(f1_score(y[idx], (p >= thr).astype(int), zero_division=0), 4)))
 
 results = pd.DataFrame(rows).sort_values(["eval", "scenario", "auc"], ascending=[True, True, False])
-print("\nresults (all scenarios x models):")
+print("\nresults (scenarios x models):")
 print(results.to_string(index=False))
 
-# best model per scenario on the no-strong-id slice = the AC-1 evidence
 noid = results[results["eval"] == "no_strong_id"]
 if len(noid):
     print("\nbest model per scenario on no-strong-id slice (AUC):")
     print(noid.sort_values("auc", ascending=False).groupby("scenario").head(1)
               .sort_values("auc", ascending=False).to_string(index=False))
 
-results
-
+if SAVE_RESULTS:
+    results["run_ts"] = pd.Timestamp.utcnow()
+    results["seed"] = SEED
+    (spark.createDataFrame(results)
+        .write.mode("append").option("mergeSchema", "true").saveAsTable(RESULTS_TABLE))
+    print("\nsaved results to", RESULTS_TABLE)
