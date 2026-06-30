@@ -1,37 +1,34 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC # Ground-to-Air Transport Eligibility Analysis (v2)
-# MAGIC
-# MAGIC Counts **distinct ground trips that could clinically have gone by air**, by **pickup county** and **month**.
-# MAGIC
-# MAGIC ### What changed from v1 (and why the numbers were inflated)
-# MAGIC 1. **Count distinct incidents, not rows.** The Main extract repeats each incident (UUID) many times
-# MAGIC    (one-to-many flatten). v1 counted rows -> 6,722 in Riverside. v2 dedups to one row per **NEMSIS UUID**.
-# MAGIC 2. **Trauma flag fixed.** v1 marked a trip trauma whenever the Injury-Triage columns were merely *populated*,
-# MAGIC    so "Respiratory Distress" got flagged. v2 uses specific impression values + the **Revised Trauma Score**
-# MAGIC    from the Vitals file, and never matches "No Apparent Illness/Injury".
-# MAGIC 3. **Stroke flag improved** with the **Stroke Scale** fields (eVitals.29/30) from the Vitals file.
-# MAGIC 4. **Pediatrics (<5)** now parsed from the **PCR Narrative** text ("10 y/o male"), since there is no age column.
-# MAGIC 5. **Lights & Sirens** now requires the **transport leg** (eDisposition.18), not the drive to scene.
-# MAGIC
-# MAGIC ### Data layout
-# MAGIC - `data/`  -> 6 **Main** files (one per month) = trip rows
-# MAGIC - `other_data/` -> 6 **Vitals-&-UUID** + 6 **Narrative-&-UUID** files, joined to Main on `Incident Record NEMSIS UUID`
+# # Ground-to-Air Transport Eligibility Analysis (v2)
+#
+# Counts **distinct ground trips that could clinically have gone by air**, by **pickup county** and **month**.
+#
+# ### What changed from v1 (and why the numbers were inflated)
+# 1. **Count distinct incidents, not rows.** The Main extract repeats each incident (UUID) many times
+#    (one-to-many flatten). v1 counted rows -> 6,722 in Riverside. v2 dedups to one row per **NEMSIS UUID**.
+# 2. **Trauma flag fixed.** v1 marked a trip trauma whenever the Injury-Triage columns were merely *populated*,
+#    so "Respiratory Distress" got flagged. v2 uses specific impression values + the **Revised Trauma Score**
+#    from the Vitals file, and never matches "No Apparent Illness/Injury".
+# 3. **Stroke flag improved** with the **Stroke Scale** fields (eVitals.29/30) from the Vitals file.
+# 4. **Pediatrics (<5)** now parsed from the **PCR Narrative** text ("10 y/o male"), since there is no age column.
+# 5. **Lights & Sirens** now requires the **transport leg** (eDisposition.18), not the drive to scene.
+#
+# ### Data layout
+# - `data/`  -> 6 **Main** files (one per month) = trip rows
+# - `other_data/` -> 6 **Vitals-&-UUID** + 6 **Narrative-&-UUID** files, joined to Main on `Incident Record NEMSIS UUID`
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## ASSUMPTIONS (confirm Friday)
-# MAGIC 1. Distance >50 mi is **pre-applied** at extract time (transcript: "this is already filtered data" / "the long trips").
-# MAGIC 2. **NEMSIS UUID is unique per trip** -> dedup key. Notebook prints the rows-per-incident ratio so you can verify.
-# MAGIC 3. Age parsed from narrative is the **first** "N y/o"-type mention; usually the patient, but free text is imperfect.
-# MAGIC 4. A trip in multiple segments is counted **once** in the eligible total (segment columns can sum higher).
-# MAGIC 5. Acuity filter (drop "Lower Acuity (Green)") is available but **OFF** by default — flip if the team wants it.
+# ## ASSUMPTIONS (confirm Friday)
+# 1. Distance >50 mi is **pre-applied** at extract time (transcript: "this is already filtered data" / "the long trips").
+# 2. **NEMSIS UUID is unique per trip** -> dedup key. Notebook prints the rows-per-incident ratio so you can verify.
+# 3. Age parsed from narrative is the **first** "N y/o"-type mention; usually the patient, but free text is imperfect.
+# 4. A trip in multiple segments is counted **once** in the eligible total (segment columns can sum higher).
+# 5. Acuity filter (drop "Lower Acuity (Green)") is available but **OFF** by default — flip if the team wants it.
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 0. Config
+# ## 0. Config
 
 # COMMAND ----------
 
@@ -49,8 +46,7 @@ PEDS_MAX_AGE_YEARS = 5
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 1. Column resolver + helpers
+# ## 1. Column resolver + helpers
 
 # COMMAND ----------
 
@@ -105,6 +101,26 @@ def show(x):
     try: display(x)
     except Exception: print(x)
 
+STATE_MAP = {
+    "al":"Alabama","ak":"Alaska","az":"Arizona","ar":"Arkansas","ca":"California","co":"Colorado",
+    "ct":"Connecticut","de":"Delaware","fl":"Florida","ga":"Georgia","hi":"Hawaii","id":"Idaho",
+    "il":"Illinois","in":"Indiana","ia":"Iowa","ks":"Kansas","ky":"Kentucky","la":"Louisiana",
+    "me":"Maine","md":"Maryland","ma":"Massachusetts","mi":"Michigan","mn":"Minnesota","ms":"Mississippi",
+    "mo":"Missouri","mt":"Montana","ne":"Nebraska","nv":"Nevada","nh":"New Hampshire","nj":"New Jersey",
+    "nm":"New Mexico","ny":"New York","nc":"North Carolina","nd":"North Dakota","oh":"Ohio","ok":"Oklahoma",
+    "or":"Oregon","pa":"Pennsylvania","ri":"Rhode Island","sc":"South Carolina","sd":"South Dakota",
+    "tn":"Tennessee","tx":"Texas","ut":"Utah","vt":"Vermont","va":"Virginia","wa":"Washington",
+    "wv":"West Virginia","wi":"Wisconsin","wy":"Wyoming",
+}
+def norm_state(v):
+    s = _norm(v)
+    if s in STATE_MAP: return STATE_MAP[s]
+    return str(v).strip().title() if v is not None and str(v).strip() else None
+
+def norm_county(v):
+    if v is None or str(v).strip() == "": return None
+    return re.sub(r"\s+", " ", str(v)).strip().title()
+
 MONTH_MAP = {"jan":"01","feb":"02","mar":"03","apr":"04","may":"05","jun":"06",
              "jul":"07","aug":"08","sep":"09","oct":"10","nov":"11","dec":"12"}
 
@@ -129,8 +145,7 @@ def pick_data_sheet(sheets):
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 2. Load Main files (trip rows)
+# ## 2. Load Main files (trip rows)
 
 # COMMAND ----------
 
@@ -157,8 +172,7 @@ show(main_manifest)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 3. Load supporting files (Vitals + Narrative) and aggregate to one row per UUID
+# ## 3. Load supporting files (Vitals + Narrative) and aggregate to one row per UUID
 
 # COMMAND ----------
 
@@ -235,8 +249,7 @@ else:
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 4. Row-level flags on Main, then collapse to one row per incident
+# ## 4. Row-level flags on Main, then collapse to one row per incident
 
 # COMMAND ----------
 
@@ -280,8 +293,8 @@ uuid_key = uuid_key.where(uuid_key.notna(), pd.Series(main.index.astype(str), in
 
 m = pd.DataFrame({
     "uuid": uuid_key,
-    "scene_state": col(main, "scene_state"),
-    "scene_county": col(main, "scene_county"),
+    "scene_state": col(main, "scene_state").map(norm_state),
+    "scene_county": col(main, "scene_county").map(norm_county),
     "month_key": main["__month_key"],
     "month_label": main["__month_label"],
     "incident_number": col(main, "incident_number"),
@@ -317,8 +330,7 @@ print(f"Main rows: {len(m)}  ->  distinct incidents: {len(inc)}  (rows-per-incid
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 5. Join vitals + narrative, build final eligibility
+# ## 5. Join vitals + narrative, build final eligibility
 
 # COMMAND ----------
 
@@ -346,8 +358,7 @@ print(f"  ELIGIBLE               : {int(inc['eligible'].sum())}")
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 6. PRIMARY OUTPUT — eligible trips by county x month
+# ## 6. PRIMARY OUTPUT — eligible trips by county x month
 
 # COMMAND ----------
 
@@ -368,8 +379,7 @@ show(county_month.reset_index())
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 7. Segment breakdown + annualized
+# ## 7. Segment breakdown + annualized
 
 # COMMAND ----------
 
@@ -388,8 +398,7 @@ show(annual)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 8. Save outputs
+# ## 8. Save outputs
 
 # COMMAND ----------
 
