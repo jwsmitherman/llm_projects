@@ -1,0 +1,23 @@
+# ---- Average transport miles for air-eligible trips, by county ----
+dist_col = R.get("distance")
+if not dist_col:
+    for c in main.columns:
+        if any(k in _norm(c) for k in ["distance", "mileage", "miles", "transport mile", "loaded mile"]):
+            dist_col = c; break
+
+if not dist_col:
+    print("NO distance/mileage column found in the Main files.")
+    print("Columns containing 'mil' or 'dist':",
+          [c for c in main.columns if "mil" in _norm(c) or "dist" in _norm(c)])
+    print("-> Send Mukund: distance isn't in these extracts; need the mileage field added to the report.")
+else:
+    print("Using distance column:", dist_col)
+    dmap = (pd.DataFrame({"uuid": col("uuid"), "miles": pd.to_numeric(main[dist_col], errors="coerce")})
+            .dropna(subset=["uuid"]).groupby("uuid")["miles"].max())
+    e = inc[(inc["scene_state"] == TARGET_STATE) & (inc["scene_county"].isin(FOCUS_COUNTIES)) & inc["air_eligible"]].copy()
+    e["miles"] = e["uuid"].map(dmap)
+    out = (e.groupby("scene_county")["miles"]
+           .agg(air_eligible_trips="count", with_miles=lambda s: s.notna().sum(),
+                avg_miles="mean", median_miles="median", min_miles="min", max_miles="max")
+           .round(1).reset_index())
+    show(out)
