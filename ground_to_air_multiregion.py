@@ -42,7 +42,7 @@ TARGETS = [
     {"region":"South",     "base":"AEL Murfreesboro (StatFlight)","county":"Rutherford", "state":"Tennessee"},
     {"region":"South",     "base":"MTC Birmingham (Childrens)",  "county":"Jefferson",   "state":"Alabama"},
 ]
-ACTIVE_REGIONS = {"Northeast", "Pacific", "West"}   # -> the 6 slides he asked for
+ACTIVE_REGIONS = {"Northeast", "Pacific", "West", "South"}   # all targets; Mukund asked to confirm NE + South
 
 LS_REQUIRE_TRANSPORT_LEG = True
 PEDS_MAX_AGE_YEARS = 5
@@ -406,59 +406,64 @@ def slide_data(county, state):
 
 active = [t for t in TARGETS if t["region"] in ACTIVE_REGIONS]
 
-# ---- 6a. COVERAGE REPORT — does the loaded data actually contain each target county? ----
-# Run this FIRST. Any county with rows_in_data == 0 needs a fresh EPCR extract for that region.
+# ---- 6a. COVERAGE REPORT — distinguish "state not in extract" from a true post-filter zero ----
+# rows_in_data == 0 AND state absent  -> CANNOT confirm "no ground transports" (data just isn't in this pull)
+# rows_in_data == 0 AND state present -> genuine 0 long-ground transports for that county
+# rows_in_data  > 0                   -> ground transports exist; base/air_eligible show how many qualify
+states_present = set(inc["scene_state"].dropna().unique())
 cov = []
 for t in active:
-    cty = inc[(inc["scene_state"]==norm_state(t["state"])) & (inc["scene_county"]==norm_county(t["county"]))]
+    st = norm_state(t["state"]); cty_n = norm_county(t["county"])
+    cty = inc[(inc["scene_state"]==st) & (inc["scene_county"]==cty_n)]
+    n = len(cty)
+    state_here = st in states_present
+    if n > 0:
+        status = "ground transports present"
+    elif not state_here:
+        status = "STATE NOT IN EXTRACT - cannot confirm; needs data pull"
+    else:
+        status = "0 long-ground transports (state present in data)"
     cov.append({
-        "region": t["region"], "base": t["base"],
-        "county": f'{t["county"]}, {t["state"]}',
-        "rows_in_data": len(cty),
+        "region": t["region"], "base": t["base"], "county": f'{t["county"]}, {t["state"]}',
+        "state_in_extract": "yes" if state_here else "no",
+        "rows_in_data": n,
         "base_eligible": int(cty["base_eligible"].sum()),
         "air_eligible": int(cty["air_eligible"].sum()),
-        "DATA?": "yes" if len(cty) else "NO -> needs extract",
+        "status": status,
     })
 coverage = pd.DataFrame(cov)
 print("================  COVERAGE REPORT  ================")
-print(f"Loaded scene states in data: {sorted([s for s in inc['scene_state'].dropna().unique()])[:15]}")
+print(f"States present in extract: {sorted(states_present)}")
 show(coverage)
-missing = coverage[coverage["rows_in_data"]==0]["county"].tolist()
-if missing:
-    print("!! NO DATA for:", ", ".join(missing), "-> pull EPCR extracts for these regions before building their slides.")
 
 # COMMAND ----------
 
-# ---- 6b. Two-slide data per available target county ----
+# ---- 6b. Two-slide data per target county (write ALL, including zero-volume, so nothing is silently missing) ----
 
 packs, narratives = {}, []
-slide_no = 0
-for t in active:
+for i, t in enumerate(active, 1):
     cty_norm, st_norm = norm_county(t["county"]), norm_state(t["state"])
-    n_rows = int(((inc["scene_state"]==st_norm) & (inc["scene_county"]==cty_norm)).sum())
-    if n_rows == 0:
-        print(f"\n--- SKIP {t['county']}, {t['state']} ({t['region']} / {t['base']}): no rows in loaded data ---")
-        continue
-    slide_no += 1
     key = f'{t["county"]}, {t["state"]}'
     volume, funnel, time_summary, monthly, cond, crit, bullets = slide_data(cty_norm, st_norm)
+    n_cand = int(volume.loc[volume["metric"].str.startswith("Air-eligible"), "period_total"].iloc[0])
     packs[key] = (t, volume, funnel, time_summary, monthly, cond, crit, bullets)
-    narratives.append({"slide": slide_no, "region": t["region"], "base": t["base"],
-                       "county": key, "bullet_1": bullets[0], "bullet_2": bullets[1]})
-    print(f"\n==============  SLIDE {slide_no}: {t['county'].upper()} COUNTY, {t['state']}  "
-          f"[{t['region']} / {t['base']}]  ({TIMEFRAME})  ==============")
+    narratives.append({"slide": i, "region": t["region"], "base": t["base"], "county": key,
+                       "air_eligible": n_cand, "bullet_1": bullets[0], "bullet_2": bullets[1]})
+    flag = "" if n_cand > 0 else "   [ZERO after filter — see coverage tab for reason]"
+    print(f"\n==============  {i}. {t['county'].upper()} COUNTY, {t['state']}  "
+          f"[{t['region']} / {t['base']}]  ({TIMEFRAME}){flag}  ==============")
     print("1. GROUND TRANSPORT VOLUME"); show(volume)
-    print("1b. TRAVEL-TIME FUNNEL (pre-time eligible set)"); show(funnel)
-    print("1c. TRAVEL TIME (eligible cohort)"); show(time_summary)
+    print("1b. TRAVEL-TIME FUNNEL"); show(funnel)
+    print("1c. TRAVEL TIME"); show(time_summary)
     print("   air-eligible by month:"); show(monthly)
-    print("2. DISTRIBUTION BY CONDITION (air-eligible cohort)"); show(cond)
-    print("3. DISTRIBUTION BY CRITICALITY (air-eligible cohort)"); show(crit)
+    print("2. CONDITION"); show(cond)
+    print("3. CRITICALITY"); show(crit)
     print("4. NARRATIVE")
     for b in bullets: print("   -", b)
 
 # COMMAND ----------
 
-# ---- 7. Save one workbook (coverage + narratives + a sheet per available county) ----
+# ---- 7. Save one workbook (coverage + narratives + a sheet per county, zero-volume included) ----
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 try:
@@ -467,8 +472,11 @@ try:
         pd.DataFrame(narratives).to_excel(xw, sheet_name="narratives", index=False)
         for key, (t, volume, funnel, time_summary, monthly, cond, crit, _) in packs.items():
             tag = re.sub(r"[^A-Za-z0-9]+", "_", key)[:28]; r0 = 0
+            # note row at top so a zero sheet is self-explanatory
+            note = pd.DataFrame([{"note": f'{t["region"]} / {t["base"]} — {key}'}])
+            note.to_excel(xw, sheet_name=tag, index=False, startrow=r0); r0 += len(note) + 2
             for tbl in [volume, funnel, time_summary, monthly, cond, crit]:
                 tbl.to_excel(xw, sheet_name=tag, index=False, startrow=r0); r0 += len(tbl) + 2
-    print("Wrote multiregion_slide_data.xlsx to", OUTPUT_DIR, "| counties with data:", len(packs))
+    print("Wrote multiregion_slide_data.xlsx to", OUTPUT_DIR, "| county sheets:", len(packs))
 except Exception as e:
     print("Excel write skipped:", e)
