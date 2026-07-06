@@ -1,0 +1,327 @@
+So you essentially, that looked like a long string of queries, and I've had similar, where I have like a string of queries, and what Psychic ends up doing, let me find an example, is he like standard product defies
+it
+and works his magic, so instead of having that baked in outcome value, that would probably be a parameter, right?
+Exactly, yeah, we want to pass it as a parameter, and we get back training data, basically.
+Okay, so that's not quite how it works. The way how it works is that would put it into the config pipeline, and then you'd have a separate query querying the config pipeline. Does that make sense? Oh,
+yeah, yeah, yeah. So you run the store procedure, it produces a key, and then you use that key to go pull the data.
+Exactly. Yeah,
+exactly. Yeah, I'm familiar with that.
+Okay, cool. So let me see if I can find an example. It's like calc outcome,
+I just joined. Did you configure the outcome variables?
+I'm sorry. What did you say, Bola?
+Did you, did you configure the outcome in the portal,
+in the portal. No, not yet.
+Yeah, that's another piece, right? It has to be configured in the front end, right? Bob,
+yeah, which I think it's better. We can probably start from there. Okay,
+so I've never done that before. So, does someone have that link or
+Bala, do you want to walk? I have never done it either. I've watched it several times. Do you want to walk us through? Would that be okay, or do you want one of
+us to do it? Yeah, maybe one of.. I thought you guys connected already. This is the first time we are meeting. Yes,
+okay, do got it.
+So, yeah, if someone wants to share the link, I can drive here, I that
+like this link I will go, I'm going to share it with the rest of the team as well as
+a Oh, are you bringing it up? Or
+yeah, I'm gonna get the team, because we gotta go.
+I showed him the check. Can you pick that?
+Yep, I can share if you guys want, so
+You need to be connected to the Z scalar, right?
+Yeah,
+all right, yeah. Let me get that same Z. Zscaler,
+we play around mostly with the dev, not on the part.
+Zscaler is not showing up in my. Okay, here we go, I so you only do Deb first or U 80 we
+should be using the
+dev link. Okay.
+Oh, okay, I Okay,
+should be good
+now.
+I'm on Zscaler, still not letting me get on, I'm on Z Scaler. Am I? I just need to be on Z Scaler, right? I just need to be on Z Scalar, right? Yeah, I
+and lobby in the
+end, try on like,
+like adding vaccination blocking
+crop. Oh, there we go, I
+I
+record this session. Maybe once you once you're in this portal, maybe Emily, can you walk us through, like for example, what is the one example we have therapy initiation? How we use that therapy initiation to create different way, you know, variations, and then how we use those variations in mapping to our genetics.
+Yeah, I can. I'm not sure
+I started the recording. Can you unmute
+it? Sure. Okay, so I'll need some help to like actually navigating the site, but I can walk through conceptually what.. yeah,
+let's.. let's maybe let's start from the conceptual of how therapy initiation, right? So let's start from the query that is used for the therapy initiation, what that metric is, and how did you identify the required input fields, so that it will help Jaws and phone to understand how we can think of that framework.
+Sure, okay, let me show you dev box, so this is a little maybe more complicated than what you're doing, Josh. I don't know the full details, but the way, for example, that initiation works is you have the ETL process that puts it in the patient program enrollment table, and then the way it's designed. Go ahead,
+can you step back, and then also maybe explain what that metric is, therapy initiation, what therapy initiation is, and every time from this, yeah,
+sure, okay, we can do that, so yeah, the idea is you're measuring from one like very flexible index date that you will have to go on and define, and there can be multiple options, so it could be enrollment or program consent to on therapy date, and then like even something like our Gen X might have a couple different ways to identify on therapy, so the idea of like the initiation concept and the output outcome config pipeline is to track all of those, but with the flexibility that if you want to run it in like different ways it will have that, and you can define like a 30 day, 45 day, 60 day initiation as successful, like what do you consider a successful initiation? How many days do they have before it's like past a certain benchmark? So you're thinking, Paula,
+yeah, so yeah, I think what you shared, I think to calculate the therapy initiation, we have three input fields that is needed, right? One is the window of to what till what days we want to measure the therapy initiation, and then there is a there are two other dates like what is the what is what date is considered as the the successful event, right? Those are the key three input fields that is needed for calculating that outcome, and as everybody mentioned, those three values we want to, we want to use it with the different options, for example, window, we want to calculate it for 30 days, we want to calculate it for 45 days, we want to calculate it for 60 days or whatever the number of days are, right. And then what is considered as the starting date from which we have to calculate whether the patients have initiated the therapy. That starting date, we also want to be pointed to be flexible, similar to what Emily mentioned. We want to consider them as a, you know, the date when they give us the consent or the date when they, you know, enrolled, for example, and then the successful outcome that is also a date, and that date also can be flexible, where you know, where we could say, you know, our genetics may have, or any customer one can have different dates, maybe that the date when they got the prescription, or the date that they got their first fill, that could be considered as the therapy initiation. So, but what the, the, the, the from the initial understanding of the outcome variables, we identify what are the variables needed to calculate the outcome? So, here there are three fields that are needed for the outcome: one is the window, one is the starting date, and the last one is the actual outcome, the successful event.
+Yep, that's right, and so there's multiple steps that happen, so in this case I'm showing the procedure that does the calculation, like did they make it or not based on those three variables, but the first thing that happens is it the key fields are captured in the input snapshot, and so Josh, you showed like a bunch of different queries. You're not going to capture every column, but the idea would be you would capture the data you need to then perform the calculation. You put that in the input snapshot, and then this is an insert into the calc outcome results, and then this is your input results.
+Sorry, yes, I think with that input, can we jump to the portal?
+Sure,
+where we can show the how these inputs are configured, and then the the snapshot fields that you mentioned.
+So here you will look for our genetics. Can you look for our genetics
+under customers?
+Actually, no, you're right. You can go to that outcome variables. Yeah, we can go to therapy.
+Oh, there's the one that I inserted. If you scroll back up to the top, I just manually inserted that one there.
+Yeah, I think maybe we'll walk through Josh. How to use this with the exam? Are you so far tracking the three inputs? How we identified those three input fields?
+No. I'm still not tracking on that
+one. Okay, so the metric that we are calculating here is the therapy initiation.
+Yes, right. Yep, I get that. Yep,
+so therapy initiation, in order to calculate, let's say a patient, in order to calculate the metric for a patient, we need the data right. What are the data we need to calculate the threat initiation? We need the window, we need the date, when from, you know, kind of a beginning date or the index date from which we want to calculate the calculated the window and what is considered as the successful outcome right when when that patient actually initiated the therapy right those are the three input fields we need how we identified that based on the requirement. So, based on the requirement, you know, let's say, what are the.. what are the examples we can pick. Let's say we want to calculate whether the patients have, you know, this days on supply for a medication, right? How many days of supply on their, you know, they lived on the medication. Let's say we want to calculate that as an outcome, right? Metric to do that, we need to know what did they, they got their fill, right?
+So, when the initial field was, yeah, yeah, then
+we know we know we need to know when, how many days of supply, right, day supply, and in that field, right now we need to know at what date we want to see how many days of supply, it was left right,
+and this is the communication back to the patient, and they're going to tell us that,
+yeah, I'm not going to anywhere else, I'm just, I'm just giving you some example of what is the metric, and how we identify the key fields from that definition of metric,
+okay?
+Right, so
+so fill day. How many days of supply are left, or how many days of supply to refill? And then at what point in time are we at right now, based on that date, how many days are left in that subscription,
+right? so the outcome, so the basically the what I'm trying to say is that any metric that we take we should be able to identify what are the input needed to calculate the metric
+and We
+do yours, Josh.
+So, yes, yeah, so for from the one that I'm specifically looking at, we would need historical by each patient for each targeting instance when a call was made, or when the communication, what channel of communication was made, was it a successful communication or not? And then, based on that time of day, what category does it fall into? So the specific times a day only kind of bump into three categories, early afternoon, late afternoon, and morning, right. So, and depending on the time, so for the training data set, we would just need the patient key, the targeting instance, the channel, the time of day, and whether it was a successful outreach or not, so
+Okay, so the only thing it seems like you're tracking the only outcome variable is just the boolean, the channel on time of day are like extra information. Would you agree, Paula?
+Yeah, that's what it seems like, because when you explain that metric, it was kind of all over the place, just maybe, so what can you, can you explain that again one more time?
+Yeah, so really all we care about is for each, really all it is is a list of patients for that, you know, depending on what channel we, that they were used, whether that's live call SMS, you know, whatever it is, whatever that channel is that we use to communicate with them, the time of that communication, and whether it was a successful communication or not, whether they responded or not.
+Okay,
+so looks like, yeah, I think, given the only the outcome metric that we are tracking is basically the whether that communication was successful or not, I
+so pretty simple, it's already doing the calculation. Yep.
+Now, now, in terms of the input, I
+and you want to let's think through, so you're saying you want to calculate this successful outcome metric, you want that to be broken down by, for example, channel, right?
+Yeah, so it would have to be the channel, so a patient could be, either, you know, let's take live call, for example, is that's a type of channel, right? So we call you, you pick up the phone at 4pm we count, we count that, that, and you're in targeting instance one. So, within that window of targeting instance one, as you, as the patient moves through these different targeting instances, because there's three of them, right, and they have different targeting windows, right, of days to communicate. So, based on which instance you are in, and how you were communicated was that was that an successful attempt or not,
+right? So, so you need the channel, and
+well, you also need the the targeting instance as well.
+Can you explain a little bit more, what do you mean by targeting instance?
+Well, because you know there's three of them, right? Because they're different, so like if I'm in targeting instance two, the window, if I've progressed into targeting instance two versus one, the date or the time ranges are different, maybe.
+maybe we are actually going a little bit further now. How do you, how are you looking at looking, looking to aggregate this one?
+So let me go back and share real quick how I was thinking of aggregating this wrong screen, so can you guys see my screen? So, customer key, patient key, so targeting instance, like I said, there's three of them, you could have live call. These are the categories of the time of day. You can ignore the trigger hour or day of the week, and things like that. That isn't, I guess, that doesn't matter, because it's time-stamped. You can take the time stamp, and whether the binary outcome is whether this was a successful attempt or not,
+so, so, how would I, how are we going to use this in the training data set? Should we? Yeah, so this would be,
+this would be one variable, this is just one variable in the model for a bunch of other things, right.
+Yeah, so we use this in training, we needed the outcome like binary, and we also need that time of day, like early afternoon, like afternoon thing. So those are the two things we will need, but this data set is not on the patient level, expects give me patient plus the instance name, right? I combine patient level. Yeah, so instance definition, just please correct me if I'm wrong. So my understanding is more like, okay, we call this person first time, so the instance is one, and maybe this didn't answer the call, then the outcome in film, and then we call this person a second time, then instance number is number two, and maybe this, this patient packet form to this called success. So this is my understanding of instance,
+right?
+Yeah,
+yeah. So, Paula, think about like this, like this is just a variable to be used. So think about like this, like when we bring in these patients, we want to be able to predict, like, what's the best time of day to reach out to them, right? So, if we have the patient key, we can get all the patient features of them. So, phone's going to have all the patient features, right, already included in the training. So, if we include patient key with this right here, so it includes, like, age or, like, all the different patient dimensions, right, based on the patient dimensions and other dimensions. If we run, let's say, a linear regression model, or XGBoost, or whatever, a classification model to predict to create a model, right. We create a model to say, okay, based on these characteristics, what, what is the correct or appropriate time of day to reach out, depending on what, what targeting instance this, these patients in are in. Boom. Okay. Model is created now, right? So now the model is out there. Now, when we start getting inference data, hey, we got this patient that's in, it's in our targeting instance too. It's this patient right here. They have these characteristics. What is the light, or what? When should we communicate with them? What's the based on their profile? What's the best based on what we've seen in the past in our modeling? What's the what's the targeting time of day? What should we target? That's really the goal of this, right?
+So, so your training data set process is already able to get that instance number.
+Yeah, so for inferencing, I don't think the instance never be there. Yeah,
+I think not just for the inferencing, because the same process you clearly be using for the training as well,
+well, the instance does matter because it's a data
+matter, but what I'm trying to say is that it goes with that the data set generation process itself,
+right? Yeah,
+yeah, I get that part, but when you're doing the inference process, if I'm in targeting instance one versus targeting instance two, we may recommend different times based on even though I
+get that there,
+yeah,
+yeah, and what I'm trying to say is that this this data set, so I'm trying to I but let's say this is your data set, you're looking to generate the, you're going to use it to train the model, right now our processes outcomes are calculated separately, and that outcomes are joined with the patients to generate the training data set.
+Yeah, outcome as the time of day,
+right? Right, like let's say outcome here. Assume the outcome here was therapy initiation, binary adherence or discontinuation binary, right?
+Yeah, I guess whether this person answered the communication,
+right? So the patient, so let's try to compare the two outcomes here, right, the outcomes we already have, and then what is the expected outcome here, the rest of them, right, then the rest of them are the data set generation process, so if you look at so the outcome that we calculated for therapy initiation, we calculated the grain of that metric was patient, right?
+Yeah,
+here the grain, what is the grain of this metric? Here, the
+grain here is patient targeting instance.
+Yeah, the unique key is patient key combined with the targeting instance number, that's a unique key here for this table.
+Yeah,
+it's not unique because the patient could be on multiple pathways and each pathway has an instance number, so
+so patient pathway name instance number is our composite key
+to try to figure out how do we convert them as a metric because that's what we already have in the communication table, right. Emily, we have this communication outcome there, whether it was successful or not.
+Yeah, I don't. And then the pathway name could be based on the, the like communication name that might work, I'm not sure.
+Yeah,
+anyone advocate me, what this instance number means here. So, my understanding is built attacks,
+yeah. So, these are the instance numbers, right? So, instance one, if you're in instance one, your targeting days are between 10 to the
+15. Just can you, can you bring that into the portal? Can you, can we view it from our solution?
+Can you view it? What is
+this one here?
+These are the targeting instances. So this is instance one, this is instance two. See, there's different, there's different parameters. So, if you're in one of these instances, the reach out is going to be in different parameters of windows of time.
+Does it align with what, what we configured?
+Yeah, yeah. The first
+one I'm seeing this diagram, that's why I want to make sure that this, how did we generate this diagram? This just this diagram aligns with what we configured in our portal configuration process.
+Yes, yeah, this is how it was generated.
+What was the source of this document?
+It is the
+Is the data edo
+what we want to optimize here for which instance, or we need to navigate the architect with all the instances, or we only care about the first instance. Do we know I Are you asking, do you need to track all of them? Yeah, my question is that there we need to use some model, and we need to like optimize the outcome, so we want to optimize the outcome for the initial reach out, or like the second reach out, or the service reach out, which is our focus.
+Yeah, the reason I want to bring this from the portal is the portal give us a view of what the instance, what is the instance actually mean? What we are showing there, but I just want to make sure that that document, when you say portal, what are
+you referring to,
+the config portal, a and gay config portal,
+the front end,
+the front end.
+Okay, the let's see, you're talking about this here,
+yeah.
+Eric, so where, where would I see that here?
+Can you look for Argentinex?
+That's
+one. Next one, can we search for the next search?
+Yeah, that one. You see the branch there we've got, yeah.
+Okay,
+go to the pathways.
+Let's look at one of those welcome call, right?
+Look for welcome call,
+welcome call,
+click on the view next one
+Where you are putting this up, can you actually, you put up the PDF, right? What was.. how did we create the PDF? I think the PDF shows that there is a pathway configuration. I'm trying to understand, I just want to make sure that that PDF was coming from the same configuration process that we use,
+I got that from the data EDO graph output,
+really,
+that's how it was. Generate, yeah.
+PDF, okay? Data EDO can generate the PDF.
+No, no, it didn't. Claude created the PDF, but it did it from the graph data, from data from data edo, yeah,
+from data e do, okay,
+okay, I'm here,
+so okay, I thought I was actually looking for maybe we used this sheet for creating that PDF. Let me pull up the sheet again, I
+Yeah, can you click on the target instance one at the top?
+I think we are having a question of what is considered as instance, right?
+Okay, yeah, okay, so this one has two targeting instances. It looks like,
+yeah, can you click on this Excel as well? Because
+which Excel
+I sent you in the chat.
+Oh
+Excel.
+Okay,
+yeah. So, so here you see that welcome call. So this is the source for our configuration. So this is the source that this is what our solution engineers use to configure them in the portal, so here instance one and instance two are the communications that goes for one pathway. Right
+now, the if you go to the next pathway against spinners, it also again has instance one,
+which is the specs value
+spners. Can you go to the next ASP nurse? The next tab.
+Oh, okay.
+So this one also has instance one. If you go to the next tab post treatment, this one also has an instance one, so when you look at the patient, the patient could be on any number of pathways, and then the patient will have the instance
+one, so we need the pathway key, then
+right,
+so that is where you know I think that we created this data generation process, you can actually, I think this is the conversation we had, like, long time ago. How we, you can actually, you know, generate the data set for for the customer key, which has been all the patients in the customer key. And then you can also send a program key, right? You can ask for, okay, you give me this data set only for these patients. You can also give them, you can also give that process a pathway key. You cannot say, okay, give me the patients only from this pathway key, right? And then you can also say, you know, the give me the patients only from this particular instance as well. So that's why I see,
+but if we want a time of day, I'm just trying to figure out, like, how I'm still kind of confused, like,
+yeah, that's what I'm trying to separate the outcome with the, you know, along with the other, that's what I'm trying to think of, like, you know, in our mental model, like, in trying to say, think that's what I'm trying to compare it with, the compare it with the therapy initiation, right? So the therapy initiation is calculated at the patient, this patient took this many days to convert or initiate, right?
+Yeah,
+that's the grain the patient. So this grain, I mean,
+this grain still would, for time of day, would still be to your point, it would be pathway patient outcome key instance number,
+or regardless, or regardless of that, because that those are seem to be a filtering, right? right, you can, the patients, right, the patients you know, we can also say, you know, patients who enrolled for a specific program, and those are the patients we want to consider as the, you know, therapy initiated, but when you look at the metric, you separate the metric with the other, the grain of that metric is actually the patient, but rest of them are the filtering, right? Like we want to subset of the patients.
+Well, I don't think in this one we would care about, because in this case she would want to train, she would want to build a model on all the patients.
+I get that, but when it comes to the output, then it's basically just that if you're considering to go back to that SQL query, the only outcome you have is just that I think the grain of this table or this metric is just the communication itself, it's not the patient,
+so maybe. Okay, so what you're saying
+is,
+well, the problem with that, though, is the patient could have multiple communications, depending on what targeting instance they're in, though, right?
+Yeah, yeah, even in the same instance, they can have multiple occurrences of occurrences of the same instance,
+yeah, that's why I'm saying, like, really, actually, if you think about it, maybe I think the grain is it could be because a patient within the same targeting instance, could they get a live call and an SMS at the same time I think that's
+possible, additional metric, I think these are the maybe additional dimensions of that, you know, I feel like maybe the grain is communication, just a communication,
+like a community, like a unique communication ID for a patient, so this particular communication, not
+just for the patient, but because the patient could be, you know, the same welcome call, right? The patient can be receiving the same welcome call multiple times,
+right? Right, but what I'm saying is, is like it's that communication key could be different within that same targeting instance. So, so, for example, like I have a patient, 12345, it may have three communication IDs, right? One of, but they're each unique. One of them may be a live call, one of them may be an SMS within that targeting instance. Is that kind of what you're saying?
+Yeah, because the company, when you look at the communication, and that communication will tell us all the details, you know, which part of the, you know, which pathway it was from, which instance number, each, which you know, attempt it was. So you're thinking the store procedure, when I,
+when I send and say, hey, I want training data on on time of day, you're thinking the store procedure would then return back me a patient with communication keys, is that kind of what you're thinking?
+No, I'm thinking, I'm thinking, I'm trying to separate. Okay, so Emily, I want to hear your thoughts as well, because you're you and Tom have put this framework, but when I understand the way I'm interpreting work, whatever I'm hearing is that the outcome here is just a binary of whether the communication was
+successful, right? And we're how we're defining success depends on what the channel is, so live call would be they picked it up. SMS means they responded to the text,
+and and the grain is basically instead of patient, here we have the communication.
+Yeah,
+that's
+it. Wednesday communication, you mean the pathway, and the instance
+doesn't matter, doesn't matter what we are instance, regardless of that, all we, when we, when we, when we narrow it down, the grain is just a communication, right
+now. Then, How do you determine which part?
+How do you determine which instance it was in, though, because there's different parameters there.
+Yeah, you can actually, you know, you can, you can actually calculate that communication. So, the way I'm thinking
+is you, you will be calculating the outcome
+for the communication, right,
+Bernard. When you say communication, can you be more specific? Yeah, I'm just
+curious. Yeah, let's go to the portal. That's why I'm trying to bring the portal and also the configuration sheet side by side,
+the portal configuration portal.
+Okay, can you collapse that instance? One, yep. There you go. Something called instance. Okay, you see, this pathway has two instances, and these two instances technically produce a communication. Right now, if you go to the pathway config, the sheet, the welcome call pathway. Let's take that as a reference under the sheet as well. It'll score the welcome call pathway. Yep, you see this one here, instance one and instance two.
+Yeah, but this is for this pathway, though. But for time of day, there's three. There's three instances.
+Where do you get the three instances?
+It's from the way that I've got to go back and look at how Cliff defined this. Let me go back and look, I Let me find it.
+Okay, I think we started the call with to understand the outcome process. We kind of deviated from there, but we still have, we may have to still go back. Yeah,
+yeah, because really, at the end of the day, you know, all we're really very simply is trying to do is
+give, maybe I don't want to do it again, maybe let's go finish with what you're actually trying to go back, because you said time off take has three instances. What does it mean by three instances?
+It's these three right here. So the first outreach is this, so there is a first outreach, they fall within these buckets: short cadence, 10 days, long cadence, 15 days. It goes into one of these three channels, or it could be multiple of these. There's a fixed asset channel here, and then the time of day is selected based on that category, there, right, but
+what do you mean by instances? What's your understanding of instances?
+Well, this is instance one, right. So, look, if you look at this, instance one is defined by 1510 day window here, and then it has targeting instance two, and here adherence pathway long is 25 short is 20, right. So there's different days of band of windows of time to communicate, and then for targeting instance three,
+so you're showing in that PDF, you're showing the adherence pathway, but in the Excel sheet I don't see any adherence pathways, we have adherence initial, we have adherence additional, we have adherence like so many, like that's what I'm trying to understand, how I'm trying to try, oh,
+let me go with Cliff on that one, because he's the one who gave me this information, because time of day he said would follow this pattern, so I may have to get with him on that one.
+Yeah, we need to understand the instances. What do you? Yeah, we need to understand the instances.
+So, are you saying this needs to be a tab in here? Is that what you're saying? Like, time of day needs to be in here.
+Time of days is a part of a configuration, right? You see that that's the step configuration.
+Which tab is that
+you're right there, your cursor is right there, the 20 time of day is a on the same tab, same thing on the same tab, time of day is basically a step within the the
+welcome call,
+yeah,
+oh, row 20, okay, oh okay.
+So it's one of the decision points.
+Oh, okay.
+What communication do you mean? So here, so when we sit
+here,
+yeah. Just want to ask the question. So you said communication. So here we have decision point. It looks like there was only one communication in this instance, one with me.
+Yeah,
+this will produce one communication to the patient for one
+attempt. Okay, but how about different attacks? Like, maybe we call this person today, and we call them like a morning, and then he didn't answer, and then tomorrow come from here, maybe afternoon, and this person answered. So, yeah, I guess we want to build a data set in that patient class communication level, so we can collect the information of different kind of day and see the outcome,
+right? Right, so in that, in the, in that example that you said, phone,
+yeah, the
+patient will go through the same instance one twice, one for the attempt two and one for the attempt three.
+Okay,
+you see that,
+yes,
+so every attempt the patient go through the same pathway twice. Sorry, the every attempt the patient go through the pathway, and each time they go through the pathway, they get two instances as per this configuration, and both the times, both the times they get a communication, right?
+Yeah.
+Instance one, communication is the call. Instance two, communication is the email.
+So, can I, can I ask a question here real quick? So, this is the welcome call. What about for the nurse visit? So, would that be different? Would that be the same model that the welcome call would use, or would that be different?
+Let's forget about the model. Let's try to understand what's our configuration is. Maybe then we can, we can tackle the model problem, because I feel like we, we have, you know, we need to understand what is what is mean by our communication, how these communications are happening in our system, right? So that then we can actually jump to the, like, you know, how these,
+yeah. so
+if we just take welcome call here, this pathway here, there's two instances. You said that there's going to be two times the patient is going to be reached out in each instance, so instance one, instance two. So basically four communications, is that correct?
+For that example of two attempts. Yeah,
+okay. So, if a model is, and again, I know we're not talking about, but if this was, if we had the capability today, the model would then be predicting what time of day that outreach would occur, correct?
+Yeah, so now if you look at now that specific point, you see that time of day, right now, the one row to row 20, is that highlighted?
+Yep,
+right now it is doing it is done by randomization.
+Yeah, I understand that. Yeah, but what I'm saying is eventually we want to get to inference, right?
+Yeah, yeah,
+so in order for us to do that, so, so this would mean we would, so really the grain here is not just patient communication, it's patient communication and number of attempts, because what happens if they, what happens if the time of day, the communication, so are they communicated twice, regardless of what happens to the first one, is that regard like it doesn't matter,
+that's what the configuration says here. Okay, so they're going to
+get communicated like in this example, they're going to get communicated four times, regardless,
+not, not really, because let's say, in that example, right, only applies only in that example, assuming that the patient was not reachable on the first attempt, second, okay, so they,
+so they are non-mutually exclusive, so one depends on the other, so if the first communication is a failure, then the second attempt is made, correct.
+Okay.
+No, I'm asking. Yeah, is that.. is that
+no? I can explain. I can answer that question, but I feel like we still don't have the good understanding of how this configuration pathways are working, and that's what I'm trying to figure out. How to step back and then explain that process, right? So, let me share my screen here. So, here, welcome call pathway, right? That's what we saw there. We saw we have instance one and instance two, right? As for our current process, the first attempt, we do not touch. First attempt is done by our genetics, right?
+Oh, okay. Then, okay, the
+first attempt is not successful, right? Then, then they are our system is going to grab them and then make the second attempt. That's our business rule,
+okay?
+None of the community, like, I want to make sure that we are, we understand that one, so this applies for my understanding is that this applies for all the pathways, all the calls. Okay, so our Gen
+X is reaching out regard the first time, regardless,
+correct? Right,
+so anytime we're involved, it's always the second attempt or more,
+correct?
+Right. So let's have, let's say, okay, let's first attempt is always done by our genetics. The second attempt onwards, we do it. That means that when, if we touch any call, that means that the first attempt isn't successful,
+right?
+Right, that's what our inclusion criteria says. The inclusion criteria would say that the patient was not reachable, you go and touch the second attempt onwards, right?
+Got it. Now our
+strategy is that we constructed our strategy is that we want to target them using two different instances, which is first time we want to send them call, second time we want to send them an email, that's our strategy, right? Yep, we could have also had a strategy that you know we don't want to touch the email, we just said, you know, go by the call, like I think the instance in this, in this example, we did that. Now let's say that on january 1, you know, the patient had the, you know, we tolerated for the second attempt. Okay, the second attempt in this instance, one, it will create a recommendation or the targeting, and that goes out with the due date of let's say Jan second. What we do on that, I think, as for current configuration, I'm going to make it simple. We also will be sending a follow-up email on the following day. Hey, we tried to call you, was not reachable.
+Okay, but so it's the instance two is dependent on instant instance one outcome.
+That's what I made it as, like, a generic to make it understand, but that's what the configuration rule says. The rule is a little bit complex, you know. Basically, the email could be, could also be triggered before the call, but, but to make it simple, let's follow this example. Okay, yeah, but in this,
+in this simplified version, though, you're still saying instant two only really occurs if instant one doesn't work,
+okay? Yeah. so let's say third attempt, and then it happens on, you know, first again. If it is not successful, you know, it can happen on, let's say, you know, depending on your configuration, can happen on the following day, about 10 days later. Yeah, sure, right,
+yeah.
+So you see that. So this was a community, yeah. When I say communication, this is a communication, this is a communication, right?
+This is a communication, this is also communication.
+Okay, yeah, so the value level is actually the app communication level, not totally make sense to me.
+This is instance one. This is instance two. Here is also instance one. This is again instance two.
+Right
+then, yeah. Then our training, as I said, we need the patient and the communication level,
+regardless of the instance,
+yeah, so I think that's why you know we can, the way that's why we can generate, we created this data set generation process as with a different flexibility, right? You can, so you can see this is the pathway, right, this is the pathway, so and then you can see instance, right. Let's say the way we have this data set generation process. You can ask for, give me the data set. This is the, this is, this is again an example of welcome call pathway. The same similar example could occur for, let's say, switch to this one as a different pathway, let's say SP Nurse pathway, right, and let's see SP NS, we only have one instance, so I'm just going to make it as this one, this example, but you see that this one still has a one or two, so we can the way we have generated this process, the data set generation process. You can actually ask for pathway ease, you can say give me the data set or give me the patients only from part one or one, or we can also ask one or two together. You can also ask in from these pathways, you can also give me the instance point, or you know, one comma two, right? You can also ask for, you know, just one instance. I can also ask for multiple instances,
+but that will require some prior knowledge to know how many instances are in those pathways? Right,
+can you say that again?
+So, like, from a generic system standpoint, let's say I'm phone, I'm training this model right in a dynamic automated way. If I have the pay, if I have the pathway key, then I would have for me to know instance one or instance two, I need to know how many instances are available within that pathway, and that in that perspective, because different pathways could have multiple different, like, yeah, one one pathway may only have one instance, another one may have three,
+yeah, yeah, so this is this is, yeah, you will use this when you know what, what exactly we are, we are actually, you know, doing there, because you need to have an understanding of these instances. Yes, for sure, you know, right.
+But I'm saying, for training, though, why would we need to know that visibility? Why can't we just know the pathway key and just get the data?
+Well, that's what it's already there. That's what I'm talking. This is already there. This is already there. This is already there. You know, basically you have the control of how you want to build this data set using right now, but when it comes to the communication, right? So, but then this one, so that's what I'm thinking, that the grain is basically as phone says, just the patient and communication, or just the patient, you know, just the communication itself, right? Whether what was the communication and what was the outcome there?
+Communication is associated with time of day, like we all know the time and the patient. right?
+Right. So, so similar to how you can actually grab other parameters related to patient using the patient parameter as a patient key, you can grab other parameters or other metadata about the communication using the communication key, right? So, let's say you have a patient key, right. You have a patient key, and then you have the outcome of therapy initiation, right. These are the two, you know, data we have, but then with the patient key, we can grab all the other additional details, like patient key, age, state, and then you know, based on the zip code, we pull the zip code adherence, right? We pull all the data, right?
+Yeah, again,
+now same thing here. If you do this one as the communication key, you can actually pull all the other details, like communication key, which patient it belongs to, and even let me keep going with the communication. Communication has other attributes, like channel, what channel it was, what time of day it was, what, so you're saying, like, communication key
+has all the information you would need.
+Yeah, what pathway it was, what instance it was, right?
+What the outcome was, whether it's successful outreach
+or not. The outcome is no outcome is still tied to the communication key. Yeah, we have, you're right. So, and then you also get the patient key. Now, if it's this patient key, you are also getting all the other details.
+Yeah, yeah, exactly. Yeah, so the communication key in your second table is kind of the client level that can be other information.
+Yeah, so basically, yeah, I think it will be good to have patient key, but yeah, that's what I'm understanding, that basically what we need is the because rest of them are derived by using the communication, so that basically that's what I'm thinking, maybe the grain of this table is basically just coming down to communication key right now, yeah, because
+passion will always get a different communication key, right? So, passion one,
+say it again. Sorry,
+just when different passions will get different communication key. So, the communication key is the most granting level, so we probably don't even need the patient key.
+Yeah, that's just keep giving that as optional. So,
+yeah. okay, that's thinking maybe, yeah, I'm not sure if Emily is still here, so I'm thinking maybe mostly the outcome is just this level now, when you go to the portal,
+sorry, I had to shut my window. What was that?
+Oh, I was saying that Emily, it looks like I think we are kind of agreeing that this outcome is basically coming down to binary, but that should be tracked at the communication key level rather than the patient level, similar to the other metric. So, so here, if you have to, we have to think about how to fit that into the framework.
+I'm not sure that would play into the config, but looking at the underlying tables, there are there's an additional columns column, if you remember, Bala, that's like a JSON or list, I think, and you can just everything else you need to track, you can just dump it in there, but I'm not sure how that's configured in the portal,
+which table are talking
+about, so the main one of the like analysis or analysis variant, it should have an additional columns field that's like a list,
+we made this field one of those fields to be in input to be mandatory, but what do we consider this as the yeah, we have to think through this little bit, how to fit this into our framework, but I think maybe let's let's let's like instead of solving all at one call, let's take a break, let's quench think about this, but now we are good and understanding how we can, you know, what is the actual outcome is, and then what is the grain, and how we can actually use that communication tool key to get the other data, and then we kind of refreshed on our gender as a generation process. Also, let's pause, but probably correct.
+I could set up another hour working session. Yeah,
+maybe let's do it Monday.
+Sure, I can do that.
+Yeah,
+well, hey, thanks, thanks, Emily, thanks, Paula, thanks, Phone. Really appreciate it. Oh, this went way longer than we wanted to, but this helped. This is
+good,
