@@ -147,8 +147,8 @@ print("[B] records:", len(records), "labeled pairs:", len(lab), "prior P_MATCH:"
 # term_frequency_adjustments (TF): down-weight COMMON values (a shared "Smith" or a common country is
 # weak evidence; a shared rare surname is strong). Enabled on names + country per review feedback (Kevin);
 # it was already enabled on the id comparisons below. TF is one of Splink's main tuning levers (see analysis).
-NAME_COMPS = [cl.ForenameSurnameComparison("firstName", "lastName",
-                                           term_frequency_adjustments=True),  # TF: down-weight common names
+NAME_COMPS = [cl.ForenameSurnameComparison("firstName", "lastName")
+                .configure(term_frequency_adjustments=True),                # TF: down-weight common names
               cl.DateOfBirthComparison("dob", input_is_string=True),          # dob isn't frequency-skewed like names
               cl.ExactMatch("cob").configure(term_frequency_adjustments=True)]  # TF: down-weight common countries
 def id_comp(col):                                               # how splink compares an id field
