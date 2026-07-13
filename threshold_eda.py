@@ -42,7 +42,10 @@ IRQ_INDEX_TBL   = f"{CATALOG}.{SCHEMA}.elasticdump_irq_index"
 
 # >>> TODO: if PARTIES_TBL is the full parties table, set the non-identity filter.
 # Set to None if you point PARTIES_TBL at elasticdump_parties_irq instead.
-NON_IDENTITY_FILTER = "status = 'non-identity'"   # or None
+# >>> TODO: set once 1a/1b reveal the real status field inside _source,
+# e.g. "partyStatus = 'non-identity'". Leave None until then - the raw ES dump
+# has no top-level `status` column, which is what broke the first run.
+NON_IDENTITY_FILTER = None
 
 # Labels come from your manual review (~2,237 pairs). We do NOT read/write a catalog
 # table for these - drop a CSV in the data folder (LABELS_CSV, defined after DATA_DIR)
@@ -99,26 +102,99 @@ spark.conf.set("spark.sql.shuffle.partitions", "auto")
 # COMMAND ----------
 
 # -----------------------------------------------------------------------------
-# 1b. SCHEMA INTROSPECTION - run this FIRST to confirm the COLS mapping.
-# Prints columns for each table so you can fix any mismatches (esp. the score
-# column and the strong-identifier field names) before the analysis runs.
+# 1a. RAW SCHEMA DISCOVERY  <-- RUN THIS CELL FIRST, ON ITS OWN
+# These are raw Elasticsearch dumps: every table is (_id, _index, _score,
+# _source, _type). All real fields are nested inside _source.
+#
+# NOTE: `_score` is the ELASTICSEARCH relevance score, NOT the MLaaS match
+# score. The match score (candidateScore) lives INSIDE _source on
+# party_matches. Do not band on `_score`.
 # -----------------------------------------------------------------------------
 for label, tbl in [("PARTIES", PARTIES_TBL), ("PAIRS", PAIRS_TBL), ("IDENTITIES", PROD_ID_TBL)]:
-    cols = spark.table(tbl).columns
-    print(f"\n=== {label}: {tbl} ({len(cols)} cols) ===")
-    print(cols)
+    df = spark.table(tbl)
+    print("\n================ " + label + ": " + tbl + " ================")
+    df.printSchema()                    # reveals whether _source is a struct or a JSON string
+    print("distinct _index values:")
+    df.select("_index").distinct().show(10, truncate=False)
+    print("sample _source:")
+    df.select("_source").show(1, truncate=False)
 
 # COMMAND ----------
 
 # -----------------------------------------------------------------------------
-# 1. LOAD (read only)
+# 1b. FLATTEN _source
+# Handles both shapes: _source as a StructType (expand it) or as a JSON string
+# (infer schema from a sample, then from_json). After this runs, read the
+# printed column lists and fill in COLS in cell 1c.
 # -----------------------------------------------------------------------------
-parties = spark.table(PARTIES_TBL)
-if NON_IDENTITY_FILTER:                       # keep only the CPMS non-identity population
+from pyspark.sql.types import StructType, StringType
+
+def flatten_source(df, sample_rows=200):
+    """Expand _source to top-level columns, keeping _id and _index."""
+    src_type = df.schema["_source"].dataType
+
+    if isinstance(src_type, StructType):
+        return df.select("_id", "_index", "_source.*")
+
+    if isinstance(src_type, StringType):
+        sample = (df.select("_source").where(F.col("_source").isNotNull())
+                    .limit(sample_rows).toPandas()["_source"].tolist())
+        if not sample:
+            raise ValueError("no non-null _source rows to infer schema from")
+        inferred = spark.read.json(spark.sparkContext.parallelize(sample)).schema
+        return (df.withColumn("src", F.from_json(F.col("_source"), inferred))
+                  .select("_id", "_index", "src.*"))
+
+    raise TypeError("unexpected _source type: " + str(src_type))
+
+parties_flat = flatten_source(spark.table(PARTIES_TBL))
+pairs_flat   = flatten_source(spark.table(PAIRS_TBL))
+ident_flat   = flatten_source(spark.table(PROD_ID_TBL))
+
+for label, df in [("PARTIES", parties_flat), ("PAIRS", pairs_flat), ("IDENTITIES", ident_flat)]:
+    print("\n=== " + label + " flattened (" + str(len(df.columns)) + " cols) ===")
+    print(df.columns)
+
+# If a field you need is still nested (e.g. candidateScore sits inside an array
+# of matches on party_matches), explode it before section 3:
+#     pairs_flat = pairs_flat.withColumn("m", F.explode("matches")).select("*", "m.*")
+
+# COMMAND ----------
+
+# -----------------------------------------------------------------------------
+# 1c. COLUMN MAP  >>> TODO: fill in from the 1b printout, then run onward.
+# Set any field you genuinely don't have to None; the agreement logic will then
+# treat it as always-missing rather than erroring.
+# -----------------------------------------------------------------------------
+COLS.update({
+    # "score":    "candidateScore",
+    # "left_id":  "...",     # declared / instigating party id on party_matches
+    # "right_id": "...",     # candidate party id on party_matches
+    # "party_id": "...",     # id on parties (may simply be _id)
+    # "first": "...", "middle": "...", "last": "...", "dob": "...",
+    # "a_number": "...", "ssn": "...", "fin": "...", "form": "...",
+})
+
+# Verify the mapping against the flattened schemas before anything expensive runs.
+missing_pairs   = [k for k in ["score", "left_id", "right_id"]
+                   if COLS.get(k) and COLS[k] not in pairs_flat.columns]
+missing_parties = [k for k in ["first", "last", "dob", "a_number", "ssn", "fin"]
+                   if COLS.get(k) and COLS[k] not in parties_flat.columns]
+print("PAIRS   cols not found:", missing_pairs or "OK")
+print("PARTIES cols not found:", missing_parties or "OK")
+assert not missing_pairs and not missing_parties, "fix COLS in cell 1c before continuing"
+
+# COMMAND ----------
+
+# -----------------------------------------------------------------------------
+# 1. LOAD (read only) - operating on the FLATTENED frames
+# -----------------------------------------------------------------------------
+parties = parties_flat
+if NON_IDENTITY_FILTER:                  # keep only the CPMS non-identity population
     parties = parties.where(NON_IDENTITY_FILTER)
 
-pairs   = spark.table(PAIRS_TBL).withColumn("score", F.col(COLS["score"]).cast("double"))
-pairs   = pairs.withColumn("band", band_expr("score"))
+pairs = pairs_flat.withColumn("score", F.col(COLS["score"]).cast("double"))
+pairs = pairs.withColumn("band", band_expr("score"))
 
 meta = pd.DataFrame([
     {"metric": "parties", "value": parties.count()},
