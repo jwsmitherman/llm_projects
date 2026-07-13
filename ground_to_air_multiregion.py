@@ -26,9 +26,9 @@
 
 # %pip install openpyxl
 
-MAIN_DIR   = "/Workspace/Users/josh.smitherman@gmr.net/ground_air_analysis/data"
-OTHER_DIR  = "/Workspace/Users/josh.smitherman@gmr.net/ground_air_analysis/other_data"
-OUTPUT_DIR = "/Workspace/Users/josh.smitherman@gmr.net/ground_air_analysis/two_slide_output"
+MAIN_DIR   = "/Workspace/Users/josh.smitherman@gmr.net/ground_to_air_analysis/data"
+OTHER_DIR  = "/Workspace/Users/josh.smitherman@gmr.net/ground_to_air_analysis/other_data"
+OUTPUT_DIR = "/Workspace/Users/josh.smitherman@gmr.net/ground_to_air_analysis/two_slide_output"
 
 # --- Target air bases -> (county, state). One slide per target. ---
 # Mukund's batch = Northeast + Pacific + West (6 slides). South included but off by default.
@@ -47,6 +47,12 @@ ACTIVE_REGIONS = {"Northeast", "Pacific", "West", "South"}   # all targets; Muku
 LS_REQUIRE_TRANSPORT_LEG = True
 PEDS_MAX_AGE_YEARS = 5
 MEANINGFUL_PER_MONTH = 25   # narrative threshold: >= this = "meaningful volume", else "limited"
+
+# --- mileage thresholds for the long-ground context rows (Mukund: add a >=30 mi row) ---
+MILE_THRESHOLDS = [20, 30]   # one "Long-ground transports" row per threshold
+
+# --- clinical segments counted as air-eligible (Mukund: add Cardiac) ---
+INCLUDE_CARDIAC = True
 
 # --- travel-time gate (NEW) ---
 ELAPSED_MIN_LOW  = 60       # keep trips with travel time >= this many minutes
@@ -84,6 +90,7 @@ FIELD_SPECS = {
     "rts":             {"nemsis": "evitals.33",      "keywords": ["revised trauma score"]},
     # --- travel time (NEW) + eTimes fallbacks to compute it if the column is absent ---
     "elapsed_call":    {"nemsis": None,              "keywords": ["elapsed call time", "arrive destination time - enroute"]},
+    "total_mileage":   {"nemsis": None,              "keywords": ["total mileage", "mileage"]},
     "t_enroute":       {"nemsis": "etimes.05",       "keywords": ["en route date time"]},
     "t_arrive_dest":   {"nemsis": "etimes.11",       "keywords": ["arrived at destination date time", "patient arrived at destination"]},
 }
@@ -169,6 +176,24 @@ def load_set(data_dir, token):
     return (pd.concat(frames, ignore_index=True), pd.DataFrame(manifest)) if frames else (pd.DataFrame(), pd.DataFrame())
 
 main, manifest = load_set(MAIN_DIR, "main")
+
+# ---- guard: fail clearly if no Main files loaded (prevents a cryptic KeyError later) ----
+if main.empty:
+    all_xlsx = sorted(glob.glob(os.path.join(MAIN_DIR, "*.xlsx")))
+    print("!! No Main data loaded — nothing to analyze.")
+    print("   MAIN_DIR =", MAIN_DIR)
+    print("   .xlsx files at that path:", [os.path.basename(f) for f in all_xlsx] or "(NONE — path is wrong or empty)")
+    try:
+        parent = os.path.dirname(MAIN_DIR.rstrip("/"))
+        print("   sibling folders in parent:", [os.path.basename(p) for p in sorted(glob.glob(os.path.join(parent, "*")))][:20])
+    except Exception:
+        pass
+    raise FileNotFoundError(
+        f"No '*Main*.xlsx' files loaded from {MAIN_DIR}. "
+        "Point MAIN_DIR at the folder holding the Transport-Distances-Main files "
+        "(the path is absolute, so it must be valid from THIS notebook's context), then re-run."
+    )
+
 vitals_raw, _ = load_set(OTHER_DIR, "vitals")
 narr_raw, _   = load_set(OTHER_DIR, "narrative")
 print(f"Main rows: {len(main)} | vitals: {len(vitals_raw)} | narrative: {len(narr_raw)}")
@@ -249,7 +274,17 @@ TRAUMA_RX = re.compile(r"traumatic injury|injury of|injury to|fracture|dislocati
                        r"avulsion|\bburn|gunshot|\bstab|penetrating|blunt|crush|impalement|head strike|head injury|concussion|\btbi\b")
 STROKE_RX = re.compile(r"\bstroke\b|\bcva\b|cerebrovascular")
 OB_RX     = re.compile(r"pregnan|obstetric|eclampsia|in labor|preterm|pre-term|peripartum|postpartum|ob /")
+# Cardiac (added per Mukund): STEMI/MI/ACS/arrest/arrhythmia/chest pain of cardiac origin
+CARDIAC_RX = re.compile(r"stemi|myocardial infarction|\bmi\b|acute coronary|\bacs\b|cardiac arrest|"
+                        r"cardiac (?:chest pain|problem|rhythm)|arrhythmia|dysrhythmia|"
+                        r"atrial fibrillation|\bafib\b|ventricular (?:tachycardia|fibrillation)|"
+                        r"\bvtach\b|\bvfib\b|bradycardia|tachycardia|heart failure|\bchf\b|"
+                        r"pulmonary edema|cardiogenic|angina|\bcardiac\b")
 no_apparent = impr.str.contains("no apparent")
+
+# total mileage (for the >=20 / >=30 long-ground threshold rows)
+mileage_raw = pd.to_numeric(col("total_mileage"), errors="coerce") if R.get("total_mileage") else pd.Series([np.nan]*len(main), index=main.index)
+print("Mileage column:", R.get("total_mileage") or "NOT FOUND (threshold rows will be blank)")
 
 tmode = col("transport_mode").fillna("").map(_norm)
 ls = tmode.str.contains("lights and sirens")
@@ -275,15 +310,18 @@ m = pd.DataFrame({
     "is_trauma_impr": (impr.str.contains(TRAUMA_RX) & ~no_apparent).astype(int),
     "is_stroke_impr": impr.str.contains(STROKE_RX).astype(int),
     "is_ob_impr": impr.str.contains(OB_RX).astype(int),
+    "is_cardiac_impr": (impr.str.contains(CARDIAC_RX) & ~no_apparent).astype(int),
     "ls": ls.astype(int), "is_ground": is_ground.astype(int), "crit_rank": crit_rank.astype(int),
     "elapsed_min": pd.to_numeric(elapsed_min_raw, errors="coerce"),
+    "miles": mileage_raw,
 })
 inc = m.groupby("uuid").agg(
     scene_state=("scene_state","first"), scene_county=("scene_county","first"),
     month_key=("month_key","first"), month_label=("month_label","first"),
     is_trauma_impr=("is_trauma_impr","max"), is_stroke_impr=("is_stroke_impr","max"),
-    is_ob_impr=("is_ob_impr","max"), ls=("ls","max"), is_ground=("is_ground","max"),
-    crit_rank=("crit_rank","max"), elapsed_min=("elapsed_min","max"),
+    is_ob_impr=("is_ob_impr","max"), is_cardiac_impr=("is_cardiac_impr","max"),
+    ls=("ls","max"), is_ground=("is_ground","max"),
+    crit_rank=("crit_rank","max"), elapsed_min=("elapsed_min","max"), miles=("miles","max"),
 ).reset_index()
 print(f"rows {len(m)} -> incidents {len(inc)} (rows-per-incident {len(m)/max(len(inc),1):.2f})")
 
@@ -298,13 +336,17 @@ inc["is_trauma"] = (inc["is_trauma_impr"]==1) | inc["rts_present"]
 inc["is_stroke"] = (inc["is_stroke_impr"]==1) | inc["stroke_scale_present"]
 inc["is_ob"]     = (inc["is_ob_impr"]==1)
 inc["is_peds"]   = inc["age_years"] < PEDS_MAX_AGE_YEARS
-inc["is_target"] = inc[["is_trauma","is_stroke","is_ob","is_peds"]].any(axis=1)
+inc["is_cardiac"] = (inc["is_cardiac_impr"]==1) & INCLUDE_CARDIAC
+
+SEGMENTS = ["is_trauma","is_stroke","is_ob","is_peds"] + (["is_cardiac"] if INCLUDE_CARDIAC else [])
+inc["is_target"] = inc[SEGMENTS].any(axis=1)
 inc["criticality"] = inc["crit_rank"].map(RANK_LABEL)
 def condition(r):
     if r["is_trauma"]: return "Trauma"
     if r["is_stroke"]: return "Stroke"
     if r["is_ob"]:     return "OB"
     if r["is_peds"]:   return "Pediatrics"
+    if INCLUDE_CARDIAC and r["is_cardiac"]: return "Cardiac"
     return "Other"
 inc["condition"] = inc.apply(condition, axis=1)
 
@@ -331,7 +373,7 @@ print("Eligibility:", "ground + L&S"
 
 # ---- 6. Two-slide data per county ----
 
-COND_ORDER = ["Trauma","Stroke","OB","Pediatrics"]
+COND_ORDER = ["Trauma","Stroke","OB","Pediatrics"] + (["Cardiac"] if INCLUDE_CARDIAC else [])
 CRIT_ORDER = ["Critical (Red)","Emergent (Yellow)","Lower Acuity (Green)","Not Recorded"]
 
 def time_buckets(s):
@@ -352,11 +394,19 @@ def slide_data(county, state):
     nm = max(cty["month_key"].nunique(), 1)
     n_long, n_base, n_cand = len(cty), len(base), len(cand)
 
-    # 1. Volume  (long-ground context + air-eligible after the time gate)
-    volume = pd.DataFrame([
-        {"metric":"Long-ground transports (all)",        "period_total":n_long, "avg_per_month":round(n_long/nm,1)},
-        {"metric":"Air-eligible (meets filters)",        "period_total":n_cand, "avg_per_month":round(n_cand/nm,1)},
-    ])
+    # 1. Volume  (a long-ground row per mileage threshold + air-eligible after the time gate)
+    seg_txt = "Trauma/Stroke/OB/Peds<5" + ("/Cardiac" if INCLUDE_CARDIAC else "")
+    vrows = []
+    for thr in MILE_THRESHOLDS:
+        sub = cty[cty["miles"] >= thr]
+        n_thr = len(sub)
+        vrows.append({
+            "metric": f"Long-ground transports (Total Mileage >= {thr} miles, Critical & Emergent Yellow)",
+            "period_total": n_thr, "avg_per_month": round(n_thr/nm, 1)})
+    vrows.append({
+        "metric": f"Air-eligible (>60 min trip time, Lights & Sirens, target clinical segment: {seg_txt})",
+        "period_total": n_cand, "avg_per_month": round(n_cand/nm, 1)})
+    volume = pd.DataFrame(vrows)
 
     # 1b. Travel-time funnel (how the gate trimmed the pre-time eligible set)
     funnel = time_buckets(base["elapsed_min"])
