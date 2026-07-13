@@ -26,23 +26,38 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pyspark.sql import functions as F, Window as W
 
-# >>> TODO: point these at your real sources (READ ONLY) ---------------------
-CATALOG      = "prod"
-PARTIES_TBL  = f"{CATALOG}.elasticdump_parties"      # ~1,103,782 CPMS non-identity records
-PAIRS_TBL    = f"{CATALOG}.party_matches"            # scored candidate pairs (splink output)
-PROD_ID_TBL  = f"{CATALOG}.identity_index"           # ~722,967 valid PROD identities
-LABELS_TBL   = f"{CATALOG}.threshold_review_labels"  # your ~2,237 manually-reviewed pairs
-# ----------------------------------------------------------------------------
+# Real sources in Unity Catalog (READ ONLY). Three-level: catalog.schema.table
+CATALOG = "eciscor_prod"
+SCHEMA  = "pcis_metadata"
+
+PARTIES_TBL = f"{CATALOG}.{SCHEMA}.elasticdump_parties"        # all parties (filter to non-identity below)
+PAIRS_TBL   = f"{CATALOG}.{SCHEMA}.elasticdump_party_matches"  # scored candidate pairs (MLaaS/splink)
+PROD_ID_TBL = f"{CATALOG}.{SCHEMA}.elasticdump_identities"     # PROD identities (for net-gain)
+
+# IRQ-scoped variants seen in the catalog - likely the pre-filtered non-identity set.
+# If elasticdump_parties_irq is already just the CPMS non-identity population you're
+# re-triggering, set PARTIES_TBL = IRQ_PARTIES_TBL and skip the status filter.
+IRQ_PARTIES_TBL = f"{CATALOG}.{SCHEMA}.elasticdump_parties_irq"
+IRQ_INDEX_TBL   = f"{CATALOG}.{SCHEMA}.elasticdump_irq_index"
+
+# >>> TODO: if PARTIES_TBL is the full parties table, set the non-identity filter.
+# Set to None if you point PARTIES_TBL at elasticdump_parties_irq instead.
+NON_IDENTITY_FILTER = "status = 'non-identity'"   # or None
+
+# Labels come from your manual review (~2,237 pairs). We do NOT read/write a catalog
+# table for these - drop a CSV in the data folder (LABELS_CSV, defined after DATA_DIR)
+# with columns: party_id_l, party_id_r, score, label (1 true match / 0 false positive)
 
 # All artifacts land here. This is the empty `data` folder from your workspace.
 # If workspace-file writes are blocked on your runtime, repoint to a Volume/DBFS
 # path, e.g. "/Volumes/prod/irq/data" or "/dbfs/tmp/irq_data".
 DATA_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/irq/data"
 os.makedirs(DATA_DIR, exist_ok=True)
+LABELS_CSV = f"{DATA_DIR}/threshold_review_labels.csv"
 
 # Column mapping - rename to whatever your columns are actually called
 COLS = {
-    "party_id": "party_id", "score": "match_probability",
+    "party_id": "party_id", "score": "candidateScore",  # Confluence histogram axis; confirm in §1b
     "left_id": "party_id_l", "right_id": "party_id_r",
     "first": "firstName", "middle": "middleName", "last": "lastName",
     "dob": "dateOfBirth", "a_number": "aNumber", "ssn": "ssn", "fin": "fin",
@@ -84,9 +99,24 @@ spark.conf.set("spark.sql.shuffle.partitions", "auto")
 # COMMAND ----------
 
 # -----------------------------------------------------------------------------
+# 1b. SCHEMA INTROSPECTION - run this FIRST to confirm the COLS mapping.
+# Prints columns for each table so you can fix any mismatches (esp. the score
+# column and the strong-identifier field names) before the analysis runs.
+# -----------------------------------------------------------------------------
+for label, tbl in [("PARTIES", PARTIES_TBL), ("PAIRS", PAIRS_TBL), ("IDENTITIES", PROD_ID_TBL)]:
+    cols = spark.table(tbl).columns
+    print(f"\n=== {label}: {tbl} ({len(cols)} cols) ===")
+    print(cols)
+
+# COMMAND ----------
+
+# -----------------------------------------------------------------------------
 # 1. LOAD (read only)
 # -----------------------------------------------------------------------------
 parties = spark.table(PARTIES_TBL)
+if NON_IDENTITY_FILTER:                       # keep only the CPMS non-identity population
+    parties = parties.where(NON_IDENTITY_FILTER)
+
 pairs   = spark.table(PAIRS_TBL).withColumn("score", F.col(COLS["score"]).cast("double"))
 pairs   = pairs.withColumn("band", band_expr("score"))
 
@@ -212,38 +242,53 @@ save_table(pat, "05_agreement_patterns")
 # -----------------------------------------------------------------------------
 # 6. PRECISION / RECALL / F1 vs THRESHOLD  (table + chart, from reviewed labels)
 # -----------------------------------------------------------------------------
-# >>> TODO: labels table needs (left_id, right_id, score, label 1/0)
-labels = (spark.table(LABELS_TBL)
-          .select(F.col(COLS["left_id"]).alias("l"), F.col(COLS["right_id"]).alias("r"),
-                  F.col("score").cast("double"), F.col("label").cast("int")))
-lp = labels.toPandas()
+# Labels come from the review CSV in the data folder (no catalog table involved).
+# Expected columns: party_id_l, party_id_r, score, label (1 true match / 0 FP).
+if not os.path.exists(LABELS_CSV):
+    print(f"SKIP §6: no labels file at {LABELS_CSV}. "
+          f"Export your ~2,237 reviewed pairs there to enable the PR curve.")
+    lp = pd.DataFrame(columns=["l", "r", "score", "label"])
+else:
+    _raw = pd.read_csv(LABELS_CSV)
+    lp = _raw.rename(columns={"party_id_l": "l", "party_id_r": "r"})[["l", "r", "score", "label"]]
+    lp["score"] = lp["score"].astype(float); lp["label"] = lp["label"].astype(int)
 
-rows = []
-for t in THRESHOLDS:
-    pred = (lp["score"] >= t).astype(int)
-    tp = int(((pred==1) & (lp["label"]==1)).sum()); fp = int(((pred==1) & (lp["label"]==0)).sum())
-    fn = int(((pred==0) & (lp["label"]==1)).sum())
-    prec = tp/(tp+fp) if tp+fp else float("nan")
-    rec  = tp/(tp+fn) if tp+fn else float("nan")
-    f1   = 2*prec*rec/(prec+rec) if prec and rec else float("nan")
-    rows.append((t, tp, fp, fn, prec, rec, f1))
-pr = pd.DataFrame(rows, columns=["threshold","tp","fp","fn","precision","recall","f1"])
-save_table(pr, "06_pr_by_threshold")
+if len(lp) > 0:
+    rows = []
+    for t in THRESHOLDS:
+        pred = (lp["score"] >= t).astype(int)
+        tp = int(((pred==1) & (lp["label"]==1)).sum()); fp = int(((pred==1) & (lp["label"]==0)).sum())
+        fn = int(((pred==0) & (lp["label"]==1)).sum())
+        prec = tp/(tp+fp) if tp+fp else float("nan")
+        rec  = tp/(tp+fn) if tp+fn else float("nan")
+        f1   = 2*prec*rec/(prec+rec) if prec and rec else float("nan")
+        rows.append((t, tp, fp, fn, prec, rec, f1))
+    pr = pd.DataFrame(rows, columns=["threshold","tp","fp","fn","precision","recall","f1"])
+    save_table(pr, "06_pr_by_threshold")
 
-fig, ax = plt.subplots(figsize=(8, 4))
-for m, c in [("precision","#c0392b"), ("recall","#2e86c1"), ("f1","#27ae60")]:
-    ax.plot(pr["threshold"], pr[m], marker="o", label=m, color=c)
-ax.invert_xaxis(); ax.set_xlabel("threshold"); ax.set_ylabel("score")
-ax.set_title("Precision / recall / F1 vs threshold"); ax.legend()
-save_fig(fig, "06_pr_by_threshold")
+    fig, ax = plt.subplots(figsize=(8, 4))
+    for m, c in [("precision","#c0392b"), ("recall","#2e86c1"), ("f1","#27ae60")]:
+        ax.plot(pr["threshold"], pr[m], marker="o", label=m, color=c)
+    ax.invert_xaxis(); ax.set_xlabel("threshold"); ax.set_ylabel("score")
+    ax.set_title("Precision / recall / F1 vs threshold"); ax.legend()
+    save_fig(fig, "06_pr_by_threshold")
 
 from math import sqrt
 def wilson(k, nn, z=1.96):
     if nn == 0: return (float("nan"), float("nan"))
     p = k/nn; d = 1+z*z/nn; c = p + z*z/(2*nn); m = z*sqrt(p*(1-p)/nn + z*z/(4*nn*nn))
     return (c-m)/d, (c+m)/d
-lo, hi = wilson(1, len(lp))
-save_table(pd.DataFrame([{"fp_rate_ci_low": lo, "fp_rate_ci_high": hi, "n_reviewed": len(lp)}]),
+# Observed FPs among accepted-at-0.90 in the reviewed set (falls back to the
+# Confluence figure of 1 FP in 2,237 if no labels file is present yet).
+if len(lp) > 0:
+    acc = lp[lp["score"] >= 0.90]
+    k_fp, n_rev = int((acc["label"] == 0).sum()), len(acc)
+else:
+    k_fp, n_rev = 1, 2237
+lo, hi = wilson(k_fp, n_rev)
+save_table(pd.DataFrame([{"observed_fp": k_fp, "n_reviewed": n_rev,
+                          "fp_rate": (k_fp/n_rev if n_rev else float('nan')),
+                          "fp_rate_ci_low": lo, "fp_rate_ci_high": hi}]),
            "06_fp_rate_ci")
 
 # COMMAND ----------
