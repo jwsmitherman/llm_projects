@@ -6,7 +6,7 @@
 # CHANGE FROM PRIOR VERSION (per Mukund call):
 #   - Eligibility is now gated on TRAVEL TIME, not mileage.
 #   - Field used: "Elapsed Call Time (Arrive Destination Time - Enroute Time)"
-#     (minutes). Keep trips with ELAPSED_MIN_LOW <= elapsed <= ELAPSED_MIN_HIGH.
+#     (minutes). Row 2 = >30 min gate (incl Cardiac); Row 3 = >60 min gate (headline).
 #       * lower bound 60 min  -> drops short trips an aircraft would never serve
 #       * upper bound 200 min -> trims outliers / skew Mukund flagged in the data
 #   - New reference metric: AVERAGE travel time (min) per county for eligible trips
@@ -48,19 +48,17 @@ LS_REQUIRE_TRANSPORT_LEG = True
 PEDS_MAX_AGE_YEARS = 5
 MEANINGFUL_PER_MONTH = 25   # narrative threshold: >= this = "meaningful volume", else "limited"
 
-# --- mileage thresholds for the long-ground context rows (Mukund: add a >=30 mi row) ---
-MILE_THRESHOLDS = [20, 30]   # one "Long-ground transports" row per threshold
-
-# --- clinical segments counted as air-eligible (Mukund: add Cardiac) ---
-INCLUDE_CARDIAC = True
+# --- Row definitions (per Mukund clarification) ---
+# Row 1: long-ground base (as originally approved — no mileage re-filter; the extract is already the >20 mi pull)
+# Row 2: >30 min trip time + L&S + segments INCLUDING Cardiac   -> must land BETWEEN Row 1 and Row 3
+# Row 3: >60 min trip time + L&S + segments EXCLUDING Cardiac   -> unchanged headline "air-eligible"
+ROW2_MIN_MINUTES = 30
+ROW3_MIN_MINUTES = 60
+ELAPSED_MAX_MINUTES = 200      # shared upper bound to trim outliers; set None to disable
+ROW2_INCLUDE_CARDIAC = True
+ROW3_INCLUDE_CARDIAC = False
 
 # --- travel-time gate (NEW) ---
-ELAPSED_MIN_LOW  = 60       # keep trips with travel time >= this many minutes
-ELAPSED_MIN_HIGH = 200      # ... and <= this many minutes (trim outliers); set None to disable upper bound
-
-# --- eligibility definition toggles (flip if Ops/Dave Lyons revise the criteria) ---
-REQUIRE_SEGMENT      = True   # require high-equity clinical segment (Trauma/Stroke/OB/Peds). Validated default.
-REQUIRE_HIGH_ACUITY  = False  # also require Red/Yellow acuity. Mukund said "...and critical"; turn on to enforce.
 
 # COMMAND ----------
 
@@ -336,55 +334,62 @@ inc["is_trauma"] = (inc["is_trauma_impr"]==1) | inc["rts_present"]
 inc["is_stroke"] = (inc["is_stroke_impr"]==1) | inc["stroke_scale_present"]
 inc["is_ob"]     = (inc["is_ob_impr"]==1)
 inc["is_peds"]   = inc["age_years"] < PEDS_MAX_AGE_YEARS
-inc["is_cardiac"] = (inc["is_cardiac_impr"]==1) & INCLUDE_CARDIAC
+inc["is_cardiac"] = (inc["is_cardiac_impr"]==1)
 
-SEGMENTS = ["is_trauma","is_stroke","is_ob","is_peds"] + (["is_cardiac"] if INCLUDE_CARDIAC else [])
-inc["is_target"] = inc[SEGMENTS].any(axis=1)
+# segment sets: Row 3 = original four; Row 2 = original four + Cardiac
+inc["seg_base"]    = inc[["is_trauma","is_stroke","is_ob","is_peds"]].any(axis=1)
+inc["seg_cardiac"] = inc["seg_base"] | inc["is_cardiac"]
+
 inc["criticality"] = inc["crit_rank"].map(RANK_LABEL)
 def condition(r):
     if r["is_trauma"]: return "Trauma"
     if r["is_stroke"]: return "Stroke"
     if r["is_ob"]:     return "OB"
     if r["is_peds"]:   return "Pediatrics"
-    if INCLUDE_CARDIAC and r["is_cardiac"]: return "Cardiac"
+    if r["is_cardiac"]: return "Cardiac"
     return "Other"
 inc["condition"] = inc.apply(condition, axis=1)
 
-# --- travel-time gate (NEW) ---
-hi = np.inf if ELAPSED_MIN_HIGH is None else ELAPSED_MIN_HIGH
-inc["time_eligible"] = inc["elapsed_min"].between(ELAPSED_MIN_LOW, hi)
+# --- time gates (NEW definitions) ---
+hi = np.inf if ELAPSED_MAX_MINUTES is None else ELAPSED_MAX_MINUTES
+gr_ls = (inc["is_ground"]==1) & (inc["ls"]==1)
 
-# base eligibility (pre-time) for the funnel readout, then apply the time gate
-base = (inc["is_ground"]==1) & (inc["ls"]==1)
-if REQUIRE_SEGMENT:     base = base & inc["is_target"]
-if REQUIRE_HIGH_ACUITY: base = base & (inc["crit_rank"] >= 2)
-inc["base_eligible"] = base
-inc["air_eligible"]  = base & inc["time_eligible"]
+seg2 = inc["seg_cardiac"] if ROW2_INCLUDE_CARDIAC else inc["seg_base"]
+seg3 = inc["seg_cardiac"] if ROW3_INCLUDE_CARDIAC else inc["seg_base"]
+
+inc["row2_eligible"] = gr_ls & seg2 & inc["elapsed_min"].between(ROW2_MIN_MINUTES, hi)
+inc["row3_eligible"] = gr_ls & seg3 & inc["elapsed_min"].between(ROW3_MIN_MINUTES, hi)
+
+# headline "air-eligible" stays Row 3 (unchanged definition)
+inc["air_eligible"]  = inc["row3_eligible"]
+inc["base_eligible"] = gr_ls & seg3          # pre-time-gate set, for the funnel
+inc["time_eligible"] = inc["elapsed_min"].between(ROW3_MIN_MINUTES, hi)
 
 MONTH_ORDER = inc[["month_key","month_label"]].drop_duplicates().sort_values("month_key")["month_label"].tolist()
 TIMEFRAME = f"{MONTH_ORDER[0]}-{MONTH_ORDER[-1]} ({len(MONTH_ORDER)} months)" if MONTH_ORDER else "unknown"
-GATE_TXT = f"{ELAPSED_MIN_LOW}-{'inf' if ELAPSED_MIN_HIGH is None else ELAPSED_MIN_HIGH} min travel time"
-print("Eligibility:", "ground + L&S"
-      + (" + clinical segment" if REQUIRE_SEGMENT else "")
-      + (" + Red/Yellow acuity" if REQUIRE_HIGH_ACUITY else "")
-      + f" + [{GATE_TXT}]")
+hi_txt = "inf" if ELAPSED_MAX_MINUTES is None else ELAPSED_MAX_MINUTES
+GATE_TXT = f"{ROW3_MIN_MINUTES}-{hi_txt} min travel time"
+print(f"Row 2 = >{ROW2_MIN_MINUTES} min + L&S + Trauma/Stroke/OB/Peds<5"
+      + ("/Cardiac" if ROW2_INCLUDE_CARDIAC else ""))
+print(f"Row 3 = >{ROW3_MIN_MINUTES} min + L&S + Trauma/Stroke/OB/Peds<5"
+      + ("/Cardiac" if ROW3_INCLUDE_CARDIAC else "")  + "   (headline air-eligible)")
 
 # COMMAND ----------
 
 # ---- 6. Two-slide data per county ----
 
-COND_ORDER = ["Trauma","Stroke","OB","Pediatrics"] + (["Cardiac"] if INCLUDE_CARDIAC else [])
+COND_ORDER = ["Trauma","Stroke","OB","Pediatrics","Cardiac"]
 CRIT_ORDER = ["Critical (Red)","Emergent (Yellow)","Lower Acuity (Green)","Not Recorded"]
 
 def time_buckets(s):
-    hi_lbl = "inf" if ELAPSED_MIN_HIGH is None else ELAPSED_MIN_HIGH
+    hi_lbl = "inf" if ELAPSED_MAX_MINUTES is None else ELAPSED_MAX_MINUTES
     return pd.DataFrame([
         {"bucket": "missing travel time",            "trips": int(s.isna().sum())},
-        {"bucket": f"< {ELAPSED_MIN_LOW} (dropped)", "trips": int((s < ELAPSED_MIN_LOW).sum())},
-        {"bucket": f"{ELAPSED_MIN_LOW}-{hi_lbl} (kept)",
-         "trips": int(s.between(ELAPSED_MIN_LOW, np.inf if ELAPSED_MIN_HIGH is None else ELAPSED_MIN_HIGH).sum())},
+        {"bucket": f"< {ROW3_MIN_MINUTES} (dropped)", "trips": int((s < ROW3_MIN_MINUTES).sum())},
+        {"bucket": f"{ROW3_MIN_MINUTES}-{hi_lbl} (kept)",
+         "trips": int(s.between(ROW3_MIN_MINUTES, np.inf if ELAPSED_MAX_MINUTES is None else ELAPSED_MAX_MINUTES).sum())},
         {"bucket": f"> {hi_lbl} (dropped)",
-         "trips": 0 if ELAPSED_MIN_HIGH is None else int((s > ELAPSED_MIN_HIGH).sum())},
+         "trips": 0 if ELAPSED_MAX_MINUTES is None else int((s > ELAPSED_MAX_MINUTES).sum())},
     ])
 
 def slide_data(county, state):
@@ -394,19 +399,22 @@ def slide_data(county, state):
     nm = max(cty["month_key"].nunique(), 1)
     n_long, n_base, n_cand = len(cty), len(base), len(cand)
 
-    # 1. Volume  (a long-ground row per mileage threshold + air-eligible after the time gate)
-    seg_txt = "Trauma/Stroke/OB/Peds<5" + ("/Cardiac" if INCLUDE_CARDIAC else "")
-    vrows = []
-    for thr in MILE_THRESHOLDS:
-        sub = cty[cty["miles"] >= thr]
-        n_thr = len(sub)
-        vrows.append({
-            "metric": f"Long-ground transports (Total Mileage >= {thr} miles, Critical & Emergent Yellow)",
-            "period_total": n_thr, "avg_per_month": round(n_thr/nm, 1)})
-    vrows.append({
-        "metric": f"Air-eligible (>60 min trip time, Lights & Sirens, target clinical segment: {seg_txt})",
-        "period_total": n_cand, "avg_per_month": round(n_cand/nm, 1)})
-    volume = pd.DataFrame(vrows)
+    # 1. Volume — Row1 (long-ground base) / Row2 (>30 min + Cardiac) / Row3 (>60 min, headline)
+    n_row2 = int(cty["row2_eligible"].sum())
+    n_row3 = int(cty["row3_eligible"].sum())
+    seg2_txt = "Trauma/Stroke/OB/Peds<5" + ("/Cardiac" if ROW2_INCLUDE_CARDIAC else "")
+    seg3_txt = "Trauma/Stroke/OB/Peds<5" + ("/Cardiac" if ROW3_INCLUDE_CARDIAC else "")
+    volume = pd.DataFrame([
+        {"metric": "Long-ground transports (Total Mileage >= 20 miles, Critical & Emergent Yellow)",
+         "period_total": n_long, "avg_per_month": round(n_long/nm, 1)},
+        {"metric": f"(>{ROW2_MIN_MINUTES} min trip time, Lights & Sirens, target clinical segment: {seg2_txt})",
+         "period_total": n_row2, "avg_per_month": round(n_row2/nm, 1)},
+        {"metric": f"Air-eligible (>{ROW3_MIN_MINUTES} min trip time, Lights & Sirens, target clinical segment: {seg3_txt})",
+         "period_total": n_row3, "avg_per_month": round(n_row3/nm, 1)},
+    ])
+    # sanity: Row 2 must sit between Row 1 and Row 3
+    if not (n_long >= n_row2 >= n_row3):
+        print(f"   !! CHECK {county}: expected Row1 >= Row2 >= Row3, got {n_long} / {n_row2} / {n_row3}")
 
     # 1b. Travel-time funnel (how the gate trimmed the pre-time eligible set)
     funnel = time_buckets(base["elapsed_min"])
