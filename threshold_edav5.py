@@ -789,3 +789,18 @@ if ag:
          .rename(columns={"index":"agency", ag:"rows"}))
 else:
     print("no agency column found")
+
+
+
+for st in ["Illinois", "Iowa", "California"]:
+    sub = inc[inc["scene_state"] == st]
+    print(f"\n===== {st}: {len(sub)} incidents, {sub['scene_county'].nunique()} counties =====")
+    show(sub["scene_county"].value_counts().head(30).reset_index()
+         .rename(columns={"index": "county", "scene_county": "incidents"}))
+
+# direct look for the targets (and near-misses)
+import re
+for st, target in [("Illinois","henry"), ("Iowa","des moines"), ("California","tulare")]:
+    names = inc.loc[inc["scene_state"]==st, "scene_county"].dropna().unique()
+    hits = [n for n in names if target.split()[0] in str(n).lower()]
+    print(f"\n{st} -> looking for '{target}': {hits if hits else 'NO MATCH'}")
