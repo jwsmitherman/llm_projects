@@ -775,3 +775,17 @@ display(manifest)
 #  - The real exposure is cluster-level over-merge (8, 8b), not the pairwise FP
 #    rate. Report giant clusters and multi-identity merges next to the 0.045%.
 #  - Fix the 1969-07-20 sentinel DOB upstream (2) before any of this ships.
+
+
+
+print("STATES in extract:")
+show(inc["scene_state"].value_counts().reset_index()
+     .rename(columns={"index":"state","scene_state":"incidents"}))
+
+print("\nAgencies in extract (dAgency.02 / eResponse.02):")
+ag = next((c for c in main.columns if "agency name" in _norm(c) or "dagency.02" in _norm(c)), None)
+if ag:
+    show(main[ag].value_counts().head(25).reset_index()
+         .rename(columns={"index":"agency", ag:"rows"}))
+else:
+    print("no agency column found")
