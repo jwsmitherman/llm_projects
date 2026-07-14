@@ -1,0 +1,63 @@
+Data Configuration Workshop
+July 01, 2026
+
+Overview
+
+The team discussed configuring outcome variables and data pipelines for therapy initiation and communication metrics. They emphasized the need to pass parameters through the config pipeline and use stored procedures to generate keys for data retrieval. The therapy initiation metric requires three input fields: window, starting date, and successful outcome date. For communication metrics, they debated whether the grain should be at the patient or communication level, ultimately agreeing on the communication level. They also discussed the need to understand the configuration of communication pathways and instances, and planned to reconvene to finalize the framework and data set generation process.
+
+Action Items
+
+- Share the AGENX dev configuration portal link with the rest of the team so everyone can access the portal independently during future discussions.
+- Schedule a one-hour working session for Monday to revisit and refine the outcome configuration and training data framework based on today’s discussion.
+
+Outline
+
+Configuring Query Parameters and Data Pipelines
+
+- Speaker 1 explains the process of configuring query parameters and data pipelines, emphasizing the importance of passing parameters to get back training data.
+- Speaker 2 agrees and mentions the need to pass parameters to the config pipeline for querying.
+- Speaker 1 clarifies that the process involves running a stored procedure to produce a key, which is then used to pull data.
+- Speaker 3 joins the conversation, asking if outcome variables have been configured in the portal.
+- Speaker 4 and Speaker 5 confirm that the outcome variables have not been configured yet, and Speaker 1 suggests starting with that task.
+
+Navigating the Portal and Configuring Outcome Variables
+
+- Speaker 3 offers to walk the team through configuring outcome variables in the portal.
+- Speaker 2 mentions not having done this before and asks for a link to the portal.
+- Speaker 7 offers to share the link with the team, and Speaker 2 confirms they are connected to Zscaler.
+- Speaker 8 suggests recording the session for future reference.
+- Speaker 13 offers to walk through the concept of therapy initiation and its variations in mapping to genetics.
+
+Understanding Therapy Initiation Metrics
+
+- Speaker 1 explains the concept of therapy initiation, including the flexibility of defining the index date and successful initiation benchmarks.
+- Speaker 8 identifies three key input fields needed for calculating therapy initiation: window, starting date, and successful outcome date.
+- Speaker 1 elaborates on the process of capturing key fields in the input snapshot and inserting them into the calc outcome results.
+- Speaker 8 suggests moving to the portal to show how these inputs are configured.
+- Speaker 15 and Speaker 16 discuss the need to configure outcome variables in the portal.
+
+Configuring Communication Outreach Metrics
+
+- Speaker 2 explains the need to track historical data for each patient for each targeting instance, including the channel of communication and whether it was successful.
+- Speaker 1 suggests that the only outcome variable being tracked is a binary outcome, with other information like channel and time of day being extra.
+- Speaker 8 agrees and emphasizes the need to identify the key fields for calculating the metric.
+- Speaker 2 describes the process of aggregating data for successful communication attempts based on channel, targeting instance, and time of day.
+- Speaker 18 suggests using the patient key combined with the instance name to create a model for predicting the best time to reach out to patients.
+
+Understanding Communication Pathways and Instances
+
+- Speaker 8 explains the concept of communication pathways and instances, using the example of the welcome call pathway with two instances.
+- Speaker 2 describes the process of generating recommendations for follow-up communications based on the outcome of previous attempts.
+- Speaker 8 emphasizes the importance of understanding the configuration rules for different pathways and instances.
+- Speaker 2 and Speaker 8 discuss the need to know the number of instances in a pathway to generate the data set correctly.
+- Speaker 18 suggests that the grain of the data should be at the communication level, with additional metadata available through the communication key.
+
+Finalizing the Data Set Generation Process
+
+- Speaker 8 suggests using the communication key to pull all relevant metadata, including patient details, channel, time of day, and outcome.
+- Speaker 1 mentions the possibility of using an additional column in the main table to store all necessary information.
+- Speaker 8 agrees and suggests taking a break to think through the framework and how to fit the new data into the existing process.
+- Speaker 2 proposes setting up another working session to continue the discussion.
+- The meeting concludes with an agreement to reconvene on Monday to finalize the data set generation process.
+
+Generated by https://otter.ai
