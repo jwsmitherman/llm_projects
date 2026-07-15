@@ -804,3 +804,37 @@ for st, target in [("Illinois","henry"), ("Iowa","des moines"), ("California","t
     names = inc.loc[inc["scene_state"]==st, "scene_county"].dropna().unique()
     hits = [n for n in names if target.split()[0] in str(n).lower()]
     print(f"\n{st} -> looking for '{target}': {hits if hits else 'NO MATCH'}")
+
+
+
+
+
+
+---
+
+# ===== Row-3 (air-eligible) trips by month — ENTIRE dataset — for calibration =====
+def _show(d):
+    try: display(d)
+    except Exception: print(d.to_string(index=False))
+
+g = (inc.groupby(["month_key", "month_label"])
+        .agg(total_ground=("uuid", "count"),
+             row3_eligible=("air_eligible", "sum"))
+        .reset_index()
+        .sort_values("month_key"))
+g["row3_eligible"] = g["row3_eligible"].astype(int)
+g["pct_of_ground"] = (g["row3_eligible"] / g["total_ground"] * 100).round(2)
+
+# total row
+tot = pd.DataFrame([{
+    "month_key": "", "month_label": "TOTAL",
+    "total_ground": int(g["total_ground"].sum()),
+    "row3_eligible": int(g["row3_eligible"].sum()),
+    "pct_of_ground": round(g["row3_eligible"].sum() / g["total_ground"].sum() * 100, 2)
+}])
+out = pd.concat([g[["month_label","total_ground","row3_eligible","pct_of_ground"]],
+                tot[["month_label","total_ground","row3_eligible","pct_of_ground"]]],
+               ignore_index=True)
+
+print("Row-3 air-eligible (>60 min + L&S + segment) vs. all ground trips, by month — full dataset")
+_show(out)
