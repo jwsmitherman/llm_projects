@@ -57,70 +57,162 @@ auth_header = AUTH_TOKEN if AUTH_TOKEN.startswith("Basic ") else "Basic " + AUTH
 HEADERS = {"Content-Type": "application/json", "Authorization": auth_header}
 VERIFY_TLS = True
 
-# request_cache=false so we measure real work, not cache hits (matches how the team ran Gatling)
-def os_search(query_body, profile=False, request_cache=False):
-    url = ENDPOINT + ("?request_cache=false" if not request_cache else "")
+# Posts exactly like the HTML UI: POST the body to ENDPOINT with no extra URL params.
+# profile=True is opt-in (a proxy/alias may reject it — see notes).
+def os_search(query_body, profile=False):
     body = dict(query_body)
     if profile:
         body["profile"] = True
     t0 = time.perf_counter()
-    resp = requests.post(url, headers=HEADERS, json=body, verify=VERIFY_TLS, timeout=120)
+    resp = requests.post(ENDPOINT, headers=HEADERS, json=body, verify=VERIFY_TLS, timeout=120)
     client_ms = (time.perf_counter() - t0) * 1000
-    resp.raise_for_status()
-    data = resp.json()
-    return data, client_ms
+    if resp.status_code >= 400:                       # show WHY instead of a blind raise
+        print("STATUS", resp.status_code, "BODY:", resp.text[:1500])
+        resp.raise_for_status()
+    return resp.json(), client_ms
 
 print("Connection configured. Endpoint:", ENDPOINT)
 
 # COMMAND ----------
 
-# ## 2. Load the two queries from files
+# ## 2. Load the two queries — render templates *in Databricks* (no UI needed)
 #
-# Each query is read from a **text file containing a valid, final query body** (JSON) and parsed with
-# `json.load`. Get a valid body from the **HTML test UI**: fill in the slow case (**middle-initial**,
-# e.g. first=`JOSE`, middle=`F`, last=`MENDOZA`), copy the **"Final OpenSearch Request (Pretty-Printed)"**
-# box, and save it to a file — one for v6, one for v7. Use the **same inputs** for both.
+# Each file can be **either**:
+# - a **rendered request** (valid JSON, all placeholders already filled) → loaded as-is, or
+# - a **template** with `{{PLACEHOLDERS}}` → this notebook renders it: substitute the inputs below,
+#   prune clauses whose inputs are blank, and drop leftover placeholders (the same substitute-and-prune
+#   the API/UI does).
 #
-# > ⚠️ The raw `search_query_v6/v7.txt` **template** files won't work here — they're fragments with
-# > `{{PLACEHOLDER}}` tokens and are not valid JSON on their own (they rely on the API's
-# > substitute-and-prune step; v7 alone has ~20 unclosed braces). Always save the **rendered** request.
+# Set the inputs once in `PARAMS` (use the slow **middle-initial** case). Both files render with the
+# **same inputs** so the comparison is fair.
 #
-# Put the files anywhere the driver can read (DBFS `/dbfs/FileStore/...`, a workspace path, or `/tmp`).
+# > A template only renders if it's **well-formed JSON structurally**. If a file has unbalanced braces
+# > (a broken/partial export), rendering can't guess the missing structure — the diagnostic below will
+# > say so, and you'll need a valid template (pull the current one from the **API repo**).
 
 # COMMAND ----------
 
-import os
+import re, os
 
-V6_QUERY_FILE = "/dbfs/FileStore/identity_perf/v6_query.txt"   # valid RENDERED request (not the template)
-V7_QUERY_FILE = "/dbfs/FileStore/identity_perf/v7_query.txt"
+# --- test inputs (same for v6 and v7). Blank = that clause gets pruned out. ---
+PARAMS = {
+    "SIMILAR_SIZE": "25",
+    "FIRSTNAME": "JOSE", "MIDDLENAME": "F", "LASTNAME": "MENDOZA",
+    "ANUMBER": "", "DOB": "", "COB": "", "COC": "",
+    "IDENTIFIER_NAME": "", "IDENTIFIER_VALUE": "",
+}
 
-def load_query(path):
-    """Read a text file and parse it as a JSON query body. Tolerates a leading console verb line."""
+PH = re.compile(r"\{\{\s*([A-Z_]+)\s*\}\}")
+
+def _has_ph(n):
+    if isinstance(n, str):  return bool(PH.search(n))
+    if isinstance(n, list): return any(_has_ph(x) for x in n)
+    if isinstance(n, dict): return any(_has_ph(v) for v in n.values())
+    return False
+
+def _empty_bool(n):
+    if not isinstance(n, dict): return False
+    b = n.get("bool")
+    return isinstance(b, dict) and not any(isinstance(b.get(k), list) and b[k]
+                                           for k in ("must", "should", "filter", "must_not"))
+
+def _prune(n):
+    if isinstance(n, dict) and isinstance(n.get("bool"), dict):
+        b = n["bool"]
+        for key in ("must", "should"):
+            if isinstance(b.get(key), list):
+                for c in b[key]: _prune(c)
+                b[key] = [c for c in b[key] if not _has_ph(c) and not _empty_bool(c)]
+                if not b[key]: del b[key]
+    for v in (n.values() if isinstance(n, dict) else n if isinstance(n, list) else []):
+        if isinstance(v, (dict, list)): _prune(v)
+
+def _strip(n):
+    if isinstance(n, dict):
+        for k, v in list(n.items()):
+            if isinstance(v, str): n[k] = PH.sub("", v)
+            elif isinstance(v, (dict, list)): _strip(v)
+    elif isinstance(n, list):
+        for i, v in enumerate(n):
+            if isinstance(v, str): n[i] = PH.sub("", v)
+            elif isinstance(v, (dict, list)): _strip(v)
+
+def diagnose(text):
+    """Report structural balance of a template BEFORE trying to parse."""
+    s = PH.sub("X", text)                                  # neutralize placeholders
+    ob, cb, obr, cbr = s.count("{"), s.count("}"), s.count("["), s.count("]")
+    return {"braces_diff": ob - cb, "brackets_diff": obr - cbr,
+            "placeholders": text.count("{{"), "well_formed": ob == cb and obr == cbr}
+
+def render_template(text, params):
+    """Substitute non-blank params -> wrap fragment -> fix quoted size -> drop trailing commas ->
+    parse -> prune blank/placeholder clauses -> strip leftovers. Returns a query dict."""
+    s = PH.sub(lambda m: (str(params[m.group(1)])
+                          if params.get(m.group(1)) not in (None, "") else m.group(0)), text)
+    s = re.sub(r'"size"\s*:\s*"(\d+)"', r'"size": \1', s)     # size must be numeric
+    if s.lstrip()[:1] != "{": s = "{" + s + "}"                  # wrap body fragment
+    s = re.sub(r",(\s*[}\]])", r"\1", s)                        # drop trailing commas
+    obj = json.loads(s)
+    _prune(obj); _strip(obj)
+    return obj
+
+def load_or_render(path, params=PARAMS):
     if not os.path.exists(path):
-        print(f"  NOT FOUND: {path} — save the rendered request there first.")
-        return {}
+        print(f"  NOT FOUND: {path}"); return {}
     text = open(path).read()
     lines = text.strip().splitlines()
-    if lines and lines[0].strip().upper().startswith(("GET ", "POST ")):  # strip Dev Tools verb line
+    if lines and lines[0].strip().upper().startswith(("GET ", "POST ")):
         text = "\n".join(lines[1:])
+    if "{{" not in text:                                        # already a rendered request
+        try: return json.loads(text)
+        except json.JSONDecodeError as e:
+            print(f"  {path}: not valid JSON -> {e}"); return {}
+    d = diagnose(text)                                          # it's a template
+    if not d["well_formed"]:
+        print(f"  {path}: TEMPLATE IS MALFORMED (structurally, before placeholders): "
+              f"braces off by {d['braces_diff']}, brackets off by {d['brackets_diff']}. "
+              f"Can't render a broken template — pull a valid one from the API repo.")
+        return {}
     try:
-        return json.loads(text)
+        q = render_template(text, params)
+        print(f"  {path}: rendered from template ({len(json.dumps(q))} chars, size={q.get('size')})")
+        return q
     except json.JSONDecodeError as e:
-        if "{{" in text:
-            print(f"  {path} looks like a raw TEMPLATE ({{{{...}}}} placeholders), not valid JSON.\n"
-                  f"  Save the UI's 'Final OpenSearch Request' (rendered) instead.")
-        else:
-            print(f"  {path} is not valid JSON: {e}")
+        print(f"  {path}: render failed near {e}. Template likely malformed; use a valid one.")
         return {}
 
-V6_QUERY = load_query(V6_QUERY_FILE)
-V7_QUERY = load_query(V7_QUERY_FILE)
+V6_QUERY_FILE = "/dbfs/FileStore/identity_perf/v6_query.txt"
+V7_QUERY_FILE = "/dbfs/FileStore/identity_perf/v7_query.txt"
 
-def _looks_empty(q):
-    return not q or "query" not in q
+V6_QUERY = load_or_render(V6_QUERY_FILE)
+V7_QUERY = load_or_render(V7_QUERY_FILE)
+
+def _looks_empty(q): return not q or "query" not in q
 for name, q in [("v6", V6_QUERY), ("v7", V7_QUERY)]:
-    status = "ready" if not _looks_empty(q) else "not loaded / no query block"
-    print(f"{name}: {status}  ({len(json.dumps(q))} chars)")
+    print(f"{name}: {'ready' if not _looks_empty(q) else 'NOT ready'}")
+
+# COMMAND ----------
+
+# ## 2b. Call the API with the adjusted query
+#
+# Section 2 did the safe adjustments (substitute inputs, fix `size`, wrap, drop trailing commas, prune
+# empty clauses). This fires a **plain search** — exactly like the HTML UI (`POST` the body, no extra
+# params) — to confirm the query is accepted and returns hits. If a query didn't render (bad template),
+# this skips it with the reason already printed above.
+
+# COMMAND ----------
+
+def adjust_and_call(name, query):
+    if _looks_empty(query):
+        print(f"{name}: no usable query — see the message in section 2.")
+        return None
+    data, ms = os_search(query, profile=False)      # plain call, matches the UI
+    total = data.get("hits", {}).get("total", {})
+    print(f"{name}: OK   took={data.get('took')} ms   client={ms:.0f} ms   hits={total}")
+    return data
+
+adjust_and_call("v6", V6_QUERY)
+adjust_and_call("v7", V7_QUERY)
 
 # COMMAND ----------
 
