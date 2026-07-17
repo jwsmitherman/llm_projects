@@ -67,9 +67,19 @@ spark.sql("USE CATALOG prod")
 print("current catalog / schema:")
 display(spark.sql("SELECT current_catalog(), current_schema()"))
 
-# Integra denial data (TODO: set once loaded).
-# NOTE: the sandbox catalog is literally named 'prod-sandbox' (HYPHEN) - it must be
-# backtick-quoted or Spark reads the hyphen as minus.
+# -----------------------------------------------------------------------------
+# SANDBOX (already accessible to you): prod-sandbox.vivekkumar_patel
+# Discovery showed useful GOLD tables already exist here. Explore these NOW while
+# prod grants get sorted. NOTE the hyphen in 'prod-sandbox' -> must be backticked.
+# -----------------------------------------------------------------------------
+SANDBOX_CATALOG = "`prod-sandbox`"
+SANDBOX_SCHEMA  = "vivekkumar_patel"
+
+# gold_opdw_attributed carries the operational reason/outcome fields:
+#   DispatchReason, LostReason, LostReasonCategory, ReportedOutcome, RequestReasonForClose
+OPDW_ATTRIBUTED = "`prod-sandbox`.vivekkumar_patel.gold_opdw_attributed"
+
+# Integra ground denial data (TODO: set once it is actually loaded here).
 DENIAL_TABLE = "`prod-sandbox`.vivekkumar_patel.integra_ground_denials"   # TODO confirm
 
 # Nurse-nav triage data (TODO: set once located)
@@ -229,7 +239,26 @@ find_columns(
 
 # COMMAND ----------
 
-# 3. Optional: list tables in a single schema you want to eyeball
+# 3. FALLBACK if step 2 returned nothing. information_schema and SHOW TABLES use
+#    different permission paths - SHOW TABLES often works when the former is empty.
+#    If these are also empty/error, it is an access-grant issue on prod (Vivekkumar's
+#    ticket), not a code problem.
+try:
+    display(spark.sql("SHOW SCHEMAS IN prod"))
+except Exception as e:
+    print("SHOW SCHEMAS IN prod failed:", str(e)[:160])
+
+for s in TB_SCHEMAS:
+    print("====", s)
+    try:
+        display(spark.sql(f"SHOW TABLES IN prod.{s}"))
+    except Exception as e:
+        print("   no access:", str(e)[:140])
+
+
+# COMMAND ----------
+
+# 4. Optional: list tables in a single schema you want to eyeball
 #    (e.g. logs or transportdataservices, likely homes for the clinical payload).
 # list_tables(TB_CATALOG, "silver_transbrokerlogs")
 # list_tables(TB_CATALOG, "silver_transportdataservices")
@@ -237,10 +266,45 @@ find_columns(
 
 # COMMAND ----------
 
-# 4. Once you identify the order/clinical table from step 2, profile it (replace name):
+# 5. Once you identify the order/clinical table, profile it (replace name):
 # profile_table("prod.silver_transbroker.o_concierge_trips")                          # TODO
 # sample_free_text("prod.silver_transbroker.o_concierge_trips", "ClinicalNarrative")  # TODO col
 # value_counts("prod.silver_transbroker.o_concierge_trips", "RequestedServiceType")   # TODO col
+
+
+# COMMAND ----------
+
+# =============================================================================
+# PART A2 - SANDBOX gold tables you ALREADY have access to
+# Discovery found gold_opdw_attributed in your sandbox with the operational
+# reason/outcome fields. This is the fastest path to real reason-code data while
+# prod grants are pending. gold_opdw = operational data warehouse, "attributed"
+# = trips matched to their happy-path record.
+# =============================================================================
+
+# What clinical/reason/LOS-looking columns exist across your whole sandbox schema?
+find_columns(
+    "prod-sandbox", [SANDBOX_SCHEMA],
+    "(pcs|clinic|medical|necess|narrativ|reason|diagnos|oxygen|ambulan|wheelchair|"
+    "stretcher|los|levelofservice|servicetype|lostreason|dispatch|outcome|denial|"
+    "modifier|hcpcs|emergen)"
+)
+
+
+# COMMAND ----------
+
+# Profile the attributed operational table, then look at its reason/outcome fields.
+profile_table(OPDW_ATTRIBUTED)
+
+
+# COMMAND ----------
+
+# The operational reason/outcome fields (closest existing proxy for "why" today).
+# value_counts(OPDW_ATTRIBUTED, "LostReasonCategory", top=40)
+# value_counts(OPDW_ATTRIBUTED, "LostReason", top=40)
+# value_counts(OPDW_ATTRIBUTED, "DispatchReason", top=40)
+# value_counts(OPDW_ATTRIBUTED, "ReportedOutcome", top=40)
+# value_counts(OPDW_ATTRIBUTED, "RequestReasonForClose", top=40)
 
 
 # COMMAND ----------
