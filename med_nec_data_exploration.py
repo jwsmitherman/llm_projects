@@ -79,6 +79,15 @@ NURSENAV_TABLE = "prod_sandbox.vivekkumar_patel.nurse_nav_calls"        # TODO c
 from pyspark.sql import functions as F
 
 
+def table_exists(fqtn):
+    """True if the table can be resolved. Works on serverless (Spark Connect) too."""
+    try:
+        spark.sql(f"DESCRIBE TABLE {fqtn}")
+        return True
+    except Exception:
+        return False
+
+
 def list_tables(catalog, schema):
     """List tables in a schema."""
     display(spark.sql(f"SHOW TABLES IN {catalog}.{schema}"))
@@ -98,6 +107,12 @@ def inventory(catalog, schemas):
 
 def find_columns(catalog, schemas, keyword_regex):
     """Search information_schema for columns whose name matches a regex (case-insensitive)."""
+    try:
+        spark.sql(f"SELECT 1 FROM {catalog}.information_schema.columns LIMIT 1")
+    except Exception:
+        print(f"[skip] catalog '{catalog}' has no readable information_schema yet "
+              f"(is the data loaded?).")
+        return
     in_list = ", ".join(f"'{s}'" for s in schemas)
     q = f"""
         SELECT table_schema, table_name, column_name, data_type
@@ -111,6 +126,9 @@ def find_columns(catalog, schemas, keyword_regex):
 
 def profile_table(fqtn, max_cols=50):
     """Row count + per-column null count and approx distinct count, in a single pass."""
+    if not table_exists(fqtn):
+        print(f"[skip] {fqtn} not found yet - set the real name in Config once it is loaded.")
+        return
     df = spark.table(fqtn)
     n = df.count()
     cols = df.columns[:max_cols]
@@ -131,6 +149,9 @@ def profile_table(fqtn, max_cols=50):
 
 def duplicate_check(fqtn, key_cols):
     """How many key combinations appear more than once (dirty-data check)."""
+    if not table_exists(fqtn):
+        print(f"[skip] {fqtn} not found yet.")
+        return
     df = spark.table(fqtn)
     dups = df.groupBy(*key_cols).count().filter("count > 1")
     d = dups.count()
@@ -142,6 +163,9 @@ def duplicate_check(fqtn, key_cols):
 
 def value_counts(fqtn, col, top=25, where=None):
     """Top values for a column."""
+    if not table_exists(fqtn):
+        print(f"[skip] {fqtn} not found yet.")
+        return
     df = spark.table(fqtn)
     if where:
         df = df.filter(where)
@@ -150,6 +174,9 @@ def value_counts(fqtn, col, top=25, where=None):
 
 def sample_free_text(fqtn, text_col, n=20, where=None):
     """Sample non-empty free-text values to eyeball the narrative content."""
+    if not table_exists(fqtn):
+        print(f"[skip] {fqtn} not found yet.")
+        return
     df = spark.table(fqtn)
     if where:
         df = df.filter(where)
@@ -208,6 +235,9 @@ find_columns(
 # Goal: consolidate, de-dupe, and find the medical-necessity denial reasons +
 # the BLS -> wheelchair pattern. Confirm field definitions with Jeff Pellick
 # (Integra); mapping table with Jen Jones.
+#
+# These cells SELF-SKIP with a "[skip] ... not found yet" message until you set
+# DENIAL_TABLE (Config cell) to the real loaded table, so Run-all won't error.
 # =============================================================================
 
 # 1. Profile whatever landed (set DENIAL_TABLE in the Config cell first).
