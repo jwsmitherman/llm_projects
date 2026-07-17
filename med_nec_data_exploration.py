@@ -61,11 +61,19 @@ TB_SCHEMAS = [
 # Used for the SHOW TABLES inventory in Part A. Adjust if discovery points elsewhere.
 TB_PRIMARY_SCHEMA = "silver_transbroker"
 
-# Integra denial data (TODO: set once loaded into your playground)
-DENIAL_TABLE = "prod_sandbox.vivekkumar_patel.integra_ground_denials"   # TODO confirm
+# IMPORTANT: on serverless the session starts in hive_metastore.default, so unqualified
+# lookups (and information_schema) resolve to the wrong catalog. Pin the session to prod.
+spark.sql("USE CATALOG prod")
+print("current catalog / schema:")
+display(spark.sql("SELECT current_catalog(), current_schema()"))
+
+# Integra denial data (TODO: set once loaded).
+# NOTE: the sandbox catalog is literally named 'prod-sandbox' (HYPHEN) - it must be
+# backtick-quoted or Spark reads the hyphen as minus.
+DENIAL_TABLE = "`prod-sandbox`.vivekkumar_patel.integra_ground_denials"   # TODO confirm
 
 # Nurse-nav triage data (TODO: set once located)
-NURSENAV_TABLE = "prod_sandbox.vivekkumar_patel.nurse_nav_calls"        # TODO confirm
+NURSENAV_TABLE = "`prod-sandbox`.vivekkumar_patel.nurse_nav_calls"        # TODO confirm
 
 
 # COMMAND ----------
@@ -88,6 +96,12 @@ def table_exists(fqtn):
         return False
 
 
+def split_fqtn(fqtn):
+    """Split 'cat.schema.table' into (catalog, schema, table), stripping any backticks."""
+    parts = [p.strip("`") for p in fqtn.split(".")]
+    return parts[0], parts[1], parts[2]
+
+
 def list_tables(catalog, schema):
     """List tables in a schema."""
     display(spark.sql(f"SHOW TABLES IN {catalog}.{schema}"))
@@ -107,8 +121,9 @@ def inventory(catalog, schemas):
 
 def find_columns(catalog, schemas, keyword_regex):
     """Search information_schema for columns whose name matches a regex (case-insensitive)."""
+    cat = f"`{catalog}`"      # backtick so hyphenated catalogs (prod-sandbox) resolve
     try:
-        spark.sql(f"SELECT 1 FROM {catalog}.information_schema.columns LIMIT 1")
+        spark.sql(f"SELECT 1 FROM {cat}.information_schema.columns LIMIT 1")
     except Exception:
         print(f"[skip] catalog '{catalog}' has no readable information_schema yet "
               f"(is the data loaded?).")
@@ -116,7 +131,7 @@ def find_columns(catalog, schemas, keyword_regex):
     in_list = ", ".join(f"'{s}'" for s in schemas)
     q = f"""
         SELECT table_schema, table_name, column_name, data_type
-        FROM {catalog}.information_schema.columns
+        FROM {cat}.information_schema.columns
         WHERE table_schema IN ({in_list})
           AND lower(column_name) RLIKE '{keyword_regex}'
         ORDER BY table_schema, table_name, column_name
@@ -247,9 +262,9 @@ profile_table(DENIAL_TABLE)
 # COMMAND ----------
 
 # 2. Find the denial-reason and level-of-service fields by name.
+_dcat, _dschema, _ = split_fqtn(DENIAL_TABLE)
 find_columns(
-    DENIAL_TABLE.split(".")[0],                              # catalog part of DENIAL_TABLE
-    [DENIAL_TABLE.split(".")[1]],                            # schema part
+    _dcat, [_dschema],
     "(deny|denial|reason|remark|carc|rarc|adjust|medical|necess|los|level|hcpcs|cpt|"
     "modifier|gy|claim|payer|payor|status)"
 )
@@ -294,9 +309,9 @@ profile_table(NURSENAV_TABLE)
 # COMMAND ----------
 
 # 2. Find the triage-level, bucket/disposition, notes, and workset-id fields.
+_ncat, _nschema, _ = split_fqtn(NURSENAV_TABLE)
 find_columns(
-    NURSENAV_TABLE.split(".")[0],
-    [NURSENAV_TABLE.split(".")[1]],
+    _ncat, [_nschema],
     "(triage|level|acuity|bucket|disposition|override|selfcare|self_care|mtara|nimtara|"
     "cordy|protocol|note|comment|reason|workset|result|referral|outcome)"
 )
