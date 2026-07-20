@@ -264,17 +264,48 @@ display(spark.sql(f"""
 # COMMAND ----------
 
 # Override rate by level of service and contract - where is the pressure?
+# NOTE: LOSOverride is BOOLEAN, so use it directly in CASE WHEN (no "= 1").
 display(spark.sql(f"""
     SELECT
         ContractName,
         LevelOfServiceDescription,
-        count(*)                                                  AS trips,
-        sum(CASE WHEN LOSOverride = true OR LOSOverride = 1 THEN 1 ELSE 0 END) AS overrides,
-        round(100.0 * sum(CASE WHEN LOSOverride = true OR LOSOverride = 1 THEN 1 ELSE 0 END)
-              / count(*), 1)                                       AS pct_override
+        count(*)                                        AS trips,
+        sum(CASE WHEN LOSOverride THEN 1 ELSE 0 END)    AS overrides,
+        round(100.0 * sum(CASE WHEN LOSOverride THEN 1 ELSE 0 END)
+              / count(*), 1)                            AS pct_override
     FROM {TRIPMASTER}
     GROUP BY ContractName, LevelOfServiceDescription
     ORDER BY trips DESC
+"""))
+
+
+# COMMAND ----------
+
+# HIGHEST-RISK COHORT: level of service was overridden AND the justification text
+# is weak. These are the trips most likely to be denied - and exactly what the
+# front-end nudge is meant to catch before submit.
+display(spark.sql(f"""
+    SELECT
+        CASE WHEN LOSOverride THEN 'overridden' ELSE 'system-derived' END AS los_source,
+        CASE WHEN ClinicalData RLIKE '{INSUFFICIENT}' THEN 'weak text' ELSE 'specific text' END AS doc_quality,
+        count(*) AS trips,
+        round(100.0 * count(*) / sum(count(*)) OVER (), 1) AS pct_of_all
+    FROM {TRIPMASTER}
+    WHERE ClinicalData IS NOT NULL AND length(trim(ClinicalData)) > 0
+    GROUP BY 1, 2
+    ORDER BY trips DESC
+"""))
+
+
+# COMMAND ----------
+
+# The actual high-risk records - override + weak text. Prime golden-set candidates.
+display(spark.sql(f"""
+    SELECT ContractName, LevelOfServiceDescription, LOSOverrideReason, ClinicalData
+    FROM {TRIPMASTER}
+    WHERE LOSOverride
+      AND ClinicalData RLIKE '{INSUFFICIENT}'
+    LIMIT 100
 """))
 
 
