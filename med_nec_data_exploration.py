@@ -1,104 +1,71 @@
 # Databricks notebook source
 # =============================================================================
-# Medical Necessity + Denials + Nurse-Nav - Data Exploration
+# Medical Necessity EDA - TripMaster clinical fields
 #
-# Discovery-first exploration. The transcripts all stress the same thing: the
-# data is NOT indexed or mapped, and the denial data is DIRTY (duplicates, needs
-# cleanup). So this notebook gives reusable profiling helpers, then applies them
-# to three targets.
+# CONFIRMED from Vivekkumar's TripMaster_v2 query (7/17/2026). The clinical data
+# we needed lives in prod.silver_transbroker.tripleg:
 #
-# WHAT WE ARE TRYING TO ANSWER
-#   A. Ground medical necessity (Transport.net / transbroker)
-#      - Where do the clinical free-text ("blurb") and the giant JSON live?
-#      - Can we derive requested level of service (BLS / wheelchair / ALS / CCT)?
-#   B. Integra ground denial data (being loaded into Databricks)
-#      - What fields exist? Where are the medical-necessity denial reasons?
-#      - How dirty is it (duplicates)? Top denial reasons + BLS -> wheelchair?
-#   C. Nurse-navigation 911 triage
-#      - Distribution of triage levels 0-6 and self-care / MTARA-6 / override.
-#      - Where is the "why" (free-text notes / Cordy protocol codes)?
-#      - KPI scaffolding: resolution rate, diversion rate, % referred to nurse-nav.
+#   ClinicalData       <- the nurse free-text "blurb"   *** the AI input ***
+#   LosQuestions       <- clinical questions payload (JSON-ish)
+#   LevelOfService     <- requested LOS  (joins c_lookup_contractlos.LOS)
+#   LosCategory        <- ServiceType    (joins c_lookup_contractlos.LOS)
+#   SpecialNeeds       <- special needs / equipment
+#   LOSOverride        <- WAS the level of service overridden by the user?
+#   LOSOverrideReason  <- why
 #
-# CONFIRMED prod SCHEMAS (from Vivekkumar's Teams message):
-#   silver_transbroker            - ordering / concierge
-#   silver_transbrokerdocs        - docs, e.g. tripridesharereceipts
-#   silver_transbrokerlogs        - TripLog / audit (LastModifiedDate logic lives here)
-#   silver_transportdataservices  - services / API layer
-#   silver_resourcetracking       - vehicle / crew tracking
-#   silver_patientlookup          - patient demographics  << PHI: do NOT pull into extract
+# LOSOverride is a big deal: the workshop assumed there was no derived-vs-
+# overridden flag. There is. It directly measures nurses pushing for a higher
+# level of service than the rules produced.
 #
-# PEOPLE / SOURCES to confirm field definitions
-#   Vivekkumar Patel       - knows exactly where transport.net inputs land (take the call)
-#   Jeff Pellick (Integra) - denial field definitions + spec file
-#   Jen Jones              - CMS criteria + possible denial-code mapping table
-#   Nathan Haron           - Logis / call-center terminology (nurse-nav)
-#   Rich                   - existing Power BI reports + KPIs (nurse-nav)
-#   Adrian / Matt          - data-engineering help with the Integra load
+# Base tables:
+#   prod.silver_transbroker.triprequest tr
+#   INNER JOIN prod.silver_transbroker.tripleg tl ON tr.TripRequestId = tl.TripRequestId
+#   LEFT JOIN prod.silver_transbroker.c_lookup_contractlos cl ON tl.LevelOfService = cl.LOS
 #
-# NOTE: names like MTARA-6 / Nimtara / Bingley are phonetic from the
-# transcripts - verify exact spelling.
+# ALREADY MATERIALIZED (fastest path - start here):
+#   `prod-sandbox`.vivekkumar_patel.temp_tnet_tripmaster
+#   filtered to YEAR(RequestDateTime)=2025 and ContractId IN (29,555,326,229)
+#     229            = Texas Health Resources
+#     29, 555, 326   = MUSC
+#   i.e. exactly the two pilot customers.
+#
+# ORDER: run Part 1, then 2 (the money query), then 3-5.
 # =============================================================================
 
 
 # COMMAND ----------
 
 # -----------------------------------------------------------------------------
-# 0. CONFIG - edit these as you confirm real names
+# 0. CONFIG
 # -----------------------------------------------------------------------------
 
-# Transport.net - all six confirmed schemas under the prod catalog.
-TB_CATALOG = "prod"
-TB_SCHEMAS = [
-    "silver_transbroker",
-    "silver_transbrokerdocs",
-    "silver_transbrokerlogs",
-    "silver_transportdataservices",
-    "silver_resourcetracking",
-    "silver_patientlookup",
-]
+# Pre-built TripMaster extract (hyphen in catalog name -> must be backticked).
+TRIPMASTER = "`prod-sandbox`.vivekkumar_patel.temp_tnet_tripmaster"
 
-# Schema most likely to hold the clinical free-text + JSON + level of service.
-# Used for the SHOW TABLES inventory in Part A. Adjust if discovery points elsewhere.
-TB_PRIMARY_SCHEMA = "silver_transbroker"
+# Raw source, if/when you have prod grants and want to re-derive.
+TRIPLEG    = "prod.silver_transbroker.tripleg"
+TRIPREQ    = "prod.silver_transbroker.triprequest"
+LOS_LOOKUP = "prod.silver_transbroker.c_lookup_contractlos"
 
-# IMPORTANT: on serverless the session starts in hive_metastore.default, so unqualified
-# lookups (and information_schema) resolve to the wrong catalog. Pin the session to prod.
+# Pilot contracts
+CONTRACTS = {229: "Texas Health Resources", 29: "MUSC", 555: "MUSC", 326: "MUSC"}
+
+# Where to write the extract for the LLM pipeline
+EXTRACT_TABLE = "`prod-sandbox`.vivekkumar_patel.mednec_llm_extract"
+
+from pyspark.sql import functions as F
+
 spark.sql("USE CATALOG prod")
-print("current catalog / schema:")
 display(spark.sql("SELECT current_catalog(), current_schema()"))
-
-# -----------------------------------------------------------------------------
-# SANDBOX (already accessible to you): prod-sandbox.vivekkumar_patel
-# Discovery showed useful GOLD tables already exist here. Explore these NOW while
-# prod grants get sorted. NOTE the hyphen in 'prod-sandbox' -> must be backticked.
-# -----------------------------------------------------------------------------
-SANDBOX_CATALOG = "`prod-sandbox`"
-SANDBOX_SCHEMA  = "vivekkumar_patel"
-
-# gold_opdw_attributed carries the operational reason/outcome fields:
-#   DispatchReason, LostReason, LostReasonCategory, ReportedOutcome, RequestReasonForClose
-OPDW_ATTRIBUTED = "`prod-sandbox`.vivekkumar_patel.gold_opdw_attributed"
-
-# Integra ground denial data (TODO: set once it is actually loaded here).
-DENIAL_TABLE = "`prod-sandbox`.vivekkumar_patel.integra_ground_denials"   # TODO confirm
-
-# Nurse-nav triage data (TODO: set once located)
-NURSENAV_TABLE = "`prod-sandbox`.vivekkumar_patel.nurse_nav_calls"        # TODO confirm
 
 
 # COMMAND ----------
 
 # -----------------------------------------------------------------------------
-# 1. REUSABLE PROFILING HELPERS (run once)
-# These work on ANY table. Built to be cheap on large/dirty tables: single-pass
-# aggregation, approximate distinct counts, capped column width.
+# Helpers
 # -----------------------------------------------------------------------------
 
-from pyspark.sql import functions as F
-
-
 def table_exists(fqtn):
-    """True if the table can be resolved. Works on serverless (Spark Connect) too."""
     try:
         spark.sql(f"DESCRIBE TABLE {fqtn}")
         return True
@@ -106,353 +73,343 @@ def table_exists(fqtn):
         return False
 
 
-def split_fqtn(fqtn):
-    """Split 'cat.schema.table' into (catalog, schema, table), stripping any backticks."""
-    parts = [p.strip("`") for p in fqtn.split(".")]
-    return parts[0], parts[1], parts[2]
-
-
-def list_tables(catalog, schema):
-    """List tables in a schema."""
-    display(spark.sql(f"SHOW TABLES IN {catalog}.{schema}"))
-
-
-def inventory(catalog, schemas):
-    """Full table inventory across several schemas (run this before column search)."""
-    in_list = ", ".join(f"'{s}'" for s in schemas)
-    q = f"""
-        SELECT table_schema, table_name
-        FROM {catalog}.information_schema.tables
-        WHERE table_schema IN ({in_list})
-        ORDER BY table_schema, table_name
-    """
-    display(spark.sql(q))
-
-
-def find_columns(catalog, schemas, keyword_regex):
-    """Search information_schema for columns whose name matches a regex (case-insensitive)."""
-    cat = f"`{catalog}`"      # backtick so hyphenated catalogs (prod-sandbox) resolve
-    try:
-        spark.sql(f"SELECT 1 FROM {cat}.information_schema.columns LIMIT 1")
-    except Exception:
-        print(f"[skip] catalog '{catalog}' has no readable information_schema yet "
-              f"(is the data loaded?).")
-        return
-    in_list = ", ".join(f"'{s}'" for s in schemas)
-    q = f"""
-        SELECT table_schema, table_name, column_name, data_type
-        FROM {cat}.information_schema.columns
-        WHERE table_schema IN ({in_list})
-          AND lower(column_name) RLIKE '{keyword_regex}'
-        ORDER BY table_schema, table_name, column_name
-    """
-    display(spark.sql(q))
-
-
-def profile_table(fqtn, max_cols=50):
-    """Row count + per-column null count and approx distinct count, in a single pass."""
+def profile_table(fqtn, max_cols=60):
     if not table_exists(fqtn):
-        print(f"[skip] {fqtn} not found yet - set the real name in Config once it is loaded.")
+        print(f"[skip] {fqtn} not found.")
         return
     df = spark.table(fqtn)
     n = df.count()
     cols = df.columns[:max_cols]
-    print(f"{fqtn}: {n:,} rows, {len(df.columns)} columns "
-          f"({'showing first ' + str(max_cols) if len(df.columns) > max_cols else 'all'})")
+    print(f"{fqtn}: {n:,} rows, {len(df.columns)} columns")
     aggs = []
     for c in cols:
-        aggs.append(F.count(F.when(F.col(f"`{c}`").isNull(), 1)).alias(f"{c}||nulls"))
-        aggs.append(F.approx_count_distinct(F.col(f"`{c}`")).alias(f"{c}||distinct"))
+        aggs.append(F.count(F.when(F.col(f"`{c}`").isNull(), 1)).alias(f"{c}||n"))
+        aggs.append(F.approx_count_distinct(F.col(f"`{c}`")).alias(f"{c}||d"))
     row = df.agg(*aggs).collect()[0].asDict()
-    out = []
-    for c in cols:
-        nulls = row[f"{c}||nulls"]
-        out.append((c, nulls, round(100.0 * nulls / n, 1) if n else None, row[f"{c}||distinct"]))
-    prof = spark.createDataFrame(out, ["column", "null_count", "null_pct", "approx_distinct"])
-    display(prof)
+    out = [(c, row[f"{c}||n"], round(100.0 * row[f"{c}||n"] / n, 1) if n else None,
+            row[f"{c}||d"]) for c in cols]
+    display(spark.createDataFrame(out, ["column", "nulls", "null_pct", "approx_distinct"]))
 
 
-def duplicate_check(fqtn, key_cols):
-    """How many key combinations appear more than once (dirty-data check)."""
-    if not table_exists(fqtn):
-        print(f"[skip] {fqtn} not found yet.")
-        return
-    df = spark.table(fqtn)
-    dups = df.groupBy(*key_cols).count().filter("count > 1")
-    d = dups.count()
-    total = df.count()
-    print(f"{fqtn}: {d:,} duplicated key groups on {key_cols} (table has {total:,} rows)")
-    if d:
-        display(dups.orderBy(F.desc("count")).limit(25))
-
-
-def value_counts(fqtn, col, top=25, where=None):
-    """Top values for a column."""
-    if not table_exists(fqtn):
-        print(f"[skip] {fqtn} not found yet.")
-        return
-    df = spark.table(fqtn)
-    if where:
-        df = df.filter(where)
-    display(df.groupBy(col).count().orderBy(F.desc("count")).limit(top))
-
-
-def sample_free_text(fqtn, text_col, n=20, where=None):
-    """Sample non-empty free-text values to eyeball the narrative content."""
-    if not table_exists(fqtn):
-        print(f"[skip] {fqtn} not found yet.")
-        return
-    df = spark.table(fqtn)
-    if where:
-        df = df.filter(where)
-    df = df.filter(F.col(text_col).isNotNull() & (F.length(F.trim(F.col(text_col))) > 0))
-    display(df.select(text_col).limit(n))
-
-
-print("Helpers ready: list_tables, inventory, find_columns, profile_table, "
-      "duplicate_check, value_counts, sample_free_text")
+print("helpers ready")
 
 
 # COMMAND ----------
 
 # =============================================================================
-# PART A - Transport.net clinical data (transbroker)
-# Find the clinical free-text + JSON + level of service that the AI will read.
+# PART 1 - Confirm the extract and see the clinical fields
 # =============================================================================
 
-# 1. Full table inventory across all six schemas - do this FIRST to see the
-#    landscape before drilling into columns.
-inventory(TB_CATALOG, TB_SCHEMAS)
+print("TripMaster exists:", table_exists(TRIPMASTER))
+display(spark.sql(f"DESCRIBE TABLE {TRIPMASTER}"))
 
 
 # COMMAND ----------
 
-# 2. THE KEY SEARCH across all six schemas: columns that likely hold clinical
-#    text, the giant JSON, level of service, or market/area.
-find_columns(
-    TB_CATALOG, TB_SCHEMAS,
-    "(pcs|clinic|medical|necess|narrativ|blurb|freetext|free_text|comment|note|reason|"
-    "diagnos|oxygen|ambulan|wheelchair|stretcher|los|levelofservice|servicetype|special|"
-    "position|mobility|json|survey|question|emergen)"
-)
+profile_table(TRIPMASTER)
 
 
 # COMMAND ----------
 
-# 3. FALLBACK if step 2 returned nothing. information_schema and SHOW TABLES use
-#    different permission paths - SHOW TABLES often works when the former is empty.
-#    If these are also empty/error, it is an access-grant issue on prod (Vivekkumar's
-#    ticket), not a code problem.
-try:
-    display(spark.sql("SHOW SCHEMAS IN prod"))
-except Exception as e:
-    print("SHOW SCHEMAS IN prod failed:", str(e)[:160])
-
-for s in TB_SCHEMAS:
-    print("====", s)
-    try:
-        display(spark.sql(f"SHOW TABLES IN prod.{s}"))
-    except Exception as e:
-        print("   no access:", str(e)[:140])
+# Row counts by contract - confirms the MUSC / THR split.
+display(spark.sql(f"""
+    SELECT ContractId, ContractName, count(*) AS trips
+    FROM {TRIPMASTER}
+    GROUP BY ContractId, ContractName
+    ORDER BY trips DESC
+"""))
 
 
 # COMMAND ----------
 
-# 4. Optional: list tables in a single schema you want to eyeball
-#    (e.g. logs or transportdataservices, likely homes for the clinical payload).
-# list_tables(TB_CATALOG, "silver_transbrokerlogs")
-# list_tables(TB_CATALOG, "silver_transportdataservices")
+# The clinical fields, side by side. THIS is what the LLM will read.
+display(spark.sql(f"""
+    SELECT
+        TripRequestId, TripLegId, ContractName, RequestType,
+        LevelOfService, LevelOfServiceDescription, ServiceType,
+        LOSOverride, LOSOverrideReason,
+        SpecialNeeds,
+        ClinicalData,
+        LosQuestions
+    FROM {TRIPMASTER}
+    WHERE ClinicalData IS NOT NULL AND length(trim(ClinicalData)) > 0
+    LIMIT 50
+"""))
 
 
 # COMMAND ----------
 
-# 5. Once you identify the order/clinical table, profile it (replace name):
-# profile_table("prod.silver_transbroker.o_concierge_trips")                          # TODO
-# sample_free_text("prod.silver_transbroker.o_concierge_trips", "ClinicalNarrative")  # TODO col
-# value_counts("prod.silver_transbroker.o_concierge_trips", "RequestedServiceType")   # TODO col
-
-
-# COMMAND ----------
-
-# =============================================================================
-# PART A2 - SANDBOX gold tables you ALREADY have access to
-# Discovery found gold_opdw_attributed in your sandbox with the operational
-# reason/outcome fields. This is the fastest path to real reason-code data while
-# prod grants are pending. gold_opdw = operational data warehouse, "attributed"
-# = trips matched to their happy-path record.
-# =============================================================================
-
-# What clinical/reason/LOS-looking columns exist across your whole sandbox schema?
-find_columns(
-    "prod-sandbox", [SANDBOX_SCHEMA],
-    "(pcs|clinic|medical|necess|narrativ|reason|diagnos|oxygen|ambulan|wheelchair|"
-    "stretcher|los|levelofservice|servicetype|lostreason|dispatch|outcome|denial|"
-    "modifier|hcpcs|emergen)"
-)
-
-
-# COMMAND ----------
-
-# Profile the attributed operational table, then look at its reason/outcome fields.
-profile_table(OPDW_ATTRIBUTED)
-
-
-# COMMAND ----------
-
-# The operational reason/outcome fields (closest existing proxy for "why" today).
-# value_counts(OPDW_ATTRIBUTED, "LostReasonCategory", top=40)
-# value_counts(OPDW_ATTRIBUTED, "LostReason", top=40)
-# value_counts(OPDW_ATTRIBUTED, "DispatchReason", top=40)
-# value_counts(OPDW_ATTRIBUTED, "ReportedOutcome", top=40)
-# value_counts(OPDW_ATTRIBUTED, "RequestReasonForClose", top=40)
+# How populated is each clinical field? If ClinicalData is mostly null, the
+# free-text intervention has a much smaller surface than assumed.
+display(spark.sql(f"""
+    SELECT
+        count(*)                                                          AS total_trips,
+        sum(CASE WHEN ClinicalData     IS NOT NULL AND length(trim(ClinicalData))     > 0 THEN 1 ELSE 0 END) AS has_clinical_text,
+        sum(CASE WHEN LosQuestions     IS NOT NULL AND length(trim(LosQuestions))     > 0 THEN 1 ELSE 0 END) AS has_los_questions,
+        sum(CASE WHEN SpecialNeeds     IS NOT NULL AND length(trim(SpecialNeeds))     > 0 THEN 1 ELSE 0 END) AS has_special_needs,
+        sum(CASE WHEN LOSOverrideReason IS NOT NULL AND length(trim(LOSOverrideReason)) > 0 THEN 1 ELSE 0 END) AS has_override_reason,
+        round(avg(length(ClinicalData)), 1)                               AS avg_clinical_len,
+        max(length(ClinicalData))                                         AS max_clinical_len
+    FROM {TRIPMASTER}
+"""))
 
 
 # COMMAND ----------
 
 # =============================================================================
-# PART B - Integra ground denial data
-# Goal: consolidate, de-dupe, and find the medical-necessity denial reasons +
-# the BLS -> wheelchair pattern. Confirm field definitions with Jeff Pellick
-# (Integra); mapping table with Jen Jones.
+# PART 2 - THE MONEY QUERY
+# Quantify insufficient documentation. The workshop claimed "general weakness"
+# alone may touch ~20% of trips. This measures it against real data.
 #
-# These cells SELF-SKIP with a "[skip] ... not found yet" message until you set
-# DENIAL_TABLE (Config cell) to the real loaded table, so Run-all won't error.
+# Terms that do NOT establish medical necessity without an underlying cause and
+# a specific functional deficit.
 # =============================================================================
 
-# 1. Profile whatever landed (set DENIAL_TABLE in the Config cell first).
-profile_table(DENIAL_TABLE)
-
-
-# COMMAND ----------
-
-# 2. Find the denial-reason and level-of-service fields by name.
-_dcat, _dschema, _ = split_fqtn(DENIAL_TABLE)
-find_columns(
-    _dcat, [_dschema],
-    "(deny|denial|reason|remark|carc|rarc|adjust|medical|necess|los|level|hcpcs|cpt|"
-    "modifier|gy|claim|payer|payor|status)"
+INSUFFICIENT = (
+    r"(?i)(general(ized)?\s+weakness|^\s*weakness|fall\s*risk|unsteady\s+gait|"
+    r"decondition|generally\s+weak|weak\b|per\s+protocol|convenience|"
+    r"unable\s+to\s+arrange|no\s+other\s+transport|needs\s+transport)"
 )
 
-
-# COMMAND ----------
-
-# 3. Dirty-data check: duplicates on the claim key (replace with the real key column(s)).
-# duplicate_check(DENIAL_TABLE, ["ClaimId"])                  # TODO real key
-
-
-# COMMAND ----------
-
-# 4. Top denial reasons overall (replace with the real reason column).
-# value_counts(DENIAL_TABLE, "DenialReason", top=40)          # TODO real column
-
-
-# COMMAND ----------
-
-# 5. BLS -> wheelchair pattern: denial reasons broken out by level of service / HCPCS.
-#    Ambulance HCPCS reference: A0428 = BLS non-emergency, A0426 = ALS non-emergency,
-#    A0425 = mileage; wheelchair van is often A0130 / T2001-T2005. GY modifier = not med-necessary.
-# display(
-#     spark.table(DENIAL_TABLE)
-#          .groupBy("Hcpcs", "DenialReason")                  # TODO real columns
-#          .count().orderBy(F.desc("count")).limit(50)
-# )
+display(spark.sql(f"""
+    SELECT
+        ContractName,
+        count(*)                                                   AS trips_with_text,
+        sum(CASE WHEN ClinicalData RLIKE '{INSUFFICIENT}' THEN 1 ELSE 0 END) AS insufficient_hits,
+        round(100.0 * sum(CASE WHEN ClinicalData RLIKE '{INSUFFICIENT}' THEN 1 ELSE 0 END)
+              / count(*), 1)                                        AS pct_insufficient
+    FROM {TRIPMASTER}
+    WHERE ClinicalData IS NOT NULL AND length(trim(ClinicalData)) > 0
+    GROUP BY ContractName
+    ORDER BY trips_with_text DESC
+"""))
 
 
 # COMMAND ----------
 
-# =============================================================================
-# PART C - Nurse-navigation 911 triage
-# Triage levels 0-6; buckets self-care / MTARA-6 / override; the "why" is in
-# free-text + Cordy codes. Confirm terminology with Nathan Haron, KPIs with Rich.
-# =============================================================================
-
-# 1. Profile the nurse-nav table (set NURSENAV_TABLE in Config first).
-profile_table(NURSENAV_TABLE)
-
-
-# COMMAND ----------
-
-# 2. Find the triage-level, bucket/disposition, notes, and workset-id fields.
-_ncat, _nschema, _ = split_fqtn(NURSENAV_TABLE)
-find_columns(
-    _ncat, [_nschema],
-    "(triage|level|acuity|bucket|disposition|override|selfcare|self_care|mtara|nimtara|"
-    "cordy|protocol|note|comment|reason|workset|result|referral|outcome)"
-)
+# Same thing, but split by level of service - expect the BLS-vs-wheelchair
+# gray area to concentrate the insufficient documentation.
+display(spark.sql(f"""
+    SELECT
+        LevelOfServiceDescription,
+        ServiceType,
+        count(*)                                                   AS trips,
+        sum(CASE WHEN ClinicalData RLIKE '{INSUFFICIENT}' THEN 1 ELSE 0 END) AS insufficient_hits,
+        round(100.0 * sum(CASE WHEN ClinicalData RLIKE '{INSUFFICIENT}' THEN 1 ELSE 0 END)
+              / count(*), 1)                                        AS pct_insufficient
+    FROM {TRIPMASTER}
+    WHERE ClinicalData IS NOT NULL AND length(trim(ClinicalData)) > 0
+    GROUP BY LevelOfServiceDescription, ServiceType
+    ORDER BY trips DESC
+"""))
 
 
 # COMMAND ----------
 
-# 3. Distribution of triage levels and buckets (replace with real column names).
-# value_counts(NURSENAV_TABLE, "TriageLevel")                 # TODO real column
-# value_counts(NURSENAV_TABLE, "DispositionBucket")           # TODO real column (self-care/MTARA-6/override)
-# sample_free_text(NURSENAV_TABLE, "NurseNote", n=30)         # TODO real column
+# Eyeball the actual offending narratives. These become few-shot examples and
+# the golden-set seed for the LLM pipeline.
+display(spark.sql(f"""
+    SELECT ContractName, LevelOfServiceDescription, ClinicalData
+    FROM {TRIPMASTER}
+    WHERE ClinicalData RLIKE '{INSUFFICIENT}'
+    LIMIT 100
+"""))
 
 
 # COMMAND ----------
 
-# 4. KPI scaffolding (fill column names)
-#    Resolution rate         = share of calls resolved without ambulance/ED
-#    Diversion rate          = share diverted away from ambulance/ED
-#    % referred to nurse-nav  = referrals / total calls
-#
-# df = spark.table(NURSENAV_TABLE)
-# total = df.count()
-# diverted = df.filter("DispositionBucket in ('self-care','telemedicine','urgent_care')").count()  # TODO
-# print(f"Diversion rate: {diverted/total:.1%}  (n={total:,})")
+# Shortest narratives = likeliest to be non-compliant. A quick quality signal.
+display(spark.sql(f"""
+    SELECT length(ClinicalData) AS len, ContractName,
+           LevelOfServiceDescription, ClinicalData
+    FROM {TRIPMASTER}
+    WHERE ClinicalData IS NOT NULL AND length(trim(ClinicalData)) > 0
+    ORDER BY len ASC
+    LIMIT 100
+"""))
 
 
 # COMMAND ----------
 
 # =============================================================================
-# PART D (optional) - AI categorization of free-text reasons
-# Both the denial and nurse-nav work call for using AI to categorize free-text
-# into reasons. This takes a small SAMPLE, sends it to the LLM, and buckets it
-# into a fixed taxonomy so you can quantify "why". Keep the sample small (cost).
-#
-# Run this once in its own cell first (this is a notebook magic, run it directly
-# in a cell - do NOT paste it as a comment):
-#   %pip install -q openai
-#   dbutils.library.restartPython()
+# PART 3 - LOS OVERRIDE ANALYSIS
+# LOSOverride tells us when a user pushed past the system-derived level of
+# service. This is the "nurses gaming the system" behavior, measurable.
 # =============================================================================
 
-import json
-from openai import OpenAI
-
-OPENAI_API_KEY = "sk-REPLACE_ME"       # TODO your key; move to a secret scope after testing
-LLM = "gpt-4o-mini"
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Fixed taxonomy for MEDICAL-NECESSITY DENIALS (edit for nurse-nav use).
-TAXONOMY = [
-    "insufficient_clinical_documentation",   # e.g. 'general weakness' with no cause
-    "wrong_level_of_service_bls_vs_wheelchair",
-    "wrong_level_of_service_other",
-    "missing_or_invalid_pcs_signature",
-    "demographic_or_eligibility_error",
-    "prior_authorization_missing",
-    "not_medically_necessary_other",
-    "other_or_unclear",
-]
-
-SYS = ("You classify short ambulance-claim denial notes into exactly one category from the provided "
-       "list. Respond ONLY as JSON: {\"category\": <one label>, \"rationale\": <=1 sentence}.")
+display(spark.sql(f"""
+    SELECT
+        LOSOverride,
+        count(*)                                     AS trips,
+        round(100.0 * count(*) / sum(count(*)) OVER (), 1) AS pct
+    FROM {TRIPMASTER}
+    GROUP BY LOSOverride
+    ORDER BY trips DESC
+"""))
 
 
-def categorize(text):
-    user = f"Categories: {TAXONOMY}\nDenial note: \"{text}\"\nClassify."
-    r = client.chat.completions.create(
-        model=LLM, temperature=0.0, response_format={"type": "json_object"},
-        messages=[{"role": "system", "content": SYS}, {"role": "user", "content": user}],
-    )
-    return json.loads(r.choices[0].message.content)
+# COMMAND ----------
+
+# Why are they overriding? Free-text reasons, ranked.
+display(spark.sql(f"""
+    SELECT LOSOverrideReason, count(*) AS trips
+    FROM {TRIPMASTER}
+    WHERE LOSOverrideReason IS NOT NULL AND length(trim(LOSOverrideReason)) > 0
+    GROUP BY LOSOverrideReason
+    ORDER BY trips DESC
+    LIMIT 50
+"""))
 
 
-# Example wiring (uncomment once you have the reason column):
-# rows = (spark.table(DENIAL_TABLE)
-#             .select(F.col("DenialReason").alias("t"))            # TODO real column
-#             .filter("t is not null").limit(50).collect())
-# results = [{"note": x["t"], **categorize(x["t"])} for x in rows]
-# display(spark.createDataFrame(results))
+# COMMAND ----------
 
-print("Categorizer ready. Uncomment the wiring once the reason column is confirmed.")
+# Override rate by level of service and contract - where is the pressure?
+display(spark.sql(f"""
+    SELECT
+        ContractName,
+        LevelOfServiceDescription,
+        count(*)                                                  AS trips,
+        sum(CASE WHEN LOSOverride = true OR LOSOverride = 1 THEN 1 ELSE 0 END) AS overrides,
+        round(100.0 * sum(CASE WHEN LOSOverride = true OR LOSOverride = 1 THEN 1 ELSE 0 END)
+              / count(*), 1)                                       AS pct_override
+    FROM {TRIPMASTER}
+    GROUP BY ContractName, LevelOfServiceDescription
+    ORDER BY trips DESC
+"""))
+
+
+# COMMAND ----------
+
+# =============================================================================
+# PART 4 - LEVEL OF SERVICE MIX + the BLS vs WHEELCHAIR question
+# The single most denial-prone decision per the med-nec meetings.
+# =============================================================================
+
+display(spark.sql(f"""
+    SELECT
+        LevelOfService, LevelOfServiceDescription, ServiceType, ServiceTypeDescription,
+        count(*) AS trips,
+        round(100.0 * count(*) / sum(count(*)) OVER (), 1) AS pct
+    FROM {TRIPMASTER}
+    GROUP BY LevelOfService, LevelOfServiceDescription, ServiceType, ServiceTypeDescription
+    ORDER BY trips DESC
+"""))
+
+
+# COMMAND ----------
+
+# Special needs drives equipment/LOS. What is actually being requested?
+display(spark.sql(f"""
+    SELECT SpecialNeeds, count(*) AS trips
+    FROM {TRIPMASTER}
+    WHERE SpecialNeeds IS NOT NULL AND length(trim(SpecialNeeds)) > 0
+    GROUP BY SpecialNeeds
+    ORDER BY trips DESC
+    LIMIT 50
+"""))
+
+
+# COMMAND ----------
+
+# =============================================================================
+# PART 5 - LosQuestions structure
+# The per-customer question payload. Non-standardized across contracts (this is
+# the "not indexed or mapped" problem from the meetings). Inspect before parsing.
+# =============================================================================
+
+display(spark.sql(f"""
+    SELECT ContractName, LosQuestions
+    FROM {TRIPMASTER}
+    WHERE LosQuestions IS NOT NULL AND length(trim(LosQuestions)) > 0
+    LIMIT 25
+"""))
+
+
+# COMMAND ----------
+
+# Size of the payload by contract - confirms whether it is the "giant JSON".
+display(spark.sql(f"""
+    SELECT ContractName,
+           count(*)                     AS trips,
+           round(avg(length(LosQuestions)), 0) AS avg_len,
+           max(length(LosQuestions))    AS max_len
+    FROM {TRIPMASTER}
+    WHERE LosQuestions IS NOT NULL
+    GROUP BY ContractName
+    ORDER BY trips DESC
+"""))
+
+
+# COMMAND ----------
+
+# If LosQuestions is valid JSON, this reveals the top-level keys per contract.
+# If it errors or returns nulls, the payload is not plain JSON - inspect above.
+# display(spark.sql(f"""
+#     SELECT ContractName, get_json_object(LosQuestions, '$') AS parsed
+#     FROM {TRIPMASTER}
+#     WHERE LosQuestions IS NOT NULL
+#     LIMIT 10
+# """))
+
+
+# COMMAND ----------
+
+# =============================================================================
+# PART 6 - BUILD THE EXTRACT for the LLM pipeline
+# Produces exactly the columns scripts 01-04 expect, so you can swap synthetic
+# data for real data. No patient identifiers included.
+# =============================================================================
+
+spark.sql(f"""
+    CREATE OR REPLACE TABLE {EXTRACT_TABLE} AS
+    SELECT
+        TripRequestId                        AS order_id,
+        TripLegId                            AS trip_leg_id,
+        ContractId,
+        ContractName                         AS market,
+        RequestType,
+        LevelOfService                       AS requested_los_code,
+        LevelOfServiceDescription            AS requested_los,
+        ServiceType,
+        LOSOverride                          AS los_overridden,
+        LOSOverrideReason                    AS los_override_reason,
+        SpecialNeeds                         AS special_needs,
+        ClinicalData                         AS free_text,
+        LosQuestions                         AS clinical_json
+    FROM {TRIPMASTER}
+    WHERE ClinicalData IS NOT NULL
+      AND length(trim(ClinicalData)) > 0
+""")
+
+print(f"Wrote {EXTRACT_TABLE}")
+display(spark.sql(f"SELECT count(*) AS rows FROM {EXTRACT_TABLE}"))
+
+
+# COMMAND ----------
+
+display(spark.sql(f"SELECT * FROM {EXTRACT_TABLE} LIMIT 25"))
+
+
+# COMMAND ----------
+
+# =============================================================================
+# PART 7 (optional) - re-derive from source instead of the prebuilt table.
+# Only works with prod grants on silver_transbroker. Minimal version of
+# Vivekkumar's TripMaster query - just the medical-necessity columns.
+# =============================================================================
+
+# display(spark.sql(f"""
+#     SELECT
+#         tr.TripRequestId, tr.ContractId, tr.RequestType,
+#         tl.LevelOfService, cl.Name AS LevelOfServiceDescription,
+#         tl.LosCategory AS ServiceType,
+#         tl.LOSOverride, tl.LOSOverrideReason,
+#         tl.SpecialNeeds, tl.ClinicalData, tl.LosQuestions
+#     FROM {TRIPREQ} tr
+#     INNER JOIN {TRIPLEG} tl ON tr.TripRequestId = tl.TripRequestId
+#     LEFT JOIN {LOS_LOOKUP} cl
+#            ON tl.ContractId = cl.ContractId AND tl.LevelOfService = cl.LOS
+#     WHERE YEAR(tr.RequestDateTime) = 2025
+#       AND tr.ContractId IN (29, 555, 326, 229)
+#     LIMIT 100
+# """))
