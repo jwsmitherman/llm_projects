@@ -271,6 +271,90 @@ display(summary)
 # COMMAND ----------
 
 # -----------------------------------------------------------------------------
+# STEP 4b - FULL ROW-LEVEL DETAIL FOR PIVOT TABLES
+#
+# One row per order with every dimension and every concept flag (0/1).
+# Written as CSV - faster and far smaller than a 90k-row Excel tab, and Excel
+# pivots off a CSV without any trouble.
+#
+# NOTE: WhatTheNurseTyped contains free text that may include patient
+# information. Keep this file internal.
+# -----------------------------------------------------------------------------
+
+DETAIL_CSV  = f"{OUTPUT_DIR}/med_nec_detail.csv"
+CONCEPT_CSV = f"{OUTPUT_DIR}/med_nec_concept_rows.csv"
+
+# Include a date column if the table has one, so you can pivot by month.
+have_date = "RequestDateTime" in spark.table("scoped").columns
+date_cols = ("""
+       ,date(RequestDateTime)                    AS RequestDate
+       ,date_format(RequestDateTime,'yyyy-MM')   AS RequestMonth
+""" if have_date else "")
+print("date column available:", have_date)
+
+concept_flag_cols = ",\n       ".join(f"c_{n} AS {n}" for n in ALL_CONCEPTS)
+
+detail = spark.sql(f"""
+    SELECT
+        TripRequestId                                       AS OrderId,
+        ContractName                                        AS Customer,
+        RequesterFacility                                   AS Facility,
+        LevelOfServiceDescription                           AS LevelOfService
+        {date_cols},
+        bucket                                              AS Bucket,
+        CASE WHEN bucket IN ('no_documentation','filler_only') THEN 'AT RISK'
+             WHEN bucket = 'unrecognized' THEN 'Unknown'
+             ELSE 'Supported' END                           AS Status,
+        clinical_reasons                                    AS ClinicalReasonCount,
+        filler_terms                                        AS FillerCount,
+        coalesce(text_len,0)                                AS TextLength,
+        CASE WHEN ClinicalData IS NOT NULL
+                  AND length(trim(ClinicalData))>0 THEN 'Y' ELSE 'N' END AS HasText,
+        {concept_flag_cols},
+        substr(regexp_replace(coalesce(ClinicalData,''), '[\\r\\n\\t]', ' '), 1, 300)
+                                                            AS WhatTheNurseTyped
+    FROM bucketed
+""")
+
+print(f"detail rows: {detail.count():,}   columns: {len(detail.columns)}")
+display(detail.limit(20))
+
+
+# COMMAND ----------
+
+# Write the wide detail file (one row per order).
+detail.toPandas().to_csv(DETAIL_CSV, index=False)
+print("WROTE:", DETAIL_CSV)
+
+# Long format: one row per order + concept that was found. Use this to pivot
+# concept counts, or to see which concepts appear together.
+concept_rows = spark.sql(f"""
+    SELECT OrderId, Customer, Facility, LevelOfService, Bucket, Status, Concept,
+           CASE WHEN Concept IN ({','.join(f"'{c}'" for c in GROUP_B)})
+                THEN 'B - vague filler' ELSE 'A - clinical reason' END AS ConceptGroup
+    FROM (
+        SELECT TripRequestId AS OrderId, ContractName AS Customer,
+               RequesterFacility AS Facility,
+               LevelOfServiceDescription AS LevelOfService,
+               bucket AS Bucket,
+               CASE WHEN bucket IN ('no_documentation','filler_only') THEN 'AT RISK'
+                    WHEN bucket = 'unrecognized' THEN 'Unknown'
+                    ELSE 'Supported' END AS Status,
+               stack({len(ALL_CONCEPTS)},
+                     {','.join(f"'{n}', c_{n}" for n in ALL_CONCEPTS)}) AS (Concept, Hit)
+        FROM bucketed
+    ) WHERE Hit = 1
+""")
+
+print(f"concept rows: {concept_rows.count():,}")
+concept_rows.toPandas().to_csv(CONCEPT_CSV, index=False)
+print("WROTE:", CONCEPT_CSV)
+display(concept_rows.limit(20))
+
+
+# COMMAND ----------
+
+# -----------------------------------------------------------------------------
 # STEP 5 - WRITE EXCEL (5 tabs, plain)
 # -----------------------------------------------------------------------------
 
@@ -402,7 +486,23 @@ lines = [
     ("Summary   - how many orders fell in each bucket", False),
     ("Where     - which customers and service levels have the problem", False),
     ("Examples  - real orders from each bucket, so the categories are concrete", False),
-    ("Concepts  - which clinical reasons actually appear, and the search terms used", False),
+    ("Concepts  - which clinical reasons appear, with the CMS source and search terms", False),
+    ("", False),
+    ("FOR PIVOT TABLES - two CSV files are written alongside this workbook", True),
+    ("med_nec_detail.csv - one row per order. Columns: OrderId, Customer, Facility,", False),
+    ("   LevelOfService, RequestDate, RequestMonth, Bucket, Status, ClinicalReasonCount,", False),
+    ("   FillerCount, TextLength, HasText, then a 0/1 column for each of the 15 concepts,", False),
+    ("   then WhatTheNurseTyped (first 300 characters).", False),
+    ("   Use for: orders by bucket and customer, at-risk rate by facility, trend by month.", False),
+    ("", False),
+    ("med_nec_concept_rows.csv - one row per order per concept found (long format).", False),
+    ("   Use for: counting concepts, or seeing which concepts appear together.", False),
+    ("   A wide file cannot pivot concepts as a single field - this one can.", False),
+    ("", False),
+    ("To build a pivot: open the CSV in Excel, Insert > PivotTable.", False),
+    ("Example - at-risk rate by facility: Rows = Facility, Columns = Status, Values = Count of OrderId.", False),
+    ("", False),
+    ("Both CSVs contain free-text clinical notes. Keep internal.", False),
 ]
 for i, (t, b) in enumerate(lines, 1):
     c = ws.cell(row=i, column=1, value=t)
