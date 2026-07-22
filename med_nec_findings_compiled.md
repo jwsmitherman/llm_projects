@@ -31,8 +31,9 @@ If not, tell them what's missing before submit - not 45 days later at denial.
 
 **In-scope: ~90,500 non-emergent ground orders.**
 
-Rideshare alone is 9,292 of the 24,303 "nothing typed" orders. It needs no justification.
-An earlier draft said 26.5% at-risk. **Correct figure is ~19%.** Use scoped numbers.
+Rideshare alone was 9,292 of the 24,303 unfiltered "nothing typed" orders, and needs no
+justification. That is why the unfiltered at-risk figure (26.5%) overstated the problem.
+**With the filter applied the figure is 18.7% of 90,428 in-scope orders.**
 
 ---
 
@@ -40,24 +41,32 @@ An earlier draft said 26.5% at-risk. **Correct figure is ~19%.** Use scoped numb
 
 **~1 in 5 non-emergent ground orders cannot support medical necessity from the written text.**
 
-| Finding | Orders | Share |
-|---|---|---|
-| Nothing typed | ~13,500 | ~15% |
-| Vague filler only | ~3,300 | ~3.6% |
-| **At-risk** | **~16,800** | **~18.6%** |
-| Text present, nothing recognized | ~23,900 | ~26% |
-| Specific clinical reason | ~44,200 | ~49% |
-| Specific + some filler | ~8,700 | ~9.6% |
+Actual counts with the scope filter applied. In-scope total: **90,428 orders**.
 
-*Approximate - scope filter not yet re-run. Raw counts: 24,303 / 3,413 / 23,979 / 44,233 / 8,706.*
+| Bucket | Meaning | Orders | Share |
+|---|---|---|---|
+| clear_reason | Clear clinical reason | 42,770 | 47.3% |
+| unrecognized | Text present, nothing recognized | 22,030 | 24.4% |
+| no_documentation | Nothing typed | 13,513 | 14.9% |
+| reason_plus_filler | Clinical reason plus filler | 8,717 | 9.6% |
+| filler_only | Vague filler only | 3,398 | 3.8% |
+
+Rolled up:
+
+| Status | Orders | Share |
+|---|---|---|
+| **AT RISK** (nothing typed + filler only) | **16,911** | **18.7%** |
+| Supported (clear reason + reason plus filler) | 51,487 | 56.9% |
+| Unknown (unrecognized) | 22,030 | 24.4% |
 
 **Four things to know:**
 
 1. **MUSC Ground leaves the box empty on 49% of orders. Texas Health on 13%.** Same software.
    This is workflow, not technology.
-2. **BLS is the exposure.** 9,606 Basic Life Support orders have no documentation or filler only.
-3. **"General weakness" appears in 8,568 orders (8.2%).** With fall-risk language, 13,316.
-4. **348 distinct clinical questions found** - the index nobody had.
+2. **BLS is the exposure.** Basic Life Support carries the largest block of at-risk orders.
+3. **"General weakness" appears in ~8,600 orders.** With fall-risk language, ~13,300.
+4. **`unrecognized` is 24.4%** - 22,030 orders with text our keywords did not match. That is not
+   a verdict; it is the measurement of what a keyword search cannot do, and the case for the LLM.
 
 ---
 
@@ -284,8 +293,8 @@ Output file: `med_nec_buckets.xlsx`. Five tabs, plain formatting.
    FROM `prod-sandbox`.vivekkumar_patel.temp_tnet_tripmaster;
    ```
 2. When the snapshot was taken. If before year-end, late-2025 orders are missing. Ask Vivekkumar.
-3. The scope filter has not yet been re-run through the notebook - headline figures were derived
-   by subtracting out-of-scope orders from reported totals.
+3. The scope filter is now applied in the notebook and the headline figures are actual counts,
+   not estimates.
 
 **Confidence by claim:**
 
@@ -295,6 +304,7 @@ Output file: `med_nec_buckets.xlsx`. Five tabs, plain formatting.
 | Empty free-text box counts | High - null test, no judgment |
 | MUSC 49% vs THR 13% | High - same test both sides |
 | `filler_only` and `clear_reason` counts | Medium - depends on unvalidated word lists |
+| Scope filter applied | High - counts are actual, not estimated |
 | `unrecognized` count | Low as a finding - measures our vocabulary gap |
 | Time period | Unverified |
 
@@ -303,8 +313,8 @@ Output file: `med_nec_buckets.xlsx`. Five tabs, plain formatting.
 ## Next steps
 
 1. Confirm the date range and snapshot date (queries above).
-2. Re-run with the scope filter applied and replace the approximate percentages.
-3. Read 50-100 `unrecognized` samples, extend the term lists, re-run.
+2. Read 50-100 `unrecognized` samples, extend the term lists, re-run. This bucket is 24.4% and
+   is the biggest single lever on accuracy.
 4. Jen Jones / Michelle's team review Group A and Group B terms - especially `behavioral`.
 5. Build the golden set from the Examples tab.
 

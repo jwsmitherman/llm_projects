@@ -140,6 +140,11 @@ CMS_REF = {
 
 ALL_CONCEPTS = {**GROUP_A, **GROUP_B}
 
+# Carry a date column through if the table has one, so the detail file can pivot by month.
+DATE_COL    = "RequestDateTime" if "RequestDateTime" in spark.table("scoped").columns else None
+date_select = f", {DATE_COL} AS RequestDateTime" if DATE_COL else ""
+print("date column carried through:", DATE_COL)
+
 cols  = ",\n       ".join(f"CASE WHEN lower(ClinicalData) RLIKE '{r}' THEN 1 ELSE 0 END AS c_{n}"
                           for n, r in ALL_CONCEPTS.items())
 a_sum = " + ".join(f"c_{n}" for n in GROUP_A)
@@ -149,7 +154,8 @@ spark.sql(f"""
 CREATE OR REPLACE TEMP VIEW tagged AS
 SELECT TripRequestId, ContractName, RequesterFacility,
        LevelOfServiceDescription, ClinicalData,
-       length(ClinicalData) AS text_len,
+       length(ClinicalData) AS text_len
+       {date_select},
        {cols}
 FROM scoped WHERE scope='in'
 """)
@@ -273,24 +279,26 @@ display(summary)
 # -----------------------------------------------------------------------------
 # STEP 4b - FULL ROW-LEVEL DETAIL FOR PIVOT TABLES
 #
-# One row per order with every dimension and every concept flag (0/1).
-# Written as CSV - faster and far smaller than a 90k-row Excel tab, and Excel
-# pivots off a CSV without any trouble.
+# Written to a SEPARATE detail/ subfolder, as CSV. The summary workbook stays
+# exactly as it is. CSV is faster and far smaller than a 90k-row Excel tab, and
+# Excel pivots off a CSV without any trouble.
 #
 # NOTE: WhatTheNurseTyped contains free text that may include patient
-# information. Keep this file internal.
+# information. Keep this folder internal.
 # -----------------------------------------------------------------------------
 
-DETAIL_CSV  = f"{OUTPUT_DIR}/med_nec_detail.csv"
-CONCEPT_CSV = f"{OUTPUT_DIR}/med_nec_concept_rows.csv"
+DETAIL_DIR  = f"{OUTPUT_DIR}/detail"
+os.makedirs(DETAIL_DIR, exist_ok=True)
+DETAIL_CSV  = f"{DETAIL_DIR}/med_nec_detail.csv"
+CONCEPT_CSV = f"{DETAIL_DIR}/med_nec_concept_rows.csv"
 
-# Include a date column if the table has one, so you can pivot by month.
-have_date = "RequestDateTime" in spark.table("scoped").columns
+# Check the view we are actually selecting from, not an upstream one.
+have_date = "RequestDateTime" in spark.table("bucketed").columns
 date_cols = ("""
        ,date(RequestDateTime)                    AS RequestDate
        ,date_format(RequestDateTime,'yyyy-MM')   AS RequestMonth
 """ if have_date else "")
-print("date column available:", have_date)
+print("date columns in detail file:", have_date)
 
 concept_flag_cols = ",\n       ".join(f"c_{n} AS {n}" for n in ALL_CONCEPTS)
 
@@ -488,14 +496,14 @@ lines = [
     ("Examples  - real orders from each bucket, so the categories are concrete", False),
     ("Concepts  - which clinical reasons appear, with the CMS source and search terms", False),
     ("", False),
-    ("FOR PIVOT TABLES - two CSV files are written alongside this workbook", True),
-    ("med_nec_detail.csv - one row per order. Columns: OrderId, Customer, Facility,", False),
+    ("FOR PIVOT TABLES - two CSV files in the detail/ subfolder", True),
+    ("detail/med_nec_detail.csv - one row per order. Columns: OrderId, Customer, Facility,", False),
     ("   LevelOfService, RequestDate, RequestMonth, Bucket, Status, ClinicalReasonCount,", False),
     ("   FillerCount, TextLength, HasText, then a 0/1 column for each of the 15 concepts,", False),
     ("   then WhatTheNurseTyped (first 300 characters).", False),
     ("   Use for: orders by bucket and customer, at-risk rate by facility, trend by month.", False),
     ("", False),
-    ("med_nec_concept_rows.csv - one row per order per concept found (long format).", False),
+    ("detail/med_nec_concept_rows.csv - one row per order per concept found (long format).", False),
     ("   Use for: counting concepts, or seeing which concepts appear together.", False),
     ("   A wide file cannot pivot concepts as a single field - this one can.", False),
     ("", False),
@@ -527,5 +535,13 @@ print("tabs:", wb.sheetnames)
 
 # COMMAND ----------
 
+print("\nSUMMARY WORKBOOK:")
 for f in sorted(os.listdir(OUTPUT_DIR)):
-    print(f"{f}  ({os.path.getsize(os.path.join(OUTPUT_DIR,f)):,} bytes)")
+    p = os.path.join(OUTPUT_DIR, f)
+    if os.path.isfile(p):
+        print(f"  {f}  ({os.path.getsize(p):,} bytes)")
+
+print("\nDETAIL FILES (for pivot tables):")
+for f in sorted(os.listdir(DETAIL_DIR)):
+    p = os.path.join(DETAIL_DIR, f)
+    print(f"  detail/{f}  ({os.path.getsize(p):,} bytes)")
