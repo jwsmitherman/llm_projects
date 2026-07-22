@@ -1,71 +1,124 @@
-# Medical Necessity Analysis - Findings & Method
+# Medical Necessity Analysis - Findings
 
-**Data:** 104,634 non-emergency transport orders placed through Transport.net in 2025 by
-Texas Health Resources and MUSC, across 52 facilities.
+**Source:** `` `prod-sandbox`.vivekkumar_patel.temp_tnet_tripmaster `` (read-only snapshot from
+`prod.silver_transbroker.triprequest` + `tripleg`)
+**Period:** CY2025 - *not yet confirmed*
+**Customers:** Texas Health Resources (74,378), MUSC (30,256). 52 facilities.
+**Rows:** 104,634 trip legs
 **Workbook:** `med_nec_qa_summary.xlsx`
 
 ---
 
-## The Goal
+## Goal
 
-Build an AI check that runs **while the nurse is placing the order** and answers one question:
+An AI check that runs while the nurse places the order and answers:
+**Does what you just typed justify the ambulance you're requesting?**
 
-> *Does what this person just typed actually justify the ambulance they are requesting?*
-
-If it does not, the system tells them what is missing before they hit submit - instead of us
-finding out 45 days later when the claim is denied.
-
-To build that, we needed three things, and this analysis produced all three:
-
-1. **The rulebook** - what questions does the order form actually ask, and which ones map to
-   Medicare's medical-necessity criteria?
-2. **The input** - what do nurses actually write, and in what format?
-3. **The baseline** - how bad is the problem today, so we can prove the AI improved it?
+If not, tell them what's missing before submit - not 45 days later at denial.
 
 ---
 
-## Executive Summary
+## Scope - read first
 
-**About 1 in 4 orders cannot support medical necessity on the paperwork alone.**
+104,634 includes transport types that need no medical necessity documentation:
 
-| What we found | Orders | Share |
+| Excluded | Orders |
+|---|---|
+| Rideshare / Taxi / Lyft | ~9,743 |
+| Rotor / Fixed Wing (air) | ~2,096 |
+| Emergent | ~2,322 |
+| **Total** | **~14,161** |
+
+**In-scope: ~90,500 non-emergent ground orders.**
+
+Rideshare alone is 9,292 of the 24,303 "nothing typed" orders. It needs no justification.
+An earlier draft said 26.5% at-risk. **Correct figure is ~19%.** Use scoped numbers.
+
+---
+
+## Headline
+
+**~1 in 5 non-emergent ground orders cannot support medical necessity from the written text.**
+
+| Finding | Orders | Share |
 |---|---|---|
-| Nothing typed at all | 24,303 | 23.2% |
-| Only vague filler ("general weakness") | 3,413 | 3.3% |
-| **At-risk subtotal** | **27,716** | **26.5%** |
-| Text present but no recognized clinical reason | 23,979 | 22.9% |
-| Genuinely specific clinical justification | 44,233 | 42.3% |
-| Specific reason plus some filler | 8,706 | 8.3% |
+| Nothing typed | ~13,500 | ~15% |
+| Vague filler only | ~3,300 | ~3.6% |
+| **At-risk** | **~16,800** | **~18.6%** |
+| Text present, nothing recognized | ~23,900 | ~26% |
+| Specific clinical reason | ~44,200 | ~49% |
+| Specific + some filler | ~8,700 | ~9.6% |
 
-Four findings worth taking to the business:
+*Approximate - scope filter not yet re-run. Raw counts: 24,303 / 3,413 / 23,979 / 44,233 / 8,706.*
 
-- **The two customers are not the same problem.** MUSC Ground leaves the justification box empty
-  on **49%** of orders. Texas Health Resources does it on **13%**. Same software, very different
-  behavior - which means this is fixable through workflow, not just technology.
-- **BLS ambulance is where the exposure sits.** Of roughly 40,000 Basic Life Support orders,
-  **9,606 have either no documentation or vague filler only**. BLS is the most-denied ground
-  service, and this is the population the front-end prompt would catch.
-- **"General weakness" is real and measurable.** It appears in **8,568 orders (8.2%)**. Add
-  fall-risk-only language and it is **13,316 orders**. This is the exact pattern the strategy
-  deck called out, now quantified.
-- **We found the question index nobody had.** 348 distinct clinical questions extracted from the
-  order forms, mapping directly onto CMS criteria.
+**Four things to know:**
+
+1. **MUSC Ground leaves the box empty on 49% of orders. Texas Health on 13%.** Same software.
+   This is workflow, not technology.
+2. **BLS is the exposure.** 9,606 Basic Life Support orders have no documentation or filler only.
+3. **"General weakness" appears in 8,568 orders (8.2%).** With fall-risk language, 13,316.
+4. **348 distinct clinical questions found** - the index nobody had.
 
 ---
 
-## How We Defined Things
+## Definitions
 
-This section matters more than the numbers, because every figure above depends on these choices.
+### Clinical reason
+A specific medical fact explaining why the patient can't use a wheelchair van or car.
 
-### What is a "concept"?
+Two tests, both required:
+- **Verifiable?** Could a payer check it against the record?
+- **Rules out the cheaper option?** Does it explain the contraindication?
 
-A **concept** is a single clinical idea we search for in the nurse's text. There are 15, split
-into two groups.
+| Passes | Fails |
+|---|---|
+| post-CVA hemiparesis | patient is elderly |
+| unable to bear weight | diabetic |
+| requires supine transport | going to rehab |
+| on 3L nasal cannula | doctor ordered ambulance |
+| ventilator dependent | |
 
-**Group 1 - supports medical necessity.** A legitimate reason the patient cannot travel by
-wheelchair van or private car:
+"Diabetic" is verifiable but doesn't stop someone riding in a car. Fails test 2.
 
-| Concept | What we search for |
+### Vague
+Describes a general state without the cause or a specific functional limit.
+
+Test: **can you picture what's physically wrong?**
+- "General weakness" - no. Can they sit? Stand? Walk?
+- "Post-CVA hemiparesis, cannot bear weight" - yes.
+
+Not false. Incomplete. CMS needs cause *and* functional deficit.
+
+| Vague | Specific |
+|---|---|
+| "General weakness" | "Post-CVA left hemiparesis, unable to bear weight or sit upright" |
+
+Same patient. One gets paid.
+
+### Filler
+Same as vague. "Filler" = the behavior, "vague" = the language. Three types:
+
+| Type | Examples | Why it fails |
+|---|---|---|
+| Vague condition | general weakness, generally weak | No cause, no functional limit |
+| Risk label | fall risk, unsteady gait, deconditioning | A risk is not a contraindication |
+| Non-clinical | per protocol, convenience, no other transport, family request | Logistics, not medicine |
+
+Why it happens: a nurse booking 12 transports before lunch types the shortest thing that gets the
+ambulance dispatched. The consequence lands 45 days later in a billing office they never see.
+
+---
+
+## Method
+
+Searched one field only: **`tripleg.ClinicalData`** - the nurse's free-text box.
+
+Excluded `LosQuestions` (it's the full form template, ~49,000 chars - contaminated v1) and
+`SpecialNeeds` (equipment flags, not justification).
+
+### Group A - supports necessity (12)
+
+| Concept | Search terms |
 |---|---|
 | mobility_deficit | hemiparesis, paralysis, non-ambulatory, unable to bear weight, fracture |
 | cannot_sit | cannot sit, special positioning, must lie flat, supine, stretcher |
@@ -80,154 +133,157 @@ wheelchair van or private car:
 | suctioning | suction |
 | bariatric | bariatric, morbid obesity |
 
-**Group 2 - documentation quality problems.** Phrases that do *not* justify an ambulance on
-their own:
+### Group B - quality problems (3)
 
-| Concept | What we search for |
+| Concept | Search terms |
 |---|---|
-| weakness_only | "general weakness", "generally weak", "weak" with no cause |
-| fall_risk_only | "fall risk", "unsteady", "deconditioning" |
-| nonclinical | "per protocol", "convenience", "no other transport", "family request" |
+| weakness_only | general weakness, generally weak, weak (no cause) |
+| fall_risk_only | fall risk, unsteady, deconditioning |
+| nonclinical | per protocol, convenience, no other transport, family request |
 
-### Where the concept list came from
+### Labels
 
-Not from the data - that would be circular. It was assembled from three sources:
+| Group A hits | Group B hits | Label |
+|---|---|---|
+| box empty | - | no_documentation |
+| 0 | 1+ | weak_only |
+| 0 | 0 | unclassified |
+| 1+ | 1+ | mixed |
+| 1+ | 0 | specific |
 
-1. **Medicare/CMS ambulance rules**, including the bed-confined test (cannot get up unassisted,
-   cannot walk, cannot sit in a chair - all three required).
-2. **The Transport.net strategy deck**, which used "general weakness" as the textbook example of
-   insufficient documentation, and "post-CVA hemiparesis, unable to bear weight" as the same
-   patient documented correctly.
-3. **The medical necessity working sessions**, which identified BLS-versus-wheelchair as the
-   judgment call that drives denials.
+Every order gets exactly one label.
 
-**This is the caveat that matters: these word lists are our best reading of policy. They have not
-been reviewed by Jen Jones or Michelle's team, and they have not been checked against how nurses
-at these specific hospitals write.** Treat the percentages as directional until they are.
+### Where the terms came from
 
-### What does "specific" mean, exactly?
+CMS ambulance rules (incl. the 3-part bed-confined test), the Transport.net strategy deck
+("general weakness" vs "post-CVA hemiparesis"), and the medical necessity working sessions.
 
-Every order gets exactly one quality label. The logic runs in this order:
+**Not validated by Jen Jones or Michelle's team. Directional until they review.**
 
-```
-Is the free-text box empty?              -> no_documentation
-Only quality-problem words, no clinical? -> weak_only
-No recognized words at all?              -> unclassified
-Clinical reason AND filler both present? -> mixed
-Clinical reason only?                    -> specific
-```
+### Judgment calls
 
-In plain terms:
+- **"Behavioral" is in Group A. CMS may disagree** - they want a *physical* limitation, and a
+  confused but ambulatory patient can ride with an escort. Most likely reclassification.
+- **"Fall risk" is in Group B.** A risk is not a contraindication. Wheelchair vans carry
+  fall-risk patients daily. Defensible but confirm.
+- **"Weak" in context lands in `mixed`, not `weak_only`** - e.g. "weak from post-op anemia,
+  unable to stand" has a real reason. Intended behavior.
 
-- **specific** - the nurse named a real clinical reason and did not lean on filler.
-  *"Post-CVA left hemiparesis, unable to bear weight, requires supine transport."*
-- **mixed** - a real reason is there, but so is vague language.
-  *"General weakness, patient on 2L oxygen and cannot sit upright."*
-- **weak_only** - only filler. *"General weakness, fall risk."*
-- **unclassified** - something was written, but nothing we look for appeared. **This is a to-do
-  list, not a verdict** - 22.9% of orders landed here, which almost certainly means our word
-  lists are missing vocabulary nurses actually use.
-- **no_documentation** - the box is empty.
+### Limitation
 
-### One important limitation
-
-This is a **keyword search, not artificial intelligence.** It cannot tell that "patient cannot
-support trunk in vehicle" means the same thing as "unable to sit upright." That is precisely the
-gap the LLM fills - and the size of the `unclassified` bucket is the measurement of that gap.
+This is keyword search, not AI. It can't tell that "patient cannot support trunk in vehicle"
+means "unable to sit upright." That gap is what the LLM fills - and `unclassified` (26%) is the
+measurement of it.
 
 ---
 
-## Tab-by-Tab
+## Workbook tabs
 
-### Overview
-- Population and how completely each field is filled in.
-- 77% of orders have clinical free text; 77% have a questionnaire.
-- The 23% with nothing typed is the first headline.
+**README**
+- Source, scope, and what each tab contains.
+- Trust: n/a
 
-### QA Extraction Health
-- Proves the questionnaire parsing worked: 7.9M question/answer pairs from 80,293 orders.
-- **348 distinct questions** - the master list nobody had indexed.
-- Roughly 98 questions per order, which tells you how long these forms have become.
+**Overview**
+- Population and how full each field is. 77% have clinical text, 77% have a questionnaire.
+- Key number: 23% of orders have nothing typed.
+- Trust: yes
 
-### Question Catalog
-- **The most valuable tab in the file.** Every clinical question asked, across both customers.
-- The questions map straight onto CMS criteria: *"bed confined before and after transport - all
-  three criteria must be met"*, *"unable to sit in a chair or wheelchair"*, *"requires special
-  positioning or handling"*, *"deep tracheal suctioning"*, *"requires CPAP"*, *"is intubated"*.
-- This becomes the backbone of the AI's rulebook - each question is a testable condition.
-- Read it as a **catalog**, not a frequency count (see the known issue below).
+**QA Extraction Health**
+- Proves the questionnaire parsing worked. 7.9M question/answer pairs from 80,293 orders.
+- Key number: **348 distinct questions** - the index nobody had. ~98 questions per order.
+- Trust: yes
 
-### Answer Values
-- What nurses actually type or select.
-- Three formats the AI must handle: **coded** (`2L`, `3L NC`, `2 LPM`), **short phrases**
-  (`Dementia`, `bedbound`, `fall risk`), and **full sentences** (`Patient cannot support trunk in
-  vehicle`).
-- Wildly inconsistent - `bedbound` / `bed bound` / `Bed bound` are three separate entries for one
-  condition. Same for `fall risk` / `Fall Risk` / `high fall risk`.
-- **That inconsistency is the single best argument for an LLM over a rules engine.**
+**Question Catalog**
+- Every clinical question the forms ask, both customers.
+- Maps straight to CMS criteria: *bed confined - all three criteria*, *unable to sit in a chair
+  or wheelchair*, *requires special positioning*, *deep tracheal suctioning*, *requires CPAP*.
+- This becomes the AI's rulebook. Each question is a testable condition.
+- Trust: yes as a catalog. Ignore the percentages (parser bug).
 
-### Doc Quality *(trustworthy)*
-- The corrected picture, based only on what the nurse typed.
-- specific 42.3% | no_documentation 23.2% | unclassified 22.9% | mixed 8.3% | weak_only 3.3%.
+**Answer Values**
+- What nurses actually type or pick.
+- Three formats: coded (`2L`, `3L NC`), short phrases (`Dementia`, `bedbound`), full sentences
+  (`Patient cannot support trunk in vehicle`).
+- Messy: `bedbound` / `bed bound` / `Bed bound` are three entries for one condition.
+- **This is the argument for an LLM over a rules engine.**
+- Trust: yes
 
-### Doc Quality x Contract *(trustworthy)*
-- **MUSC Ground: 14,803 of 29,995 orders (49%) have no documentation.**
-- **Texas Health Resources: 9,363 of 74,378 (13%).**
-- Same platform, four-fold difference. This is a workflow and training story as much as a
-  technology one, and it tells you where to pilot.
+**Concept Responses**
+- Answered questions grouped by clinical concept.
+- Trust: **no** - parser bug. `other` swamps at 5.5M, `bed_confined` shows 0 confirmed.
 
-### Doc Quality x LOS *(trustworthy)*
-- Documentation quality by transport type - the denial-risk view.
-- **Basic Life Support: 6,713 no documentation + 2,893 weak-only = 9,606 exposed orders.**
-- Advanced Life Support: 4,207 no documentation.
-- Rideshare shows 9,292 with no documentation, which is expected - a rideshare does not need a
-  medical justification. Worth excluding from the risk math.
+**Needs Per Order**
+- How many clinical needs were confirmed per patient.
+- Purpose: orders with zero confirmed needs are the risk cases.
+- Trust: **no** - shows patients with 83 needs.
 
-### Text Concepts *(trustworthy)*
-- What clinical reasons actually appear in nurses' writing:
-  mobility deficit 21.4% | cannot sit 18.1% | bed confined 15.5% | oxygen 14.9% | cardiac 11.3%.
-- Quality problems: **weakness-only 8.2% (8,568 orders)**, fall-risk-only 4.5% (4,748).
-- These are believable, well-spread numbers - the honest replacement for the first version's
-  broken chart.
+**Needs By LOS**
+- Average confirmed needs by service level.
+- Purpose: a critical care transport should show more need than a wheelchair van.
+- Trust: **no** on the numbers, but ranking is right: CCT 84 > ALS 79 > BLS 75 > WC 29 > Recliner 5.
 
-### Sample QA / Sample Specific / Sample Weak
-- Real examples pulled straight from live orders.
-- **Sample QA is literally what the AI will read** - use it to write and test prompts.
-- Sample Specific and Sample Weak become the positive and negative training examples.
-- Review for patient information before sharing outside the team.
+**Doc Quality**
+- Quality of the nurse's free text. The corrected view.
+- specific 42% | no_documentation 23% | unclassified 23% | mixed 8% | weak_only 3%.
+- Trust: yes
+
+**Doc Quality x Contract**
+- Same labels split by customer.
+- Key number: **MUSC Ground 49% empty. Texas Health 13%.** Four-fold gap on the same software.
+- Tells you where to pilot.
+- Trust: yes
+
+**Doc Quality x LOS**
+- Quality by transport type - the denial-risk view.
+- Key number: **BLS has 6,713 empty + 2,893 filler = 9,606 exposed orders.**
+- Rideshare shows 9,292 empty, which is fine - rideshare needs no justification. Exclude it.
+- Trust: yes
+
+**Text Concepts**
+- Which clinical reasons actually appear in nurses' writing.
+- mobility deficit 21% | cannot sit 18% | bed confined 16% | oxygen 15% | cardiac 11%.
+- Quality problems: weakness-only 8.2% (8,568 orders), fall-risk-only 4.5%.
+- Trust: yes
+
+**Sample QA**
+- Real question/answer pairs from live orders.
+- **This is literally what the AI will read.** Use it to write and test prompts.
+- Check for patient information before sharing outside the team.
+- Trust: yes
+
+**Sample Specific**
+- Examples of good documentation. Positive training examples for the model.
+- Trust: yes
+
+**Sample Weak**
+- Examples of thin documentation. These are what the front-end prompt should catch.
+- Pair with Sample Specific for the before/after story.
+- Trust: yes
 
 ---
 
-## Known Issue: three tabs are not yet usable
+## Known issue
 
-**Concept Responses, Needs Per Order, and Needs By LOS** depend on the questionnaire parser,
-which has a bug.
+Three tabs are broken. The questionnaire parser grabbed a form property instead of the answer:
+**"True" appears 4,062,545 times out of 4,117,796 answers (98.7%).**
 
-- The word **"True" appears 4,062,545 times** out of 4,117,796 total answers - 98.7% of everything.
-- No nurse answered "true" four million times. The parser grabbed a behind-the-scenes form
-  property (something like *is this question visible*) instead of the patient's actual answer.
-- The giveaway: **Needs Per Order shows patients with 83 confirmed clinical needs.** No patient
-  has 83 needs.
+Tell: Needs Per Order shows patients with 83 confirmed clinical needs.
 
-One detail worth noting anyway: even with inflated numbers, the **ranking** in Needs By LOS is
-directionally right - Critical Care (84) > ALS (79) > BLS (75) > Wheelchair (29) > Reclining
-Chair (5). Higher service levels do carry more documented need. Once the parser is fixed, this
-becomes a clean measure of whether the vehicle sent matches the patient's condition.
+Note: the *ranking* is still right - CCT 84 > ALS 79 > BLS 75 > Wheelchair 29 > Reclining 5.
+Higher service = more documented need. Scale is wrong, direction is correct.
 
-**Fix required:** the key-path output from Part A of the notebook, so we can point the parser at
-the real answer field. One-line change.
+**Fix:** need the Part A key-path output to point the parser at the real answer field. One line.
 
 ---
 
-## What Happens Next
+## Next steps
 
-1. **Fix the parser** - unlocks the three broken tabs and gives a clean per-patient needs count.
-2. **Attack the `unclassified` bucket** - 23,979 orders have text we could not categorize. Read a
-   sample, extend the word lists, and that number should drop sharply. Whatever remains is the
-   genuine case for the LLM.
-3. **Validate with the experts** - take the Question Catalog and the concept word lists to Jen
-   Jones and Michelle's team. Their sign-off is what turns these from directional to defensible.
-4. **Build the golden set** - use Sample Specific and Sample Weak as the seed for a few hundred
-   human-labeled orders to test the AI against.
-5. **Set the baseline** - 26.5% of orders at risk today, 49% at MUSC Ground. Those are the numbers
-   the AI has to move.
+1. Confirm the date range: `SELECT min(RequestDateTime), max(RequestDateTime) FROM ...`
+2. Ask Vivekkumar when the snapshot was built and what the WHERE clause was.
+3. Apply the scope filter, re-run, use corrected percentages.
+4. Read 50-100 `unclassified` samples, extend the term lists.
+5. Fix the parser.
+6. Jen Jones / Michelle's team review Group A and Group B terms.
+7. Build the golden set from Sample Specific + Sample Weak.
+
+**Baseline to beat: ~19% of non-emergent ground orders at risk. 49% at MUSC Ground.**
