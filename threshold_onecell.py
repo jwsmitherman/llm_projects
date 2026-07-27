@@ -48,6 +48,8 @@ SENTINEL_DOB   = ["1969-07-20", "07/20/1969", "19690720", "1969-07-20T00:00:00"]
 SENTINEL_NAMES = ["UNKNOWN", "NONE", "N/A", "TEST"]
 
 MATERIALIZE, REFRESH_CACHE = True, False
+# One-time: set True to wipe the scratch cache from earlier (broken) runs.
+CLEAR_CACHE_ONCE = False
 DEV_MODE, DEV_PAIR_LIMIT   = True, 250_000     # slice first; set False for full run
 SCHEMA_SAMPLE_ROWS = 300
 
@@ -107,19 +109,43 @@ def _srank(name):
     if x in SCORE_OK:   return 1
     return 2 if "score" in x else None
 def scalar_score(df):
+    """A usable scalar score column already present. Requires an exact leaf
+    (candidateScore / score / matchProbability), not just a 'score' substring,
+    so we don't stop early on partiesWithScores-style columns."""
     best, br = None, 99
     for f in df.schema.fields:
         if isinstance(f.dataType, (ArrayType, StructType)): continue
-        r = _srank(f.name)
+        leaf = _n(f.name.split("_")[-1])
+        r = 0 if leaf in SCORE_BEST else (1 if leaf in SCORE_OK else None)
         if r is not None and r < br: best, br = f.name, r
     return best if br <= 1 else None
+def _best_leaf_rank_in_element(elem):
+    """Best score-rank among the LEAF fields of an array element struct,
+    recursing one level so nested arrays are considered by their own leaves."""
+    best = 99
+    for sub in elem.fields:
+        if isinstance(sub.dataType, StructType):
+            for s2 in sub.dataType.fields:
+                r = _srank(s2.name)
+                if r is not None: best = min(best, r)
+        elif isinstance(sub.dataType, ArrayType) and isinstance(sub.dataType.elementType, StructType):
+            for s2 in sub.dataType.elementType.fields:
+                r = _srank(s2.name)
+                if r is not None: best = min(best, r + 1)   # penalise deeper nesting
+        else:
+            r = _srank(sub.name)
+            if r is not None: best = min(best, r)
+    return best
+
 def find_score_array(df):
+    """Pick the array whose element carries the BEST (lowest-rank) score leaf.
+    Rank 0 = candidateScore beats rank 1 = a bare 'score' field. This stops the
+    exploder wandering into dedup_results.rules[].partiesWithScores."""
     best, br = None, 99
     for f in df.schema.fields:
         if isinstance(f.dataType, ArrayType) and isinstance(f.dataType.elementType, StructType):
-            for ch in f.dataType.elementType.fieldNames():
-                r = _srank(ch)
-                if r is not None and r < br: best, br = f.name, r
+            r = _best_leaf_rank_in_element(f.dataType.elementType)
+            if r < br: best, br = f.name, r
     return best
 def explode_score_array(df, rounds=4):
     df = expand_structs(df)
@@ -133,13 +159,28 @@ def explode_score_array(df, rounds=4):
 
 def materialize(df, name):
     if not MATERIALIZE: return df
-    path = f"{SCRATCH}/{name}"
+    # Key the cache on the flattened column signature. If the flatten logic
+    # changes (e.g. a different array gets exploded), the signature changes and
+    # the old parquet is bypassed - no more stale-cache surprises.
+    import hashlib
+    sig = hashlib.md5((",".join(sorted(df.columns))).encode()).hexdigest()[:8]
+    path = f"{SCRATCH}/{name}_{sig}"
+    if not REFRESH_CACHE:
+        try:
+            out = spark.read.parquet(path)
+            if len(out.columns) > 0:
+                print("cache hit:", path); return out
+        except Exception:
+            pass
+    print("caching:", path)
+    df.write.mode("overwrite").parquet(path)
+    return spark.read.parquet(path)
+
+if CLEAR_CACHE_ONCE:
     try:
-        if REFRESH_CACHE: raise FileNotFoundError
-        out = spark.read.parquet(path); print("cache hit:", path); return out
-    except Exception:
-        print("caching:", path); df.write.mode("overwrite").parquet(path)
-        return spark.read.parquet(path)
+        dbutils.fs.rm(SCRATCH, recurse=True); print("cleared cache:", SCRATCH)
+    except Exception as _e:
+        print("cache clear skipped:", _e)
 
 parties_flat = expand_structs(parse_source(spark.table(PARTIES_TBL)))
 ident_flat   = expand_structs(parse_source(spark.table(PROD_ID_TBL)))
