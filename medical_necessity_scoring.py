@@ -47,7 +47,11 @@ except NameError:
 # The source table is a read-only snapshot. Each field below is cited to the CMS document
 # that makes it relevant to the medical necessity determination.
 
-SOURCE_TABLE   = "prod-sandbox.vivekkumar_patel.temp_tnet_tripmaster"
+# The catalog name contains a hyphen, so each identifier part must be back-quoted for
+# Spark SQL. SOURCE_TABLE keeps the plain name; SOURCE_TABLE_SQL is the quoted form used
+# when reading. (Unquoted `prod-sandbox` raises INVALID_IDENTIFIER / SQLSTATE 42602.)
+SOURCE_TABLE     = "prod-sandbox.vivekkumar_patel.temp_tnet_tripmaster"
+SOURCE_TABLE_SQL = ".".join(f"`{p}`" for p in SOURCE_TABLE.split("."))
 
 # ClinicalData: free-text reason for transport. This is the documentation CMS reviews for
 #   medical necessity; per [BPM10] 10.2.1 and 10.2.4, the reason other transport is
@@ -150,7 +154,7 @@ BED_CONFINED_PRONGS = ["bed_confined", "mobility_deficit", "cannot_sit"]  # cite
 
 from pyspark.sql import functions as F
 
-df = spark.table(SOURCE_TABLE)
+df = spark.table(SOURCE_TABLE_SQL)
 
 ground_los = [
     "Basic life support", "Advanced life support", "Critical care transport",
