@@ -53,17 +53,20 @@ except NameError:
 SOURCE_TABLE     = "prod-sandbox.vivekkumar_patel.temp_tnet_tripmaster"
 SOURCE_TABLE_SQL = ".".join(f"`{p}`" for p in SOURCE_TABLE.split("."))
 
-# ClinicalData: free-text reason for transport. This is the documentation CMS reviews for
-#   medical necessity; per [BPM10] 10.2.1 and 10.2.4, the reason other transport is
-#   contraindicated must be recorded. Denial code AM600 in [RSN] fires when it is absent.
-FREE_TEXT_COL  = "ClinicalData"      # cite: [BPM10] 10.2.1, 10.2.4 ; [RSN] AM600
+# Logical fields mapped to candidate column names. The first candidate present in the table
+# wins. This avoids INVALID_IDENTIFIER / UNRESOLVED_COLUMN when the real schema differs.
+# Edit the candidate lists if the actual column names are not covered.
+FIELD_CANDIDATES = {
+    "free_text": ["ClinicalData", "clinical_data", "ClinicalNotes", "Reason", "ReasonForTransport"],
+    "los":       ["LevelOfService", "level_of_service", "LOS", "ServiceLevel"],
+    "customer":  ["Customer", "CustomerName", "HealthSystem", "Facility", "Account"],
+    "order_id":  ["OrderId", "order_id", "OrderID", "TripId", "TripID", "TripLegId"],
+}
 
-# LevelOfService: BLS / ALS / CCT etc. The level billed must itself be medically necessary,
-#   with the covered levels defined in [414.605] and [410.40](c).
-LOS_COL        = "LevelOfService"    # cite: [414.605] ; [410.40](c)
-
-CUSTOMER_COL   = "Customer"          # operational grouping only - no CMS basis
-ORDER_ID_COL   = "OrderId"           # operational key only - no CMS basis
+# 42 CFR / BPM10 citations for the logical fields (see resolution below):
+#   free_text -> [BPM10] 10.2.1, 10.2.4 ; [RSN] AM600   (reason must be recorded)
+#   los       -> [414.605] ; [410.40](c)                (level billed must be necessary)
+#   customer / order_id -> operational only, no CMS basis
 
 # 2. Concept dictionary - the single source of truth
 
@@ -156,14 +159,47 @@ from pyspark.sql import functions as F
 
 df = spark.table(SOURCE_TABLE_SQL)
 
+# Resolve each logical field to a real column. First candidate present wins; unresolved fields
+# come back as None and any output depending on them is skipped rather than erroring.
+_cols_lower = {c.lower(): c for c in df.columns}
+def resolve(field):
+    for cand in FIELD_CANDIDATES[field]:
+        if cand.lower() in _cols_lower:
+            return _cols_lower[cand.lower()]
+    return None
+
+FREE_TEXT_COL = resolve("free_text")
+LOS_COL       = resolve("los")
+CUSTOMER_COL  = resolve("customer")
+ORDER_ID_COL  = resolve("order_id")
+
+print("Resolved columns:")
+print(f"  free_text -> {FREE_TEXT_COL}")
+print(f"  los       -> {LOS_COL}")
+print(f"  customer  -> {CUSTOMER_COL}")
+print(f"  order_id  -> {ORDER_ID_COL}")
+if FREE_TEXT_COL is None:
+    raise ValueError(
+        "No free-text column found. Add the real column name to "
+        "FIELD_CANDIDATES['free_text']. Available columns: " + ", ".join(df.columns)
+    )
+
+# Scope: non-emergent ground only. Rideshare, air, and emergent trips are excluded; they do not
+# carry the [BPM10] 10.2.1 non-emergency documentation requirement.
 ground_los = [
     "Basic life support", "Advanced life support", "Critical care transport",
     "Basic Life Support - Concierge", "Team", "Ambulatory",
 ]  # covered ground levels per [414.605] / [410.40](c)
-df = df.filter(F.lower(F.col(LOS_COL)).isin([s.lower() for s in ground_los]))
-# emergent / rideshare exclusion - adapt predicate to the real flag column
-if "TripType" in df.columns:
-    df = df.filter(~F.lower(F.col("TripType")).rlike("emergen|rideshare|air|fixed wing|rotor"))
+if LOS_COL is not None:
+    df = df.filter(F.lower(F.col(LOS_COL)).isin([s.lower() for s in ground_los]))
+else:
+    print("WARNING: no level-of-service column resolved - ground/emergent scope NOT applied.")
+
+# emergent / rideshare exclusion - adapt predicate to the real flag column if present
+for trip_type_col in ("TripType", "trip_type", "TransportType"):
+    if trip_type_col in df.columns:
+        df = df.filter(~F.lower(F.col(trip_type_col)).rlike("emergen|rideshare|air|fixed wing|rotor"))
+        break
 
 df = df.withColumn("_text", F.lower(F.coalesce(F.col(FREE_TEXT_COL), F.lit(""))))
 df = df.withColumn("_has_text", F.length(F.trim(F.col("_text"))) > 0)
@@ -277,32 +313,44 @@ display(
       .agg(F.count("*").alias("orders"))
 )
 
-# Necessity by customer
-display(
-    df.groupBy(CUSTOMER_COL, "necessity_class")
-      .agg(F.count("*").alias("orders"))
-      .orderBy(CUSTOMER_COL, "necessity_class")
-)
+# Necessity by customer (skipped if no customer column resolved)
+if CUSTOMER_COL is not None:
+    display(
+        df.groupBy(CUSTOMER_COL, "necessity_class")
+          .agg(F.count("*").alias("orders"))
+          .orderBy(CUSTOMER_COL, "necessity_class")
+    )
+else:
+    print("Skipped necessity-by-customer: no customer column resolved.")
 
 # Transport appropriateness: recommended vs requested level of service ([414.605])
-display(
-    df.groupBy(LOS_COL, "recommended_los")
-      .agg(F.count("*").alias("orders"))
-      .orderBy(F.desc("orders"))
-)
+if LOS_COL is not None:
+    display(
+        df.groupBy(LOS_COL, "recommended_los")
+          .agg(F.count("*").alias("orders"))
+          .orderBy(F.desc("orders"))
+    )
+else:
+    display(
+        df.groupBy("recommended_los")
+          .agg(F.count("*").alias("orders"))
+          .orderBy(F.desc("orders"))
+    )
 
 # 7. Example order texts per category
 
 # For the 24 July action item: sample real free-text per class so stakeholders can see how each
 # category is defined. Sampled, de-identified review only - not written back.
 
+_example_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
+    "mobility_score", "monitoring_score", "confidence", "indeterminate_reason", FREE_TEXT_COL
+]
 for cls in ["clearly_necessary", "indeterminate", "clearly_not_necessary"]:
     print("=" * 70)
     print(cls.upper())
     display(
         df.filter(F.col("necessity_class") == cls)
-          .select(ORDER_ID_COL, LOS_COL, "mobility_score", "monitoring_score",
-                  "confidence", "indeterminate_reason", FREE_TEXT_COL)
+          .select(*_example_cols)
           .limit(15)
     )
 
