@@ -47,17 +47,35 @@ THRESHOLDS = [round(x, 2) for x in np.arange(0.90, 0.981, 0.01)]
 SENTINEL_DOB   = ["1969-07-20", "07/20/1969", "19690720", "1969-07-20T00:00:00"]
 SENTINEL_NAMES = ["UNKNOWN", "NONE", "N/A", "TEST"]
 
-MATERIALIZE, REFRESH_CACHE = True, False
+MATERIALIZE, REFRESH_CACHE = True, True   # True once to rebuild the bad cache; set back to False after
 # One-time: set True to wipe the scratch cache from earlier (broken) runs.
 CLEAR_CACHE_ONCE = False
-DEV_MODE          = True          # True = run on a representative SAMPLE (fast)
-DEV_SAMPLE_FRAC   = 0.05          # 5% random sample of pairs in dev mode
-DEV_SEED          = 42
-SCHEMA_SAMPLE_ROWS = 300
+# ---- SPEED CONTROL ----------------------------------------------------------
+# DEV_MODE samples the RAW tables BEFORE the expensive JSON parse/explode, so the
+# heavy work only touches sampled rows. Target: full notebook < 30 min.
+DEV_MODE        = True
+PAIR_SAMPLE_FRAC   = 0.03     # 3% of match records (~150k pairs). Lower = faster.
+PARTY_SAMPLE_FRAC  = 0.10     # 10% of parties for fill-rate/DOB stats
+DEV_SEED           = 42
+# Attribute join needs BOTH sides of a sampled pair to be in the parties slice.
+# So for the join we keep ALL parties but only the ids referenced by sampled
+# pairs (a semi-join), which is cheap. Fill-rate/DOB use the PARTY_SAMPLE slice.
+SCHEMA_SAMPLE_ROWS = 200   # rows sampled to infer JSON schema (A# still appears)
 
-MANUAL_COLS, MANUAL_EXPLODE_COL, MANUAL_NON_IDENTITY_FILTER = {}, None, None
+# ---- PIN the correct columns (confirmed from 01_resolved_columns) -----------
+# The MLaaS score lives on partySearch.candidates[].candidateScore, NOT on
+# dedup_results.rules[].partiesWithScores[].score. Force the candidates array so
+# the id columns line up with the parties join key.
+MANUAL_EXPLODE_COL = "partySearch_candidates"
+MANUAL_COLS = {
+    "score":    "partySearch_candidates_candidateScore",
+    "left_id":  "partySearch_partySourceId",
+    "right_id": "partySearch_candidates_partySourceId",
+}
+MANUAL_NON_IDENTITY_FILTER = None
 
 spark.conf.set("spark.sql.ansi.enabled", "false")  # empty groups -> null, not job abort
+spark.conf.set("spark.sql.shuffle.partitions", "64")  # cap shuffle parallelism for a small sample
 xls_sheets = {}     # collected tables -> Excel
 def band_expr(c):
     s = F.col(c)
@@ -185,18 +203,31 @@ if CLEAR_CACHE_ONCE:
     except Exception as _e:
         print("cache clear skipped:", _e)
 
-parties_flat = expand_structs(parse_source(spark.table(PARTIES_TBL)))
-ident_flat   = expand_structs(parse_source(spark.table(PROD_ID_TBL)))
-pairs_flat   = explode_score_array(parse_source(spark.table(PAIRS_TBL)))
-if DEV_MODE:
-    # random SAMPLE (representative), not .limit() which takes the first N and
-    # biases toward scan order. Fixed seed so the run is reproducible.
-    pairs_flat = pairs_flat.sample(withReplacement=False, fraction=DEV_SAMPLE_FRAC, seed=DEV_SEED)
-    print(f"DEV_MODE: {DEV_SAMPLE_FRAC:.0%} sample")
+# Sample the RAW tables BEFORE parsing JSON. This is the main speed lever:
+# from_json + explode only run on the sampled rows, not all 5M+ records.
+pairs_raw   = spark.table(PAIRS_TBL)
+parties_raw = spark.table(PARTIES_TBL)
+ident_raw   = spark.table(PROD_ID_TBL)
 
-parties_flat = materialize(parties_flat, "parties")
-ident_flat   = materialize(ident_flat, "identities")
-pairs_flat   = materialize(pairs_flat, "pairs_dev" if DEV_MODE else "pairs")
+if DEV_MODE:
+    pairs_raw   = pairs_raw.sample(False, PAIR_SAMPLE_FRAC, seed=DEV_SEED)
+    parties_smp = parties_raw.sample(False, PARTY_SAMPLE_FRAC, seed=DEV_SEED)
+    print(f"DEV_MODE: pairs {PAIR_SAMPLE_FRAC:.0%}, parties {PARTY_SAMPLE_FRAC:.0%}")
+else:
+    parties_smp = parties_raw
+
+# Parse + flatten (now on sampled volume in dev mode)
+pairs_flat        = explode_score_array(parse_source(pairs_raw))
+parties_flat_full = expand_structs(parse_source(parties_raw))     # all parties (for the join)
+parties_flat      = expand_structs(parse_source(parties_smp))     # sampled (for fill/DOB stats)
+ident_flat        = expand_structs(parse_source(ident_raw))
+
+tag = "dev" if DEV_MODE else "full"
+pairs_flat        = materialize(pairs_flat, f"pairs_{tag}")
+parties_flat      = materialize(parties_flat, f"parties_{tag}")
+ident_flat        = materialize(ident_flat, "identities")
+# parties_flat_full stays lazy; it is semi-joined to sampled pair ids below,
+# so only the needed party rows are ever read.
 
 # ============================ RESOLVE COLUMNS ================================
 SYN = {
@@ -241,6 +272,9 @@ for k in ["party_id","first","middle","last","dob","a_number","ssn","fin","eid",
     COLS[k] = resolve(parties_flat.columns, k)
 IDENT_COLS = {k: resolve(ident_flat.columns, k) for k in ["party_id","identity_id"]}
 COLS.update(MANUAL_COLS)
+# hard-pin the three pair columns so nothing overrides them
+for _k in ('score','left_id','right_id'):
+    if _k in MANUAL_COLS: COLS[_k] = MANUAL_COLS[_k]
 STRONG_IDS = [k for k in ["a_number","ssn","fin"] if COLS.get(k)]
 
 show_table(pd.DataFrame([{"field":k,"resolved_to":v} for k,v in COLS.items()]), "01_resolved_columns")
@@ -257,9 +291,10 @@ pairs = pairs_flat.withColumn("score", F.col(COLS["score"]).cast("double")).with
 
 # cache the two frames we count repeatedly, then count once each
 parties = parties.cache(); pairs = pairs.cache()
-_pt, _pn, _sp = parties_flat.count(), parties.count(), pairs.count()
+_pt = parties_flat_full.count() if not DEV_MODE else None
+_pn, _sp = parties.count(), pairs.count()
 show_table(pd.DataFrame([
-    {"metric":"parties_total","value":_pt},
+    {"metric":"parties_total","value":(_pt if _pt is not None else "(dev sample - not counted)")},
     {"metric":"parties_non_identity","value":_pn},
     {"metric":"scored_pairs","value":_sp},
 ]), "00_row_counts")
@@ -302,8 +337,21 @@ ax.set_title("Score-band distribution"); plt.xticks(rotation=30, ha="right"); sh
 # ============================ 4. EVIDENCE (what agrees) =====================
 ajoin = [k for k in ["first","middle","last","dob","a_number","ssn","fin"] if COLS.get(k)]
 pid = COLS.get("party_id") or "_id"
-L = parties_clean.select([F.col(pid).alias("_lid")] + [F.col(COLS[k]).alias(f"{k}_l") for k in ajoin])
-R = parties_clean.select([F.col(pid).alias("_rid")] + [F.col(COLS[k]).alias(f"{k}_r") for k in ajoin])
+# Build the join source from the FULL parties frame, but restrict to just the
+# party ids referenced by the (sampled) pairs via a semi-join. Cheap, and it
+# guarantees sampled pairs can resolve their attributes (no blank evidence).
+join_src = parties_flat_full
+if NON_IDENTITY_FILTER:
+    join_src = join_src.where(NON_IDENTITY_FILTER)
+if COLS.get("dob"):
+    join_src = join_src.withColumn(COLS["dob"],
+        F.when(F.col(COLS["dob"]).cast("string").isin(SENTINEL_DOB), None).otherwise(F.col(COLS["dob"])))
+needed_ids = (pairs.select(F.col(COLS["left_id"]).alias("pid"))
+                   .union(pairs.select(F.col(COLS["right_id"]).alias("pid"))).distinct())
+join_src = join_src.join(needed_ids, F.col(pid) == F.col("pid"), "left_semi")
+
+L = join_src.select([F.col(pid).alias("_lid")] + [F.col(COLS[k]).alias(f"{k}_l") for k in ajoin])
+R = join_src.select([F.col(pid).alias("_rid")] + [F.col(COLS[k]).alias(f"{k}_r") for k in ajoin])
 dx = pairs.join(L, pairs[COLS["left_id"]]==F.col("_lid"), "left").join(R, pairs[COLS["right_id"]]==F.col("_rid"), "left")
 def agree(f):
     if f not in ajoin: return F.lit(None).cast("int")
