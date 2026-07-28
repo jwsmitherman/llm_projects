@@ -50,11 +50,14 @@ SENTINEL_NAMES = ["UNKNOWN", "NONE", "N/A", "TEST"]
 MATERIALIZE, REFRESH_CACHE = True, False
 # One-time: set True to wipe the scratch cache from earlier (broken) runs.
 CLEAR_CACHE_ONCE = False
-DEV_MODE, DEV_PAIR_LIMIT   = True, 250_000     # slice first; set False for full run
+DEV_MODE          = True          # True = run on a representative SAMPLE (fast)
+DEV_SAMPLE_FRAC   = 0.05          # 5% random sample of pairs in dev mode
+DEV_SEED          = 42
 SCHEMA_SAMPLE_ROWS = 300
 
 MANUAL_COLS, MANUAL_EXPLODE_COL, MANUAL_NON_IDENTITY_FILTER = {}, None, None
 
+spark.conf.set("spark.sql.ansi.enabled", "false")  # empty groups -> null, not job abort
 xls_sheets = {}     # collected tables -> Excel
 def band_expr(c):
     s = F.col(c)
@@ -185,7 +188,11 @@ if CLEAR_CACHE_ONCE:
 parties_flat = expand_structs(parse_source(spark.table(PARTIES_TBL)))
 ident_flat   = expand_structs(parse_source(spark.table(PROD_ID_TBL)))
 pairs_flat   = explode_score_array(parse_source(spark.table(PAIRS_TBL)))
-if DEV_MODE: pairs_flat = pairs_flat.limit(DEV_PAIR_LIMIT)
+if DEV_MODE:
+    # random SAMPLE (representative), not .limit() which takes the first N and
+    # biases toward scan order. Fixed seed so the run is reproducible.
+    pairs_flat = pairs_flat.sample(withReplacement=False, fraction=DEV_SAMPLE_FRAC, seed=DEV_SEED)
+    print(f"DEV_MODE: {DEV_SAMPLE_FRAC:.0%} sample")
 
 parties_flat = materialize(parties_flat, "parties")
 ident_flat   = materialize(ident_flat, "identities")
@@ -248,15 +255,18 @@ if NON_IDENTITY_FILTER is None and COLS.get("status"):
 parties = parties_flat.where(NON_IDENTITY_FILTER) if NON_IDENTITY_FILTER else parties_flat
 pairs = pairs_flat.withColumn("score", F.col(COLS["score"]).cast("double")).withColumn("band", band_expr("score"))
 
+# cache the two frames we count repeatedly, then count once each
+parties = parties.cache(); pairs = pairs.cache()
+_pt, _pn, _sp = parties_flat.count(), parties.count(), pairs.count()
 show_table(pd.DataFrame([
-    {"metric":"parties_total","value":parties_flat.count()},
-    {"metric":"parties_non_identity","value":parties.count()},
-    {"metric":"scored_pairs","value":pairs.count()},
+    {"metric":"parties_total","value":_pt},
+    {"metric":"parties_non_identity","value":_pn},
+    {"metric":"scored_pairs","value":_sp},
 ]), "00_row_counts")
 
 # ============================ 1. FILL RATES =================================
 attrs = [k for k in ["first","middle","last","dob","a_number","ssn","fin","eid","i94","coc","cob","receipt"] if COLS.get(k)]
-n = max(parties.count(), 1)
+n = max(_pn, 1)
 fill = (parties.select([(F.count(F.when(F.col(COLS[k]).isNotNull() & (F.trim(F.col(COLS[k]).cast("string"))!=""),1))/F.lit(n)).alias(k) for k in attrs])
         .toPandas().T.reset_index()); fill.columns = ["attribute","fill_rate"]
 show_table(fill, "02_fill_rates")
@@ -305,17 +315,28 @@ for k in STRONG_IDS: strong = strong + F.coalesce(F.col(f"agree_{k}"), F.lit(0))
 # name+DOB-only flag = the cohort the meeting flagged as risky
 dx = (dx.withColumn("n_strong_agree", strong)
         .withColumn("name_dob_only",
-            ((F.col("agree_last")==1) & (F.col("agree_dob")==1) & (F.col("n_strong_agree")==0)).cast("int"))
-        .cache())
+            ((F.col("agree_last")==1) & (F.col("agree_dob")==1) & (F.col("n_strong_agree")==0)).cast("int")))
+# Persist the decorated pairs ONCE. Every section below reads this parquet
+# instead of recomputing the two attribute joins + explode. Biggest single win.
+dx = materialize(dx.select(
+        "score", "band", "name_dob_only", "n_strong_agree",
+        "agree_dob", "agree_last", "agree_a_number", "agree_ssn", "agree_fin",
+        COLS["left_id"], COLS["right_id"]),
+    "decorated_pairs_dev" if DEV_MODE else "decorated_pairs")
 print("decorated pairs:", dx.count())
 
 near = dx.filter(F.col("band").isin("2_goldilocks","3_near_match"))
-ap = (near.agg(F.avg("agree_dob").alias("dob"), F.avg("agree_last").alias("last"),
-               F.avg("agree_a_number").alias("a_number"), F.avg("agree_ssn").alias("ssn"),
-               F.avg("agree_fin").alias("fin"),
-               F.avg("name_dob_only").alias("name_dob_only_share"),
-               (F.count(F.when(F.col("n_strong_agree")>0,1))/F.count("*")).alias("any_strong_id"))
-        .toPandas().T.reset_index()); ap.columns = ["signal","rate_in_near_band"]
+near_n = near.count()
+if near_n == 0:
+    ap = pd.DataFrame({"signal":["(near-match band is empty)"],"rate_in_near_band":[float("nan")]})
+else:
+    ap = (near.agg(F.avg("agree_dob").alias("dob"), F.avg("agree_last").alias("last"),
+                   F.avg("agree_a_number").alias("a_number"), F.avg("agree_ssn").alias("ssn"),
+                   F.avg("agree_fin").alias("fin"),
+                   F.avg("name_dob_only").alias("name_dob_only_share"),
+                   # try_divide-safe: guard the denominator explicitly
+                   (F.count(F.when(F.col("n_strong_agree")>0,1)) / F.lit(near_n)).alias("any_strong_id"))
+            .toPandas().T.reset_index()); ap.columns = ["signal","rate_in_near_band"]
 show_table(ap, "05_evidence_near_band")
 fig, ax = plt.subplots(figsize=(7,4))
 ax.bar(ap["signal"], pd.to_numeric(ap["rate_in_near_band"], errors="coerce").fillna(0), color="#8e44ad")
@@ -331,11 +352,12 @@ if os.path.exists(LABELS_CSV):
     labels = pd.read_csv(LABELS_CSV)
     labels["score"] = labels["score"].astype(float); labels["label"] = labels["label"].astype(int)
 
+# One aggregation over the name+DOB-only pairs: a conditional count per
+# threshold. Replaces a 9-pass Python loop with a single Spark job.
 nd = dx.filter(F.col("name_dob_only")==1)
-for t in THRESHOLDS:
-    accepted = nd.filter(F.col("score") >= t).count()
-    rows.append({"threshold": t, "name_dob_only_accepted": accepted})
-nd_pdf = pd.DataFrame(rows)
+agg = nd.agg(*[F.count(F.when(F.col("score") >= t, 1)).alias(f"t_{int(round(t*100))}") for t in THRESHOLDS]).toPandas()
+nd_pdf = pd.DataFrame({"threshold": THRESHOLDS,
+                       "name_dob_only_accepted": [int(agg[f"t_{int(round(t*100))}"][0]) for t in THRESHOLDS]})
 
 if labels is not None and "name_dob_only" in labels.columns:
     lab_nd = labels[labels["name_dob_only"] == 1]
