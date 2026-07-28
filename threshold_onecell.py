@@ -47,7 +47,7 @@ THRESHOLDS = [round(x, 2) for x in np.arange(0.90, 0.981, 0.01)]
 SENTINEL_DOB   = ["1969-07-20", "07/20/1969", "19690720", "1969-07-20T00:00:00"]
 SENTINEL_NAMES = ["UNKNOWN", "NONE", "N/A", "TEST"]
 
-MATERIALIZE, REFRESH_CACHE = True, True   # True once to rebuild the bad cache; set back to False after
+MATERIALIZE, REFRESH_CACHE = True, False  # cache ON. Set REFRESH=True for ONE run if you change flatten/sample logic, then back to False.
 # One-time: set True to wipe the scratch cache from earlier (broken) runs.
 CLEAR_CACHE_ONCE = False
 # ---- SPEED CONTROL ----------------------------------------------------------
@@ -57,6 +57,8 @@ DEV_MODE        = True
 PAIR_SAMPLE_FRAC   = 0.03     # 3% of match records (~150k pairs). Lower = faster.
 PARTY_SAMPLE_FRAC  = 0.10     # 10% of parties for fill-rate/DOB stats
 DEV_SEED           = 42
+PAIR_HARD_CAP      = 200_000  # absolute ceiling on pairs after sampling (safety net)
+BROADCAST_JOINS    = True     # broadcast the small attribute-join side
 # Attribute join needs BOTH sides of a sampled pair to be in the parties slice.
 # So for the join we keep ALL parties but only the ids referenced by sampled
 # pairs (a semi-join), which is cheap. Fill-rate/DOB use the PARTY_SAMPLE slice.
@@ -205,14 +207,15 @@ if CLEAR_CACHE_ONCE:
 
 # Sample the RAW tables BEFORE parsing JSON. This is the main speed lever:
 # from_json + explode only run on the sampled rows, not all 5M+ records.
-pairs_raw   = spark.table(PAIRS_TBL)
-parties_raw = spark.table(PARTIES_TBL)
-ident_raw   = spark.table(PROD_ID_TBL)
+_keep = ["_id", "_index", "_source"]              # skip _score/_type: fewer bytes read
+pairs_raw   = spark.table(PAIRS_TBL).select(*_keep)
+parties_raw = spark.table(PARTIES_TBL).select(*_keep)
+ident_raw   = spark.table(PROD_ID_TBL).select(*_keep)
 
 if DEV_MODE:
-    pairs_raw   = pairs_raw.sample(False, PAIR_SAMPLE_FRAC, seed=DEV_SEED)
+    pairs_raw   = pairs_raw.sample(False, PAIR_SAMPLE_FRAC, seed=DEV_SEED).limit(PAIR_HARD_CAP)
     parties_smp = parties_raw.sample(False, PARTY_SAMPLE_FRAC, seed=DEV_SEED)
-    print(f"DEV_MODE: pairs {PAIR_SAMPLE_FRAC:.0%}, parties {PARTY_SAMPLE_FRAC:.0%}")
+    print(f"DEV_MODE: pairs {PAIR_SAMPLE_FRAC:.0%} (cap {PAIR_HARD_CAP:,}), parties {PARTY_SAMPLE_FRAC:.0%}")
 else:
     parties_smp = parties_raw
 
@@ -352,7 +355,10 @@ join_src = join_src.join(needed_ids, F.col(pid) == F.col("pid"), "left_semi")
 
 L = join_src.select([F.col(pid).alias("_lid")] + [F.col(COLS[k]).alias(f"{k}_l") for k in ajoin])
 R = join_src.select([F.col(pid).alias("_rid")] + [F.col(COLS[k]).alias(f"{k}_r") for k in ajoin])
-dx = pairs.join(L, pairs[COLS["left_id"]]==F.col("_lid"), "left").join(R, pairs[COLS["right_id"]]==F.col("_rid"), "left")
+from pyspark.sql.functions import broadcast
+_L = broadcast(L) if BROADCAST_JOINS else L
+_R = broadcast(R) if BROADCAST_JOINS else R
+dx = pairs.join(_L, pairs[COLS["left_id"]]==F.col("_lid"), "left").join(_R, pairs[COLS["right_id"]]==F.col("_rid"), "left")
 def agree(f):
     if f not in ajoin: return F.lit(None).cast("int")
     return F.when(F.col(f"{f}_l").isNull() | F.col(f"{f}_r").isNull(), None).otherwise((F.col(f"{f}_l")==F.col(f"{f}_r")).cast("int"))
