@@ -186,25 +186,57 @@ if FREE_TEXT_COL is None:
 
 # Scope: non-emergent ground only. Rideshare, air, and emergent trips are excluded; they do not
 # carry the [BPM10] 10.2.1 non-emergency documentation requirement.
-ground_los = [
-    "Basic life support", "Advanced life support", "Critical care transport",
-    "Basic Life Support - Concierge", "Team", "Ambulatory",
-]  # covered ground levels per [414.605] / [410.40](c)
-if LOS_COL is not None:
-    df = df.filter(F.lower(F.col(LOS_COL)).isin([s.lower() for s in ground_los]))
-else:
-    print("WARNING: no level-of-service column resolved - ground/emergent scope NOT applied.")
 
-# emergent / rideshare exclusion - adapt predicate to the real flag column if present
-for trip_type_col in ("TripType", "trip_type", "TransportType"):
+# IMPORTANT: scope is defined by EXCLUSION, not by an exact-match whitelist. A whitelist silently
+# drops every row whose level-of-service string is spelled or coded differently than expected
+# (e.g. "BLS" vs "Basic life support"), which can collapse the dataset to a handful of rows.
+# Air / rideshare are removed by pattern; emergent is removed via a trip-type flag if present.
+
+raw_count = df.count()
+
+# Show what level-of-service values actually exist, so the scope can be verified, not assumed.
+if LOS_COL is not None:
+    print("Distinct " + LOS_COL + " values (top 40 by count):")
+    df.groupBy(LOS_COL).count().orderBy(F.desc("count")).show(40, truncate=False)
+
+# Remove non-ground levels of service by pattern (keeps BLS/ALS/CCT/Team/wheelchair/ambulatory
+# regardless of exact spelling). Extend the pattern if the real data uses other labels.
+NON_GROUND_PATTERN = r"air|fixed ?wing|rotor|helicopter|flight|rideshare|uber|lyft|livery|taxi"
+if LOS_COL is not None:
+    df = df.filter(~F.lower(F.coalesce(F.col(LOS_COL), F.lit(""))).rlike(NON_GROUND_PATTERN))
+else:
+    print("WARNING: no level-of-service column resolved - non-ground exclusion NOT applied.")
+
+# Remove emergent trips via a trip-type / priority flag if one is present.
+EMERGENT_PATTERN = r"emergen|911|lights|code ?3|stat"
+for trip_type_col in ("TripType", "trip_type", "TransportType", "Priority", "CallType"):
     if trip_type_col in df.columns:
-        df = df.filter(~F.lower(F.col(trip_type_col)).rlike("emergen|rideshare|air|fixed wing|rotor"))
+        df = df.filter(~F.lower(F.coalesce(F.col(trip_type_col), F.lit(""))).rlike(EMERGENT_PATTERN))
+        print(f"Applied emergent exclusion on column: {trip_type_col}")
         break
+else:
+    print("NOTE: no trip-type column found for emergent exclusion - verify emergent trips are "
+          "not in this table, or add the column to the loop above.")
 
 df = df.withColumn("_text", F.lower(F.coalesce(F.col(FREE_TEXT_COL), F.lit(""))))
 df = df.withColumn("_has_text", F.length(F.trim(F.col("_text"))) > 0)
 
-print("Orders in scope:", df.count())
+scope_count = df.count()
+has_text_count = df.filter(F.col("_has_text")).count()
+print(f"\nRaw rows:            {raw_count:,}")
+print(f"In scope:            {scope_count:,}  ({scope_count/raw_count*100:.1f}% of raw)")
+print(f"  with free text:    {has_text_count:,}  ({has_text_count/max(scope_count,1)*100:.1f}% of scope)")
+
+# Guardrails - catch the failure mode that produced the TEAM-only, all-zero result.
+if scope_count < 0.2 * raw_count:
+    print("\nWARNING: scope kept under 20% of rows. Check the distinct level-of-service values "
+          "above - the exclusion pattern may be dropping valid ground rows, or the wrong column "
+          "resolved. Do not use these results until the scope looks right.")
+if has_text_count < 0.5 * max(scope_count, 1):
+    print("\nWARNING: over half of in-scope orders have no free text. Confirm FREE_TEXT_COL "
+          "resolved to the real reason-for-transport field (see the 'Resolved columns' output).")
+    print("Sample of the resolved free-text field:")
+    df.select(FREE_TEXT_COL).filter(F.col("_has_text")).show(5, truncate=80)
 
 # 4. Concept tagging
 
