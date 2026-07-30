@@ -378,10 +378,12 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 
 OUTPUT_XLSX = "med_nec_buckets_v2.xlsx"
-# Destination directory - set to a writable Volume or DBFS path. Examples:
+# Destination directory. Workspace paths (/Workspace/...) are a real mounted filesystem, so the
+# workbook is written there directly with pandas/openpyxl - no dbutils.fs.cp needed.
+# For a Volume or DBFS destination instead, use e.g.:
 #   "/Volumes/prod-sandbox/vivekkumar_patel/exports"   (Unity Catalog volume)
 #   "dbfs:/FileStore/med_nec"                            (download via /files/ URL)
-OUTPUT_DIR = "/Volumes/prod-sandbox/vivekkumar_patel/exports"
+OUTPUT_DIR = "/Workspace/Users/josh.smitherman@gmr.net/med_nec/data"
 
 total = df.count()
 
@@ -528,21 +530,27 @@ def build_workbook(path, sheets):
             ws.column_dimensions[col_cells[0].column_letter].width = w
     wb.save(path)
 
-# Write to a driver-local path first (always writable), then copy to the destination.
-local_path = f"/tmp/{OUTPUT_XLSX}"
-build_workbook(local_path, sheets)
-
 dest = f"{OUTPUT_DIR.rstrip('/')}/{OUTPUT_XLSX}"
-try:
-    dbutils.fs.mkdirs(OUTPUT_DIR)
-    dbutils.fs.cp(f"file:{local_path}", dest)
+if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
+    # These are real mounted filesystem paths - write directly, no local hop or cp needed.
+    import os
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    build_workbook(dest, sheets)
     print("Saved workbook to:", dest)
-    if OUTPUT_DIR.startswith("dbfs:/FileStore"):
-        print("Download via: <workspace-url>/files/" + dest.split("/FileStore/", 1)[1])
-except Exception as e:
-    print("Wrote local copy:", local_path)
-    print("Copy to", dest, "failed - set OUTPUT_DIR to a writable Volume/DBFS path.")
-    print("Reason:", e)
+else:
+    # dbfs:/ or other fs-scheme paths - write locally, then copy with dbutils.
+    local_path = f"/tmp/{OUTPUT_XLSX}"
+    build_workbook(local_path, sheets)
+    try:
+        dbutils.fs.mkdirs(OUTPUT_DIR)
+        dbutils.fs.cp(f"file:{local_path}", dest)
+        print("Saved workbook to:", dest)
+        if OUTPUT_DIR.startswith("dbfs:/FileStore"):
+            print("Download via: <workspace-url>/files/" + dest.split("/FileStore/", 1)[1])
+    except Exception as e:
+        print("Wrote local copy:", local_path)
+        print("Copy to", dest, "failed - set OUTPUT_DIR to a writable path.")
+        print("Reason:", e)
 
 # Notes / open items
 
