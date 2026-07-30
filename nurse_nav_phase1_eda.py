@@ -1,15 +1,3 @@
-Goal: Use AI to read historical nurse notes and explain why each navigation decision was made. Today the system records where a patient was sent, but not the reason. We need that baseline so we can prep clients for how the new system will change their reported numbers before it goes live.
-
-Next steps:
-
-Get the full data pull from Rich, then size the three types of calls that will shift most at go-live:
-Self-care — patients told to care for themselves at home (we suspect many were mislabeled and actually went to urgent care or the ER)
-Incomplete triage — calls where the nurse assessment was never finished, and we don't yet know why
-Ambulance overrides — cases where the assessment didn't call for an ambulance, but one was sent anyway
-Deliver a client-ready workbook answering the headline question: how much of today's "self-care" was truly no care needed vs. patients who went elsewhere on their own
-Validate the results against the reporting team's hand-coded set, and get clinical sign-off on the reason categories before anything goes to a client
-
-
 # Databricks notebook source
 # # Nurse Navigation - Phase 1 Exploratory Data Analysis
 #
@@ -31,7 +19,7 @@ Validate the results against the reporting team's hand-coded set, and get clinic
 # | 4 | Are the notes good enough to answer *why*? |
 # | 5 | What reasons show up, before we spend money on an LLM? |
 # | 6 | Structured extraction of the *why* from the notes |
-# | 7 | Recasting history into the new three-decision framework |
+# | 7 | Where each call actually ended up (reads mislabeled self-care) |
 # | 8 | Do we agree with the humans? (validation) |
 # | 9 | What will the client-facing numbers look like after go-live? |
 #
@@ -986,27 +974,21 @@ print(valid.groupby("phase1_bucket")["reason_documented"].mean().mul(100).round(
 
 # COMMAND ----------
 
-# ## 7. Recasting history into the new three-decision framework
+# ## 7. Where each call actually ended up
 #
-# The heart of the change-management story. Today's outcome blends *where* and *how* into one label
-# ("rideshare to ER", "self-care"). The new system splits every navigation into three separate answers:
-#
-# 1. **How fast** does the patient need to be seen (acuity)
-# 2. **Where** do they need to be seen (care setting)
-# 3. **How** do they get there (transport)
-#
-# This section applies that split to historical calls so the "before" and "after" numbers are measured the
-# same way. The rules are deterministic and live in one place - clinical leadership can adjust them without
-# touching the model.
+# All data here is from the current (old) system. This section does not remap anything into the new
+# system - it simply reads, from each note, where the patient actually ended up and how they got there.
+# That read is what exposes mislabeled self-care: a call recorded as "self-care" whose note shows the
+# patient went to the ED.
 
 # COMMAND ----------
 
-def recast(row) -> Dict[str, str]:
-    """Map a historical call onto the new three-decision framework."""
+def actual_outcome(row) -> Dict[str, str]:
+    """Read where the patient ended up (and transport) from the extracted note facts.
+    This is a plain-language relabel of what the note already says - no new-system logic."""
     setting   = row["actual_setting"]
     transport = row["transport"]
 
-    # WHERE
     where = {
         "emergency_department": "Emergency Department",
         "urgent_care":          "Urgent Care",
@@ -1015,7 +997,6 @@ def recast(row) -> Dict[str, str]:
         "home_no_care":         "No care setting (true self-care)",
     }.get(setting, "Unknown")
 
-    # HOW
     how = {
         "ambulance_als":  "Ambulance (ALS)",
         "ambulance_bls":  "Ambulance (BLS)",
@@ -1024,35 +1005,28 @@ def recast(row) -> Dict[str, str]:
         "none":           "No transport needed",
     }.get(transport, "Unknown")
 
-    # HOW FAST: proxy from NMTARA until the new acuity field exists
-    lvl = row.get("nmtara_level", np.nan)
-    if lvl == 0:            how_fast = "Immediate"
-    elif lvl in (1, 2):     how_fast = "Within hours"
-    elif lvl in (3, 4, 5):  how_fast = "Same day / routine"
-    else:                   how_fast = "Not determined"
-
-    return {"where": where, "how": how, "how_fast": how_fast}
+    return {"where": where, "how": how}
 
 
 if "valid" not in globals() or len(valid) == 0:
     raise RuntimeError("No validated extractions available -- run Section 6 first.")
 
-recast_df = valid.join(pd.DataFrame(valid.apply(recast, axis=1).tolist(), index=valid.index))
-display(pd.crosstab(recast_df["where"], recast_df["how"]))
+outcome_df = valid.join(pd.DataFrame(valid.apply(actual_outcome, axis=1).tolist(), index=valid.index))
+display(pd.crosstab(outcome_df["where"], outcome_df["how"]))
 
 # COMMAND ----------
 
 # ### 7.1 The self-care question
 #
 # The single most important number in Phase 1: of everything currently labeled **self-care**, how much was
-# genuinely *no care needed*, and how much was a patient going somewhere under their own steam?
+# genuinely *no care needed*, and how much was a patient who actually went somewhere (ED, urgent care)?
 #
-# This determines whether the drop in self-care at go-live is a good-news story (it becomes urgent care and
-# virtual care) or one that needs explaining (it becomes ED).
+# This quantifies how much of the current self-care bucket is mislabeled - the calls whose notes show the
+# patient did seek care.
 
 # COMMAND ----------
 
-sc = recast_df[recast_df["phase1_bucket"] == "Self-care"] if "recast_df" in globals() else pd.DataFrame()
+sc = outcome_df[outcome_df["phase1_bucket"] == "Self-care"] if "outcome_df" in globals() else pd.DataFrame()
 
 if len(sc):
     breakdown = (
@@ -1063,27 +1037,25 @@ if len(sc):
     display(breakdown)
 
     ax = breakdown["pct_of_self_care"].plot(kind="barh", figsize=(9, 4))
-    ax.set_title("What today's 'self-care' bucket actually contains")
+    ax.set_title("What the current 'self-care' bucket actually contains")
     ax.set_xlabel("% of self-care calls")
     plt.tight_layout(); plt.show()
 
     true_sc = (sc["where"] == "No care setting (true self-care)").mean()
-    print(f"True self-care share: {true_sc:.1%}")
-    print(f"Implied restated self-care rate: "
-          f"{true_sc * analysis['is_self_care'].mean():.1%} of all navigations "
-          f"(vs {analysis['is_self_care'].mean():.1%} reported today)")
+    mislabeled = 1 - true_sc
+    print(f"True self-care (no care needed): {true_sc:.1%}")
+    print(f"Mislabeled (patient actually went somewhere): {mislabeled:.1%}")
 
 # COMMAND ----------
 
 # ### 7.2 NMTARA 6 and ambulance overrides - reason mix
 #
-# Produces the reason-code distribution for the two remaining buckets. These map directly onto the structured
-# override reason codes being built into the new system, so the historical mix becomes the expected baseline
-# for the new codes.
+# The documented-reason distribution for the two remaining buckets, read from the notes: why triage was not
+# completed, and why an ambulance was sent when triage did not call for one.
 
 # COMMAND ----------
 
-n6 = recast_df[recast_df["phase1_bucket"] == "NMTARA 6 (triage not completed)"] if "recast_df" in globals() else pd.DataFrame()
+n6 = outcome_df[outcome_df["phase1_bucket"] == "NMTARA 6 (triage not completed)"] if "outcome_df" in globals() else pd.DataFrame()
 if len(n6):
     cols = [f"triage_incomplete_reason.{k}" for k in BOOL_SECTIONS["triage_incomplete_reason"]]
     mix = n6[cols].mean().mul(100).round(1).sort_values(ascending=False)
@@ -1092,7 +1064,7 @@ if len(n6):
     display(n6_mix)
     save(n6_mix.reset_index().rename(columns={"index": "reason"}), "nmtara6_reason_mix")
 
-ov = recast_df[recast_df["phase1_bucket"] == "1-5 ambulance override"] if "recast_df" in globals() else pd.DataFrame()
+ov = outcome_df[outcome_df["phase1_bucket"] == "1-5 ambulance override"] if "outcome_df" in globals() else pd.DataFrame()
 if len(ov):
     cols = [f"decision_driver.{k}" for k in BOOL_SECTIONS["decision_driver"]]
     mix = ov[cols].mean().mul(100).round(1).sort_values(ascending=False)
@@ -1139,8 +1111,8 @@ if len(gold):
 HUMAN_COL = next((x for x in gold.columns if "human" in x or "manual" in x or "gold" in x), None) if len(gold) else None
 print("Human label column:", HUMAN_COL)
 
-if HUMAN_COL and "recast_df" in globals():
-    comp = recast_df.merge(gold[["case_id", HUMAN_COL]], on="case_id", how="inner")
+if HUMAN_COL and "outcome_df" in globals():
+    comp = outcome_df.merge(gold[["case_id", HUMAN_COL]], on="case_id", how="inner")
     print(f"Overlapping cases: {len(comp)}")
     if len(comp):
         agree = (comp["where"].str.lower().str[:4] == comp[HUMAN_COL].astype(str).str.lower().str[:4])
@@ -1178,13 +1150,10 @@ save(audit, "evidence_audit_sample")
 
 # COMMAND ----------
 
-# ## 9. Before-and-after view for clients
+# ## 9. Baseline by client
 #
-# Pulls everything together into the table the account teams will actually use: today's reported numbers next
-# to the restated numbers, at national and client level, with the delta and a plain-language driver.
-#
-# This is the deliverable that lets us tell a client "your self-care rate is going to drop by X points, and
-# here is exactly where those calls went" *before* they see it in a dashboard.
+# The current-system reported rates for each bucket, national and per client. This is the "before" picture
+# each client's own numbers will be read against once the new system is live. All figures are old-system.
 
 # COMMAND ----------
 
@@ -1215,28 +1184,6 @@ save(baseline, "phase1_baseline_by_client")
 
 # COMMAND ----------
 
-# Restate self-care: apply the sampled recast rate to full volume
-if len(sc):
-    true_sc_rate = (sc["where"] == "No care setting (true self-care)").mean()
-
-    restated = baseline.copy()
-    restated["self_care_restated_pct"] = (restated["self_care_reported_pct"] * true_sc_rate).round(1)
-    restated["self_care_delta_pts"]    = (
-        restated["self_care_restated_pct"] - restated["self_care_reported_pct"]
-    ).round(1)
-
-    display(restated[[
-        "segment", "calls", "self_care_reported_pct",
-        "self_care_restated_pct", "self_care_delta_pts"
-    ]].sort_values("self_care_delta_pts"))
-
-    save(restated, "self_care_restatement")
-    print("\nNOTE: applies one national recast rate to every client. "
-          "Once the full extraction runs, compute this per client -- "
-          "the mix almost certainly varies by market.")
-
-# COMMAND ----------
-
 # ### 9.1 Export everything to the results folder
 #
 # Writes every artifact this notebook produced to
@@ -1250,15 +1197,13 @@ if len(sc):
 # | `note_quality_by_bucket` | Usable-note share per bucket | Internal - feasibility / coverage caveat |
 # | `reason_keyword_coverage` | Keyword pre-pass results | Internal - sanity check before LLM spend |
 # | `llm_extractions_raw` | Raw JSON extractions | Internal - the expensive artifact, reusable |
-# | `case_level_recast` | Every case mapped to how fast / where / how | Rich - feeds Power BI |
-# | `self_care_breakdown` | What self-care actually contained | **Client-facing headline** |
-# | `nmtara6_reason_mix` | Why triage wasn't completed | Anisa / new-system reason codes |
-# | `override_reason_mix` | Why we overrode to ambulance | Anisa / new-system reason codes |
+# | `self_care_breakdown` | Where the current self-care bucket actually went | **Client-facing headline** |
+# | `nmtara6_reason_mix` | Why triage wasn't completed | Anisa |
+# | `override_reason_mix` | Why an ambulance was sent anyway | Anisa |
 # | `override_reasons_by_protocol` | Override drivers by chief complaint | Clinical - Dr. Stites / Dr. Troutman |
-# | `validation_disagreements` | Cases where we differ from human coding | Anisa - trust building |
+# | `validation_disagreements` | Cases differing from the hand-coded set | Anisa - trust building |
 # | `evidence_audit_sample` | Extracted flags with supporting quotes | Clinical sign-off |
 # | `phase1_baseline_by_client` | KPI baseline, national and per client | Account teams |
-# | `self_care_restatement` | Reported vs restated self-care | **Account teams - the change-management number** |
 
 # COMMAND ----------
 
@@ -1291,15 +1236,15 @@ try_save("qual",       "note_quality_by_bucket")
 try_save("heat",       "reason_keyword_coverage")
 try_save("profile",    "field_profile")
 
-# case-level recast: the join key back into Power BI
-if "recast_df" in globals():
-    recast_cols = [c for c in [
+# case-level outcomes: one row per call with the documented outcome read from the note
+if "outcome_df" in globals():
+    outcome_cols = [c for c in [
         "case_id", "phase1_bucket", "nmtara_level", "protocol_trigger",
         DISPO_COL, "actual_setting", "stayed_home", "transport",
-        "where", "how", "how_fast", "reason_documented",
-    ] if c in recast_df.columns]
-    globals()["_recast_export"] = recast_df[recast_cols]
-    try_save("_recast_export", "case_level_recast")
+        "where", "how", "reason_documented",
+    ] if c in outcome_df.columns]
+    globals()["_outcome_export"] = outcome_df[outcome_cols]
+    try_save("_outcome_export", "case_level_outcomes")
 
 try_save("breakdown", "self_care_breakdown")
 
@@ -1342,14 +1287,13 @@ if not on_disk:
 # |---|---|
 # | **Start Here** | Goal, method, how to read the workbook |
 # | **Bucket Sizes** | How big each of the three buckets is |
-# | **Self-Care Restated** | Reported vs restated self-care - the headline |
-# | **Self-Care Detail** | What today's self-care bucket actually contained |
+# | **Self-Care Breakdown** | Where the current self-care bucket actually went - the headline |
 # | **NMTARA 6 Reasons** | Why triage wasn't completed |
-# | **Override Reasons** | Why we overrode to an ambulance |
+# | **Override Reasons** | Why an ambulance was sent anyway |
 # | **Override by Protocol** | Override drivers by chief complaint |
 # | **Baseline by Client** | KPI baseline, national and per client |
 # | **Note Coverage** | Share of usable notes per bucket (feasibility) |
-# | **Validation** | Where we differ from human coding |
+# | **Validation** | Cases differing from the hand-coded set |
 # | **Evidence Sample** | Extracted flags with supporting quotes |
 
 # COMMAND ----------
@@ -1358,8 +1302,7 @@ if not on_disk:
 # (csv stem without RUN_ID/extension, tab name <= 31 chars)
 WORKBOOK_TABS = [
     ("bucket_summary",              "Bucket Sizes"),
-    ("self_care_restatement",       "Self-Care Restated"),
-    ("self_care_breakdown",         "Self-Care Detail"),
+    ("self_care_breakdown",         "Self-Care Breakdown"),
     ("nmtara6_reason_mix",          "NMTARA 6 Reasons"),
     ("override_reason_mix",         "Override Reasons"),
     ("override_reasons_by_protocol","Override by Protocol"),
@@ -1375,12 +1318,12 @@ INTRO_TEXT = [
     (f"Run {RUN_ID}", "subtitle"),
     ("", "gap"),
     ("The goal", "h"),
-    ("A new operating system goes live before year-end. When it does, our reported navigation "
-     "numbers will move, because the new system measures decisions differently than the current one. "
-     "This analysis builds the historical baseline that lets us explain the shift to each client "
-     "before they see it in a dashboard.", "p"),
-    ("Today the system records WHERE a patient was sent but not WHY. The reasoning lives only in "
-     "free-text nurse notes. This work reads those notes at scale to recover the why.", "p"),
+    ("A new operating system goes live before year-end. It measures navigation differently than the "
+     "current one, so reported numbers will shift. This analysis builds a historical baseline from the "
+     "current system so the shift can be explained to each client before it appears in a dashboard.", "p"),
+    ("The current system records WHERE a patient was sent but not WHY. The reason lives only in "
+     "free-text nurse notes. This work reads those notes at scale to recover the why. All figures here "
+     "are from the current system.", "p"),
     ("", "gap"),
     ("What was done", "h"),
     ("1. Cleaned the historical call data and separated real patient navigations from operational-only "
@@ -1389,24 +1332,21 @@ INTRO_TEXT = [
      "and 1-5 ambulance overrides (triage did not call for an ambulance but one was sent).", "p"),
     ("3. Used an AI model to extract the documented reason for each decision, with a verbatim quote "
      "behind every finding so a clinician can check it.", "p"),
-    ("4. Recast each historical call into the new system's three separate decisions \u2014 how fast, "
-     "where, and how the patient gets there \u2014 so before and after are measured the same way.", "p"),
-    ("5. Compared results against the cases the reporting team coded by hand.", "p"),
+    ("4. Read from each note where the patient actually ended up, which exposes mislabeled self-care.", "p"),
+    ("5. Compared results against the cases already coded by hand.", "p"),
     ("", "gap"),
     ("The headline question", "h"),
-    ("Of everything currently labelled 'self-care' (~18-20% of navigations), how much was truly "
-     "no-care-needed versus a patient who went somewhere under their own steam? That split decides "
-     "whether the drop in self-care at go-live is a good-news story or one we need to prepare clients "
-     "for. See the 'Self-Care Restated' tab.", "p"),
+    ("Of everything currently labelled 'self-care', how much was truly no-care-needed versus a patient "
+     "whose note shows they actually went somewhere (ED, urgent care)? See the 'Self-Care Breakdown' tab.", "p"),
     ("", "gap"),
     ("How to read this workbook", "h"),
-    ("Each tab answers one question. Percentages are share-of-bucket unless noted. 'Reported' means "
-     "today's number; 'restated' means the same calls counted the new way.", "p"),
+    ("Each tab answers one question. Percentages are share-of-bucket unless noted. All figures are from "
+     "the current system.", "p"),
     ("", "gap"),
     ("Important caveat", "h"),
     ("These numbers are provisional until the full-population data extract is confirmed with Rich and "
      "the reason categories are signed off by clinical leadership. This is a one-time historical "
-     "baseline, not a model for scoring future calls.", "p"),
+     "baseline of the current system, not a model for scoring future calls.", "p"),
 ]
 
 
@@ -1498,7 +1438,7 @@ print("On disk:", bool(present), present[0] if present else "")
 # - Bucket sizes, national and by client - Section 3
 # - Note usability by bucket - Section 4
 # - Reason mix for each bucket - Section 7
-# - Restated self-care baseline - Section 9
+# - Self-care breakdown: true no-care vs. mislabeled - Section 7
 #
 # ### Open items
 # - [ ] **Rich - data pull (blocking).** Current folder holds ED-appropriateness working sets. Phase 1 needs a
@@ -1510,7 +1450,7 @@ print("On disk:", bool(present), present[0] if present else "")
 # - [ ] **Dr. Stites / Dr. Troutman** - review the evidence audit sample; sign off on reason categories
 # - [ ] Decide whether the historical reason categories become the structured override reason codes in the
 #       new build (Shelly's point - findings should feed the new system's design, not just describe the old one)
-# - [ ] Confirm whether per-client recast rates are needed, or whether a national rate is defensible
+# - [ ] Confirm whether the self-care breakdown should be computed per client, not just nationally
 #
 # ### Scope note
 # Training-data drift is a real constraint: the move from the homegrown protocol to Schmitt Thompson means
