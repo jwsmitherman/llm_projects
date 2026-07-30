@@ -296,6 +296,19 @@ df = df.withColumn(
      .otherwise(F.lit("none/indeterminate")),
 )
 
+# total_necessity_score: the aggregate the 24 July review asked for. It combines both axes and
+# adds a bonus when the full [BPM10] 10.2.3 three-prong test is met, so a complete objective
+# standard outscores an equal sum of unrelated concepts.
+#   total = mobility_score + monitoring_score + (BED_CONFINED_BONUS if all three prongs present)
+# Interpretation is provisional - the multiplier/bonus is a tunable modelling choice, not a CMS
+# figure, and should be validated by the SMEs and against denial outcomes.
+BED_CONFINED_BONUS = 3   # cite: [BPM10] 10.2.3 - full three-prong test is the strongest signal
+df = df.withColumn(
+    "total_necessity_score",
+    F.col("mobility_score") + F.col("monitoring_score")
+    + F.when(F.col("bed_confined_full"), F.lit(BED_CONFINED_BONUS)).otherwise(F.lit(0)),
+)
+
 # 6. Summary outputs (display only - nothing is written)
 
 # Necessity distribution
@@ -353,6 +366,183 @@ for cls in ["clearly_necessary", "indeterminate", "clearly_not_necessary"]:
           .select(*_example_cols)
           .limit(15)
     )
+
+# 8. Export summary workbook - med_nec_buckets_v2.xlsx
+
+# Writes the aggregates that back the slides to a five-tab workbook. This is an OUTPUT FILE, not
+# a table write - the source table is never modified. Mirrors the original med_nec_buckets.xlsx,
+# updated to the medical-necessity schema (necessity_class, mobility/monitoring, appropriateness).
+
+import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Font
+
+OUTPUT_XLSX = "med_nec_buckets_v2.xlsx"
+# Destination directory - set to a writable Volume or DBFS path. Examples:
+#   "/Volumes/prod-sandbox/vivekkumar_patel/exports"   (Unity Catalog volume)
+#   "dbfs:/FileStore/med_nec"                            (download via /files/ URL)
+OUTPUT_DIR = "/Volumes/prod-sandbox/vivekkumar_patel/exports"
+
+total = df.count()
+
+def with_pct(sdf, count_col="orders"):
+    pdf = sdf.toPandas()
+    pdf["pct_of_scope"] = (pdf[count_col] / total * 100).round(1)
+    return pdf
+
+# --- Summary tab: necessity, confidence, indeterminate reasons ---
+nec_pdf = with_pct(
+    df.groupBy("necessity_class").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
+)
+conf_pdf = with_pct(
+    df.groupBy("confidence").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
+)
+indet_pdf = with_pct(
+    df.filter(F.col("necessity_class") == "indeterminate")
+      .groupBy("indeterminate_reason").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
+)
+
+# --- Concepts tab: dictionary with counts and CMS citations (backs the concept slide) ---
+concept_sums = df.agg(
+    *[F.sum(F.col(f"c_{n}").cast("int")).alias(n) for n, *_ in CONCEPTS]
+).collect()[0].asDict()
+concept_pdf = pd.DataFrame([
+    {"concept": n, "group": g, "axis": a, "weight": w, "basis": b,
+     "cms_ref": ref, "source_url": url,
+     "tags": int(concept_sums[n] or 0),
+     "pct_of_orders": round((concept_sums[n] or 0) / total * 100, 1)}
+    for (n, a, w, g, b, ref, url, pat) in CONCEPTS
+]).sort_values("tags", ascending=False).reset_index(drop=True)
+
+# --- Where tab: by customer, by level of service, transport appropriateness ---
+where_blocks = []
+if CUSTOMER_COL is not None:
+    where_blocks.append((
+        "Necessity by customer",
+        df.groupBy(CUSTOMER_COL, "necessity_class").agg(F.count("*").alias("orders"))
+          .orderBy(CUSTOMER_COL, "necessity_class").toPandas()
+    ))
+if LOS_COL is not None:
+    where_blocks.append((
+        "Necessity by level of service",
+        df.groupBy(LOS_COL, "necessity_class").agg(F.count("*").alias("orders"))
+          .orderBy(LOS_COL, "necessity_class").toPandas()
+    ))
+    where_blocks.append((
+        "Transport appropriateness (requested vs recommended)",
+        df.groupBy(LOS_COL, "recommended_los").agg(F.count("*").alias("orders"))
+          .orderBy(F.desc("orders")).toPandas()
+    ))
+
+# --- Examples tab: sampled free-text per class ---
+ex_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
+    "necessity_class", "total_necessity_score", "mobility_score", "monitoring_score",
+    "confidence", "indeterminate_reason", FREE_TEXT_COL,
+]
+examples_pdf = pd.concat([
+    df.filter(F.col("necessity_class") == cls).select(*ex_cols).limit(20).toPandas()
+    for cls in ["clearly_necessary", "indeterminate", "clearly_not_necessary"]
+], ignore_index=True)
+
+# --- Definitions tab: embedded so the workbook is self-explaining ---
+definitions_pdf = pd.DataFrame([
+    ["necessity_class = clearly_necessary", "Full bed-confined test met, or a named CMS concept at the clear weight threshold.", "BPM10 10.2.3 / 10.2.1; 414.605"],
+    ["necessity_class = clearly_not_necessary", "No Group A concept present - field empty or vague filler only.", "RSN AM600; MLN"],
+    ["necessity_class = indeterminate", "Some signal but below the clear threshold, or text present that matched no term.", "BPM10 10.2.1"],
+    ["indeterminate_reason = text_unmatched", "Text entered but no term matched - the target for language-model classification.", "BPM10 10.2.1"],
+    ["indeterminate_reason = weak_or_inferred_only", "Only inferred or low-weight concepts present.", "BPM10 10.2.1"],
+    ["mobility_score", "Weighted sum of mobility-axis concepts - why other transport is contraindicated.", "BPM10 10.2.1 / 10.2.3"],
+    ["monitoring_score", "Weighted sum of monitoring-axis concepts - why this level of service.", "414.605"],
+    ["total_necessity_score", "mobility_score + monitoring_score + bed-confined bonus. See the Scoring tab.", "composite (provisional)"],
+    ["confidence", "Internal quality flag on the classification (high / medium / low). Not a CMS construct.", "n/a"],
+    ["recommended_los", "Level of service implied by the monitoring axis. Descriptive, not a billing call.", "414.605; 410.40(c)"],
+    ["Group A vs Group B", "A = a clinical reason (12 concepts). B = vague filler that confers no necessity (3).", "BPM10 10.2.1; MLN"],
+    ["named vs inferred", "named = explicit in CMS text. inferred = derived from the 10.2.1 general test.", "BPM10 10.2.1"],
+    ["Scope", f"Non-emergent ground only. {total:,} orders in scope, 2024 to present.", "BPM10 10.2.1"],
+], columns=["term", "definition", "cms_ref"])
+
+# --- Scoring tab: weight table, aggregation formula, and score distribution ---
+weight_pdf = pd.DataFrame([
+    {"concept": n, "axis": a, "group": g, "basis": b, "weight": w, "cms_ref": ref}
+    for (n, a, w, g, b, ref, url, pat) in CONCEPTS
+]).sort_values(["axis", "weight"], ascending=[True, False]).reset_index(drop=True)
+
+formula_pdf = pd.DataFrame([
+    ["mobility_score", "sum of weights of matched mobility-axis concepts", "BPM10 10.2.1 / 10.2.3"],
+    ["monitoring_score", "sum of weights of matched monitoring-axis concepts", "414.605"],
+    ["bed_confined bonus", f"+{BED_CONFINED_BONUS} when all three 10.2.3 prongs are present", "BPM10 10.2.3"],
+    ["total_necessity_score", "mobility_score + monitoring_score + bed_confined bonus", "composite (provisional)"],
+    ["clear threshold", f"mobility >= {MOBILITY_CLEAR} or monitoring >= {MONITORING_CLEAR}, with a named concept", "BPM10 / 414.605"],
+    ["note", "weights and bonus are tunable modelling choices, not CMS figures - validate with SMEs", "n/a"],
+], columns=["element", "definition", "cms_ref"])
+
+total_dist_pdf = with_pct(
+    df.groupBy("total_necessity_score").agg(F.count("*").alias("orders"))
+      .orderBy("total_necessity_score")
+)
+
+score_by_class_pdf = (
+    df.groupBy("necessity_class")
+      .agg(F.round(F.avg("total_necessity_score"), 2).alias("avg_total_score"),
+           F.min("total_necessity_score").alias("min_score"),
+           F.max("total_necessity_score").alias("max_score"),
+           F.count("*").alias("orders"))
+      .orderBy(F.desc("avg_total_score")).toPandas()
+)
+
+sheets = {
+    "Definitions": [("Definitions and CMS basis", definitions_pdf)],
+    "Summary":     [("Necessity", nec_pdf), ("Confidence", conf_pdf),
+                    ("Indeterminate - why", indet_pdf)],
+    "Scoring":     [("Concept weights", weight_pdf),
+                    ("Aggregation formula", formula_pdf),
+                    ("Total score distribution", total_dist_pdf),
+                    ("Total score by necessity class", score_by_class_pdf)],
+    "Concepts":    [("Concept dictionary with CMS citations", concept_pdf)],
+    "Where":       where_blocks or [("No customer/LOS column resolved", pd.DataFrame({"note": ["set FIELD_CANDIDATES"]}))],
+    "Examples":    [("Sampled order text per class", examples_pdf)],
+}
+
+def _coerce(v):
+    if pd.isna(v):
+        return None
+    return v.item() if hasattr(v, "item") else v
+
+def build_workbook(path, sheets):
+    wb = Workbook(); wb.remove(wb.active)
+    for name, blocks in sheets.items():
+        ws = wb.create_sheet(name[:31]); r = 1
+        for title, pdf in blocks:
+            if title:
+                ws.cell(r, 1, title).font = Font(bold=True); r += 1
+            for j, col in enumerate(pdf.columns, 1):
+                ws.cell(r, j, str(col)).font = Font(bold=True)
+            r += 1
+            for _, row in pdf.iterrows():
+                for j, val in enumerate(row, 1):
+                    ws.cell(r, j, _coerce(val))
+                r += 1
+            r += 1
+        for col_cells in ws.columns:
+            w = min(70, max((len(str(c.value)) for c in col_cells if c.value is not None), default=8) + 2)
+            ws.column_dimensions[col_cells[0].column_letter].width = w
+    wb.save(path)
+
+# Write to a driver-local path first (always writable), then copy to the destination.
+local_path = f"/tmp/{OUTPUT_XLSX}"
+build_workbook(local_path, sheets)
+
+dest = f"{OUTPUT_DIR.rstrip('/')}/{OUTPUT_XLSX}"
+try:
+    dbutils.fs.mkdirs(OUTPUT_DIR)
+    dbutils.fs.cp(f"file:{local_path}", dest)
+    print("Saved workbook to:", dest)
+    if OUTPUT_DIR.startswith("dbfs:/FileStore"):
+        print("Download via: <workspace-url>/files/" + dest.split("/FileStore/", 1)[1])
+except Exception as e:
+    print("Wrote local copy:", local_path)
+    print("Copy to", dest, "failed - set OUTPUT_DIR to a writable Volume/DBFS path.")
+    print("Reason:", e)
 
 # Notes / open items
 
