@@ -19,9 +19,9 @@
 # | 4 | Are the notes good enough to answer *why*? |
 # | 5 | What reasons show up, before we spend money on an LLM? |
 # | 6 | Structured extraction of the *why* from the notes |
-# | 7 | Where each call actually ended up (reads mislabeled self-care) |
-# | 8 | Do we agree with the humans? (validation) |
-# | 9 | What will the client-facing numbers look like after go-live? |
+# | 7 | Where each call ended up, override driver split, diversion, examples |
+# | 8 | Validation, and AI categories vs the current system codes |
+# | 9 | Baseline by client (current-system rates) |
 #
 # > Cells that call the LLM endpoint are marked **[COST]**. Run them on a sample first.
 
@@ -1088,6 +1088,133 @@ if len(ov) and "protocol_trigger" in ov.columns:
 
 # COMMAND ----------
 
+# ### 7.3 Override drivers: nurse-initiated vs patient-initiated
+#
+# Review point from the categorization discussion: the reason percentages total over 100 because a single
+# override can carry more than one documented reason. This groups the reasons into who drove the decision
+# so the split is clear:
+#
+# - Nurse / clinical: the nurse escalated on clinical judgement
+# - Patient: the patient requested an ambulance/ED or refused the recommendation
+# - Access / logistics: no provider, closed, no appointment, transport or device barrier, cost, language
+#
+# It also reports how often an override note carries more than one reason.
+
+# COMMAND ----------
+
+DRIVER_GROUPS = {
+    "Nurse / clinical": ["clinical_escalation_by_nurse"],
+    "Patient": ["patient_requested_ambulance_or_ed", "patient_refused_recommendation"],
+    "Access / logistics": [
+        "no_provider_available", "facility_closed_or_after_hours", "no_appointment_available",
+        "mobility_or_transport_barrier", "device_or_procedure_need",
+        "insurance_or_cost_barrier", "language_or_communication_barrier",
+    ],
+}
+
+if len(ov):
+    driver_rows = []
+    for label, keys in DRIVER_GROUPS.items():
+        present_cols = [f"decision_driver.{k}" for k in keys if f"decision_driver.{k}" in ov.columns]
+        share = ov[present_cols].any(axis=1).mean() * 100 if present_cols else 0.0
+        driver_rows.append({"driver_group": label, "% of override calls": round(share, 1)})
+    driver_split = pd.DataFrame(driver_rows)
+    display(driver_split)
+
+    all_reason_cols = [f"decision_driver.{k}" for k in BOOL_SECTIONS["decision_driver"]
+                       if f"decision_driver.{k}" in ov.columns]
+    n_reasons = ov[all_reason_cols].sum(axis=1)
+    multi_reason_pct = round((n_reasons > 1).mean() * 100, 1)
+    print(f"Override calls with more than one documented reason: {multi_reason_pct}%")
+    print(f"Nurse/clinical is the recorded driver in "
+          f"{driver_split.loc[driver_split['driver_group']=='Nurse / clinical', '% of override calls'].iloc[0]}% of overrides.")
+
+    driver_split_out = driver_split.copy()
+    driver_split_out.loc[len(driver_split_out)] = ["Calls with more than one reason", multi_reason_pct]
+    save(driver_split_out, "override_driver_split")
+
+# COMMAND ----------
+
+# ### 7.4 Care-setting diversion
+#
+# Insight requested on the intake process: how often navigation kept a patient out of the ED, and how low
+# the self-care and urgent-care shares are. A low diverted-to-lower-acuity share can indicate a cautious
+# process that leans toward ambulance and ED.
+
+# COMMAND ----------
+
+_dispo = analysis[DISPO_COL].fillna("").str.lower()
+analysis["is_urgent_care"] = _dispo.str.contains("urgent", na=False)
+analysis["is_virtual"]     = _dispo.str.contains("virtual|telehealth|video", regex=True, na=False)
+analysis["is_ed"]          = _dispo.str.contains("emergency|\\bed\\b|\\ber\\b", regex=True, na=False)
+
+def diversion_block(frame, label):
+    total = len(frame)
+    if total == 0:
+        return None
+    return {
+        "segment": label,
+        "calls": total,
+        "self_care_pct":   round(frame["is_self_care"].mean() * 100, 1),
+        "urgent_care_pct": round(frame["is_urgent_care"].mean() * 100, 1),
+        "virtual_pct":     round(frame["is_virtual"].mean() * 100, 1),
+        "lower_acuity_pct": round((frame["is_self_care"] | frame["is_urgent_care"] | frame["is_virtual"]).mean() * 100, 1),
+        "ambulance_pct":   round(frame["is_ambulance"].mean() * 100, 1),
+    }
+
+div_rows = [diversion_block(analysis, "National")]
+if CLIENT_COL:
+    for cl, grp in analysis.groupby(CLIENT_COL):
+        if len(grp) >= MIN_CLIENT_CALLS if "MIN_CLIENT_CALLS" in globals() else len(grp) >= 100:
+            div_rows.append(diversion_block(grp, cl))
+
+diversion_insight = pd.DataFrame([r for r in div_rows if r])
+display(diversion_insight)
+save(diversion_insight, "diversion_insight")
+
+# COMMAND ----------
+
+# ### 7.5 Reason examples
+#
+# Pulls a few real notes for a chosen reason, each with the evidence quote, so a category can be spot-checked
+# (for example, "patient unable to participate").
+
+# COMMAND ----------
+
+def reason_examples(section: str, key: str, n: int = 3) -> pd.DataFrame:
+    field = f"{section}.{key}"
+    if "valid" not in globals() or field not in globals().get("valid", pd.DataFrame()).columns:
+        print(f"{field} not available")
+        return pd.DataFrame()
+    hits = valid[valid[field]].copy()
+    rows = []
+    for _, r in hits.head(n).iterrows():
+        quote = ""
+        for e in r["obj"].get("evidence", []):
+            if e.get("field") == field:
+                quote = e.get("quote", "")
+                break
+        rows.append({
+            "case_id": r["case_id"],
+            "reason": key.replace("_", " "),
+            "quote": quote,
+            "note_snippet": str(r.get(NOTES_COL, ""))[:300],
+        })
+    return pd.DataFrame(rows)
+
+
+examples = pd.concat([
+    reason_examples("triage_incomplete_reason", "patient_unable_to_participate", 3),
+    reason_examples("triage_incomplete_reason", "patient_refused_triage", 2),
+    reason_examples("decision_driver", "clinical_escalation_by_nurse", 3),
+], ignore_index=True) if "valid" in globals() else pd.DataFrame()
+
+if len(examples):
+    display(examples)
+    save(examples, "reason_examples")
+
+# COMMAND ----------
+
 # ## 8. Validation against human coding
 #
 # The manual coding Anisa's team already does is the benchmark. Before any of this reaches a client, we need
@@ -1150,10 +1277,56 @@ save(audit, "evidence_audit_sample")
 
 # COMMAND ----------
 
+# ### 8.2 AI categories vs the current system codes
+#
+# The current system already labels each call with a disposition code the nurse selected. This checks how
+# often the AI read of where the patient ended up lines up with that recorded code, so the AI categories can
+# be trusted against what the system captures today. Disagreements are where the recorded label and the note
+# differ - which is exactly what surfaces mislabeled self-care.
+
+# COMMAND ----------
+
+def system_setting(dispo: str) -> str:
+    d = str(dispo).lower()
+    if "self" in d:                                   return "home_no_care"
+    if "urgent" in d:                                 return "urgent_care"
+    if "virtual" in d or "telehealth" in d or "video" in d: return "virtual_care"
+    if "primary" in d or "pcp" in d:                  return "primary_care"
+    if "emergency" in d or "ambulance" in d or "bls" in d or "als" in d or "911" in d or " ed" in d or " er" in d:
+        return "emergency_department"
+    return "other_unknown"
+
+if "outcome_df" in globals() and len(outcome_df):
+    match = outcome_df.copy()
+    match["system_setting"] = match[DISPO_COL].apply(system_setting)
+    # compare on comparable rows only (both sides resolved)
+    cmp = match[(match["system_setting"] != "other_unknown") & (match["actual_setting"] != "unknown")].copy()
+    if len(cmp):
+        cmp["agree"] = cmp["system_setting"] == cmp["actual_setting"]
+        agree_pct = round(cmp["agree"].mean() * 100, 1)
+        print(f"AI setting matches the recorded system code in {agree_pct}% of comparable calls "
+              f"(n={len(cmp)}).")
+
+        confusion = pd.crosstab(cmp["system_setting"], cmp["actual_setting"])
+        display(confusion)
+
+        summary_rows = (
+            cmp.groupby("system_setting")["agree"].agg(["mean", "count"])
+            .assign(**{"agree_pct": lambda d: (d["mean"] * 100).round(1)})
+            .drop(columns="mean")
+            .rename(columns={"count": "calls"})
+            .reset_index()
+        )
+        display(summary_rows)
+        save(summary_rows, "categorization_match")
+        save(confusion.reset_index(), "categorization_confusion")
+
+# COMMAND ----------
+
 # ## 9. Baseline by client
 #
 # The current-system reported rates for each bucket, national and per client. This is the "before" picture
-# each client's own numbers will be read against once the new system is live. All figures are old-system.
+# each client's own numbers will be read against. All figures are from the current system.
 
 # COMMAND ----------
 
@@ -1290,7 +1463,11 @@ if not on_disk:
 # | **Self-Care Breakdown** | Where the current self-care bucket actually went - the headline |
 # | **NMTARA 6 Reasons** | Why triage wasn't completed |
 # | **Override Reasons** | Why an ambulance was sent anyway |
+# | **Override Driver Split** | Nurse-initiated vs patient-initiated vs access |
 # | **Override by Protocol** | Override drivers by chief complaint |
+# | **Diversion Insight** | Self-care / urgent-care share kept out of the ED |
+# | **AI vs System Match** | How often the AI category matches the recorded code |
+# | **Reason Examples** | Sample notes with quotes for a chosen reason |
 # | **Baseline by Client** | KPI baseline, national and per client |
 # | **Note Coverage** | Share of usable notes per bucket (feasibility) |
 # | **Validation** | Cases differing from the hand-coded set |
@@ -1305,10 +1482,14 @@ WORKBOOK_TABS = [
     ("self_care_breakdown",         "Self-Care Breakdown"),
     ("nmtara6_reason_mix",          "NMTARA 6 Reasons"),
     ("override_reason_mix",         "Override Reasons"),
+    ("override_driver_split",       "Override Driver Split"),
     ("override_reasons_by_protocol","Override by Protocol"),
+    ("diversion_insight",           "Diversion Insight"),
     ("bucket_trend_quarterly",      "Bucket Trend"),
     ("phase1_baseline_by_client",   "Baseline by Client"),
     ("note_quality_by_bucket",      "Note Coverage"),
+    ("categorization_match",        "AI vs System Match"),
+    ("reason_examples",             "Reason Examples"),
     ("validation_disagreements",    "Validation"),
     ("evidence_audit_sample",       "Evidence Sample"),
 ]
@@ -1328,12 +1509,14 @@ INTRO_TEXT = [
     ("What was done", "h"),
     ("1. Cleaned the historical call data and separated real patient navigations from operational-only "
      "records (a nurse calling a facility or confirming a ride is not a navigation).", "p"),
-    ("2. Sized the three buckets that move most at go-live: self-care, NMTARA 6 (triage not completed), "
+    ("2. Sized the three buckets in focus: self-care, NMTARA 6 (triage not completed), "
      "and 1-5 ambulance overrides (triage did not call for an ambulance but one was sent).", "p"),
     ("3. Used an AI model to extract the documented reason for each decision, with a verbatim quote "
      "behind every finding so a clinician can check it.", "p"),
     ("4. Read from each note where the patient actually ended up, which exposes mislabeled self-care.", "p"),
-    ("5. Compared results against the cases already coded by hand.", "p"),
+    ("5. Grouped override reasons by who drove the decision (nurse, patient, or access).", "p"),
+    ("6. Checked the AI categories against the codes the current system already records, and against the "
+     "cases coded by hand.", "p"),
     ("", "gap"),
     ("The headline question", "h"),
     ("Of everything currently labelled 'self-care', how much was truly no-care-needed versus a patient "
@@ -1449,7 +1632,7 @@ print("On disk:", bool(present), present[0] if present else "")
 # - [ ] **Anisa** - confirm the human-coded gold set and its label column
 # - [ ] **Dr. Stites / Dr. Troutman** - review the evidence audit sample; sign off on reason categories
 # - [ ] Decide whether the historical reason categories become the structured override reason codes in the
-#       new build (Shelly's point - findings should feed the new system's design, not just describe the old one)
+#       reason categories the reporting team standardizes on (findings can inform how reasons are captured)
 # - [ ] Confirm whether the self-care breakdown should be computed per client, not just nationally
 #
 # ### Scope note
