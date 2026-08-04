@@ -15,16 +15,11 @@
 # comes back:
 #   - most consumers            -> HIT if it is in the TOP 10
 #   - single-result consumers   -> HIT only if it is the #1 result (e.g. Crystal First / FIRST)
-# Agreement = v7 reproduces the known-good production result (true positive).
-# Disagreement = a regression to investigate (false negative).
+# Agreement = v7 returned the production identity (pass). Disagreement = fail, to investigate.
 #
-# CONFIDENCE: a label is only as good as the search that produced it.
-#   - HIGH  : a unique identifier was used AND production returned a small set (totalIdentities small)
-#             -> the rank-1 identity is almost certainly the right person.
-#   - LOW   : name-only search, or production returned the 10000 cap -> rank-1 is just "what prod
-#             returned", not verified. These are reported separately and excluded from the headline.
-# Use the HIGH-confidence hit rate as the headline number; treat LOW-confidence as directional until
-# the Mars team confirms expected results.
+# Each row also carries the production result count and any bad-input flags, so a fail can be
+# judged by hand (see the "Misses to review" tab). The expected identity is whatever production
+# returned at rank 1 for that same input; it is not an independently verified answer.
 # ============================================================================
 import requests, json, re, os, glob
 import pandas as pd
@@ -39,8 +34,9 @@ RESULTS_DIR   = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/
 ID_FIELD   = "identityId"
 TOP_N      = 10
 SINGLE_RESULT_CONSUMERS = {"FIRST"}     # take only the #1 result (Crystal First, etc.)
-HIGH_CONF_MAX_TOTAL = 5                 # "small result set" threshold for a high-confidence label
 MASK_PHI   = True                       # mask names / DOB / A-number / receipt in the Excel (PHI-safe to share)
+WIDE_INSPECT_N = 100                    # for a MISS, re-fetch this many results to see if the expected
+                                        # identity is there at all (e.g. ranked 11 = a real negative test)
 VERIFY_TLS = True
 
 auth = AUTH_TOKEN if AUTH_TOKEN.startswith("Basic ") else "Basic " + AUTH_TOKEN
@@ -74,14 +70,11 @@ def parse_record(rec):
     total    = _g(r'"totalIdentities":(\d+)', result, None)
     total    = int(total) if total else None
     expected = _g(r'"identityId":"([0-9a-fA-F]{16,})"', result, None)   # first hit = rank 1
-    strong   = bool(fields["ANUMBER"] or fields["RECEIPT"])
-    conf = ("high" if (strong and total is not None and total <= HIGH_CONF_MAX_TOTAL)
-            else "low" if (total == 10000 or not strong) else "medium")
     # reproducible with the v7 name/ID template? (receipt-only queries the template can't build)
     reproducible = any(fields[k] for k in ("FIRSTNAME","LASTNAME","ANUMBER","DOB","COB","COC"))
     mode = "top1" if consumer in SINGLE_RESULT_CONSUMERS else "top10"
     return {"consumer":consumer, "mode":mode, "expected_id":expected, "fields":fields,
-            "total_identities":total, "confidence":conf, "reproducible":reproducible}
+            "total_identities":total, "reproducible":reproducible}
 
 def load_cases_from_prod_logs(folder):
     cases=[]
@@ -149,9 +142,11 @@ def build_query(fields):
     if p.get("RECEIPT"):   should.append({"match":{"_search.identifiers.RECEIPT_NBR":p["RECEIPT"]}})
     return {"size":max(TOP_N,10),"query":{"bool":{"should":should or [{"match_all":{}}],"minimum_should_match":1}}}
 
-def search_hits(fields):
+def search_hits(fields, size=None):
     """Return v7's ranked hits as [{id, name}], so a miss can be judged against what v7 DID return."""
-    r = requests.post(ENDPOINT, headers=HEADERS, json=build_query(fields), verify=VERIFY_TLS, timeout=120)
+    body=build_query(fields)
+    if size: body["size"]=size
+    r = requests.post(ENDPOINT, headers=HEADERS, json=body, verify=VERIFY_TLS, timeout=120)
     if r.status_code>=400:
         print("STATUS",r.status_code,r.text[:300]); r.raise_for_status()
     out=[]
@@ -190,16 +185,32 @@ def evaluate(cases):
         rank=(ids.index(exp)+1) if exp in ids else None            # rank even if beyond the window
         hit=(rank is not None and rank<=k)
         v7_top=hits[0] if hits else {"id":"","name":""}
-        # why it was scored a miss, so a human can judge a TRUE miss vs a ranking/label issue
+        # the retrieved list (top 3) so a reviewer can see WHO v7 returned vs the expected person
+        v7_top3=" | ".join(h["name"] or h["id"] for h in hits[:3])
+        # for a MISS, re-search a wider window (e.g. top 100) to confirm the expected identity's real rank.
+        # "ranked 11 = negative test"; "not in top 100 at all" = truly absent or a bad label.
+        wide_rank=None; wide_checked=False
+        if (not hit) and WIDE_INSPECT_N and WIDE_INSPECT_N>TOP_N:
+            try:
+                wide=search_hits(c["fields"], size=WIDE_INSPECT_N); wide_checked=True
+                wids=[h["id"] for h in wide]
+                wide_rank=(wids.index(exp)+1) if exp in wids else None
+            except Exception: pass
+        # plain-English reason a human can act on
         if hit: why=""
         elif rank is not None: why=f"expected identity returned at rank {rank}, outside the top {k}"
+        elif wide_checked and wide_rank is not None: why=f"expected identity ranked {wide_rank} (checked top {WIDE_INSPECT_N})"
+        elif wide_checked: why=f"expected identity not found even in the top {WIDE_INSPECT_N}"
         elif not ids: why="v7 returned no results for this input"
         else: why="expected identity not in v7 results at all"
-        rows.append({"consumer":c["consumer"],"mode":c["mode"],"confidence":c["confidence"],
+        rows.append({"consumer":c["consumer"],"mode":c["mode"],
                      "reproducible":c["reproducible"],"total_identities":c["total_identities"],
-                     "expected_id":exp,"found_rank":rank,"hit":hit,
+                     "expected_id":exp,"found_rank":rank,
+                     "rank_in_top100":wide_rank if wide_checked else None,
+                     "hit":hit,"pass_fail":("PASS" if hit else "FAIL"),
                      "outcome":("TP" if hit else "FN"),
                      "v7_top_id":v7_top["id"],"v7_top_name":v7_top["name"],
+                     "v7_retrieved_top3":v7_top3,
                      "v7_result_count":len(ids),"why_miss":why,"input_flags":input_flags(c)})
     return pd.DataFrame(rows)
 
@@ -235,13 +246,13 @@ def charts(df, summary):
         ax.set_xticks(range(1,TOP_N+1)); ax.set_xlabel("rank of the correct identity"); ax.set_ylabel("queries")
         ax.set_title("Where the correct identity landed"); plt.tight_layout(); plt.show()
 
-def write_excel(results, summary, conf_table, out_dir, cases):
+def write_excel(results, summary, out_dir, cases):
     """Write the ACTUAL run results (accuracy measured against production labels) to an .xlsx."""
     import os
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "PCIS_Search_Accuracy_Results.xlsx")
 
-    # per-log findings: what each log row is (input, prod result, confidence, why) — the context
+    # per-log findings: what each log row is (input, prod result, and what v7 returned) — the context
     def qtype(f):
         parts=[]
         if f["FIRSTNAME"] or f["LASTNAME"]: parts.append("name")
@@ -252,62 +263,64 @@ def write_excel(results, summary, conf_table, out_dir, cases):
         return " + ".join(parts) if parts else "none"
     def why(c):
         if c["reproducible"] is False: return "Receipt-only search; v7 name/ID template has no receipt clause"
-        if c["total_identities"]==10000: return "Name search hit the 10000 result cap; label is low-confidence"
-        if c["total_identities"]==1: return "Unique result; high-confidence label"
-        return "Small result set"
+        if c["total_identities"]==10000: return "Name search returned the 10000 result cap"
+        if c["total_identities"]==1: return "Production returned a single identity"
+        return f"Production returned {c['total_identities']} identities"
     findings=[{"consumer":c["consumer"],"query_type":qtype(c["fields"]),
                "name":" ".join(x for x in [c["fields"]["FIRSTNAME"],c["fields"]["MIDDLENAME"],c["fields"]["LASTNAME"]] if x),
                "A-number":c["fields"]["ANUMBER"],"receipt":c["fields"]["RECEIPT"],
                "DOB":c["fields"]["DOB"],"COB":c["fields"]["COB"],
                "prod_result_count":c["total_identities"],
                "expected_identity_rank1":c["expected_id"],
-               "confidence":c["confidence"],"reproducible":("Yes" if c["reproducible"] else "No"),
+               "reproducible":("Yes" if c["reproducible"] else "No"),
                "finding":why(c)} for c in cases]
     findings_df=pd.DataFrame(findings)
 
     # merge in what v7 did per case (so Findings by log shows both the expected answer AND v7's result)
     if "expected_id" in results.columns:
-        rmerge=results[["expected_id","found_rank","hit","outcome","v7_top_id","v7_top_name",
-                        "v7_result_count","why_miss","input_flags"]].copy()
+        rmerge=results[["expected_id","found_rank","rank_in_top100","hit","pass_fail","outcome",
+                        "v7_top_id","v7_top_name","v7_retrieved_top3","v7_result_count",
+                        "why_miss","input_flags"]].copy()
         rmerge=rmerge.rename(columns={"expected_id":"expected_identity_rank1"})
         findings_df=findings_df.merge(rmerge, on="expected_identity_rank1", how="left")
         findings_df["found_as_top_result"]=(findings_df["found_rank"]==1).map({True:"Yes",False:"No"})
 
     # ---- PHI masking so the workbook is safe to share (names/DOB/A-number/receipt) ----
+    def _initials(s):
+        return " ".join(w[0]+"." for w in str(s).split()) if s and str(s)!="nan" else s
     def _mask_df(d):
         if not MASK_PHI: return d
         d=d.copy()
-        if "name" in d:      d["name"]=d["name"].map(lambda s: " ".join(w[0]+"." for w in str(s).split()) if s else s)
-        if "v7_top_name" in d: d["v7_top_name"]=d["v7_top_name"].map(lambda s: " ".join(w[0]+"." for w in str(s).split()) if s else s)
+        for col in ("name","v7_top_name"):
+            if col in d: d[col]=d[col].map(_initials)
+        if "v7_retrieved_top3" in d:
+            d["v7_retrieved_top3"]=d["v7_retrieved_top3"].map(
+                lambda s: " | ".join(_initials(x) for x in str(s).split(" | ")) if s and str(s)!="nan" else s)
         if "A-number" in d:  d["A-number"]=d["A-number"].map(lambda s: ("A*****"+str(s)[-3:]) if s else s)
         if "receipt" in d:   d["receipt"]=d["receipt"].map(lambda s: ("*****"+str(s)[-3:]) if s else s)
         if "DOB" in d:       d["DOB"]=d["DOB"].map(lambda s: (str(s).split(".")[0][:4]) if (s is not None and str(s)!="nan" and str(s)!="") else s)   # year only
         return d
 
-    # ---- Misses to review: only the misses, with v7's actual result so a TRUE miss can be judged ----
-    miss_cols=["consumer","confidence","found_rank","found_as_top_result","why_miss","input_flags",
+    # ---- Misses to review ("double-click" each fail): input + what v7 RETURNED + expected result ----
+    miss_cols=["consumer","pass_fail","found_rank","rank_in_top100","found_as_top_result",
+               "why_miss","input_flags",
                "name","A-number","DOB","prod_result_count","expected_identity_rank1",
-               "v7_top_id","v7_top_name","v7_result_count"]
+               "v7_top_id","v7_top_name","v7_retrieved_top3","v7_result_count"]
     miss_cols=[c for c in miss_cols if c in findings_df.columns]
     misses_df=findings_df[findings_df.get("outcome")=="FN"][miss_cols] if "outcome" in findings_df else pd.DataFrame()
 
     # rollup summary of the logs (aggregated, built from the parsed cases)
     overall=pd.DataFrame({"metric":["Labeled cases","Consumers represented","Reproducible with v7",
-                                     "Not reproducible (receipt-only, etc.)","High confidence",
-                                     "Medium confidence","Low confidence","Hit the 10000 result cap",
-                                     "Misses flagged with a bad-input reason"],
+                                     "Not reproducible (receipt-only, etc.)","Returned the 10000 result cap",
+                                     "Fails flagged with a bad-input reason"],
                           "value":[len(findings_df),
                                    findings_df["consumer"].nunique(),
                                    int((findings_df["reproducible"]=="Yes").sum()),
                                    int((findings_df["reproducible"]=="No").sum()),
-                                   int((findings_df["confidence"]=="high").sum()),
-                                   int((findings_df["confidence"]=="medium").sum()),
-                                   int((findings_df["confidence"]=="low").sum()),
                                    int((findings_df["prod_result_count"]==10000).sum()),
                                    int(((findings_df.get("outcome")=="FN") &
                                         (findings_df.get("input_flags","")!="")).sum()) if "outcome" in findings_df else 0]})
     by_consumer=(findings_df.groupby("consumer").size().reset_index(name="cases").sort_values("cases",ascending=False))
-    by_conf=(findings_df.groupby("confidence").size().reset_index(name="cases"))
     by_qtype=(findings_df.groupby("query_type").size().reset_index(name="cases").sort_values("cases",ascending=False))
 
     with pd.ExcelWriter(path, engine="openpyxl") as xl:
@@ -316,27 +329,23 @@ def write_excel(results, summary, conf_table, out_dir, cases):
         sh=xl.sheets["Logs summary"]; sh["A1"]="Overall"
         r=len(overall)+4; sh.cell(row=r,column=1,value="By consumer")
         by_consumer.to_excel(xl, sheet_name="Logs summary", index=False, startrow=r)
-        r=r+len(by_consumer)+3; sh.cell(row=r,column=1,value="By confidence")
-        by_conf.to_excel(xl, sheet_name="Logs summary", index=False, startrow=r)
-        r=r+len(by_conf)+3; sh.cell(row=r,column=1,value="By query type")
+        r=r+len(by_consumer)+3; sh.cell(row=r,column=1,value="By query type")
         by_qtype.to_excel(xl, sheet_name="Logs summary", index=False, startrow=r)
-        # 1) MISSES TO REVIEW: judge each miss as a true miss vs a ranking/label/bad-input issue
+        # 1) MISSES TO REVIEW: input + what v7 returned + expected, so a fail can be judged by hand
         _mask_df(misses_df).to_excel(xl, sheet_name="Misses to review", index=False)
-        # 2) what each log row is: input, prod result, confidence, finding, AND what v7 returned
+        # 2) what each log row is: input, prod result, finding, AND what v7 returned
         _mask_df(findings_df).to_excel(xl, sheet_name="Findings by log", index=False)
         # 3) accuracy by consumer (measured this run)
         summary.to_excel(xl, sheet_name="Accuracy by consumer", index=False)
-        # 4) accuracy by confidence (trust the high row)
-        conf_table.to_excel(xl, sheet_name="Accuracy by confidence", index=False)
-        # 5) confusion counts per consumer + overall
+        # 4) PASS / FAIL summary per consumer + overall
         rowsm=[]
         for grp,sub in list(results.groupby("consumer"))+[("OVERALL",results)]:
             v=sub["outcome"].value_counts().to_dict()
-            rowsm.append({"consumer":grp,"TP (hit)":v.get("TP",0),"FN (miss)":v.get("FN",0),
-                          "queries":len(sub),
-                          "hit_rate_pct":round(100*v.get("TP",0)/len(sub),1) if len(sub) else None})
-        pd.DataFrame(rowsm).to_excel(xl, sheet_name="Confusion", index=False)
-        # 5) full per-query detail (every replayed search and whether v7 returned the label)
+            passed=v.get("TP",0); failed=v.get("FN",0); n=len(sub)
+            rowsm.append({"consumer":grp,"passed":passed,"failed":failed,"tests":n,
+                          "pass_rate_pct":round(100*passed/n,1) if n else None})
+        pd.DataFrame(rowsm).to_excel(xl, sheet_name="Pass fail summary", index=False)
+        # 5) full per-query detail (every replayed search and whether v7 returned the expected identity)
         results.to_excel(xl, sheet_name="Per-query detail", index=False)
         # 6) run metadata so a reader knows what produced these numbers
         meta=pd.DataFrame({"field":["baseline query","endpoint","template_file","prod_logs_dir","top_n",
@@ -367,16 +376,9 @@ else:
 
     results = evaluate(repro)
 
-    print("SUMMARY: v7 accuracy by consumer (measured against the production label)")
+    print("PASS RATE: v7 by consumer (expected identity returned in the window)")
     summary = summarize(results)
     display(summary)
-
-    print("\nHEADLINE by confidence (use HIGH as the trustworthy number)")
-    conf = (results.groupby("confidence")
-                   .agg(queries=("hit","size"), hits=("hit","sum"))
-                   .assign(hit_rate_pct=lambda d: (100*d["hits"]/d["queries"]).round(1))
-                   .reset_index())
-    display(conf)
 
     print("\nPER-QUERY DETAIL")
     display(results)
@@ -384,8 +386,8 @@ else:
     charts(results, summary)
 
     # write the ACTUAL results (only exists now, after running against the cluster) to Excel
-    write_excel(results, summary, conf, RESULTS_DIR, repro)
+    write_excel(results, summary, RESULTS_DIR, repro)
 
-    print("\nNOTE: labels come from what production returned, not a verified source of truth. "
-          "HIGH-confidence rows (unique-ID search, small result set) are reliable; LOW-confidence "
-          "rows (name-only or 10000-cap) are directional until the Mars team confirms expected results.")
+    print("\nNOTE: the expected identity is whatever production returned at rank 1 for that same input. "
+          "This measures whether v7 returns the same identity as production; it does not confirm production "
+          "was correct. Use the 'Misses to review' tab to judge each fail by hand.")
