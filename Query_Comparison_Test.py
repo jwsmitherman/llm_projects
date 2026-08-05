@@ -47,7 +47,7 @@ ID_FIELD   = "identityId"
 NAME_THRESHOLD = 0.85           # fuzzy ratio a name token must reach to count as matched
 DOB_RANGE_MONTHS = 6            # v7's "close" DOB window (reported, not counted as good)
 REGRESSION_N = 20               # size of the smoke-test subset to emit
-MASK_PHI   = True
+MASK_PHI   = False              # set True only if the workbook must be shared outside the team
 VERIFY_TLS = True
 PLACEHOLDER_ANUMBERS = {"A000000007","A00000000","A000000000"}
 
@@ -262,12 +262,67 @@ else:
     # regression / smoke-test subset (15-20 cases) for future template changes
     regression=out_detail.head(REGRESSION_N)
 
+    # a Read me tab so the explanation travels with the file
+    version_labels=", ".join(templates.keys())
+    readme=pd.DataFrame({"": [
+        "PCIS SEARCH QUERY COMPARISON  —  how each query version measures against the production logs",
+        "",
+        "WHAT THIS IS",
+        "Each production log holds a real search: the terms a consumer typed, and the person production returned.",
+        "This replays the same search terms against each query version (e.g. v7) and checks whether the person",
+        "it returns MATCHES THE INPUT terms, using one shared rule. It then compares the versions.",
+        "",
+        "IMPORTANT: this is a COMPARISON, not an accuracy score. There is no source of truth - production is",
+        "known to be wrong in some cases - so a 'good' result only means the returned person matched what was",
+        "typed in (name + date of birth) by the rule below, not that it is the objectively correct person.",
+        "",
+        "THE RULE FOR A 'GOOD' MATCH",
+        "- Name: every input name token appears (fuzzily) in the returned name (handles 2-part surnames).",
+        "- Date of birth: exact, a single-digit flip (a 'fat finger'), or not provided.",
+        "  (A +/- 6 month difference is reported as 'within 6mo' but does NOT count as good.)",
+        "- Good = the name matches AND the DOB is exact / digit-flip / not provided.",
+        "",
+        "THE TABS",
+        "1. Good match by version - the scoreboard. For each consumer and overall, the percent of searches where",
+        "   each version's top result matched the input. prod_good_pct = the production log's own person;",
+        f"   the version columns (e.g. {version_labels}) = each query's top result. This is the head-to-head.",
+        "",
+        "2. Per-search detail - one row per real search. Shows what was typed (input_*), what production returned",
+        "   (prod_returned, prod_matched_terms, prod_dob, prod_good) and what each version returned",
+        "   (VERSION_returned, VERSION_matched_terms, VERSION_dob, VERSION_good). Read across a row to see, case",
+        "   by case, where a version agrees or differs from production and exactly which terms matched.",
+        "",
+        "3. Regression set - a fixed 15-20 case subset kept as a smoke test. Re-run it after any future template",
+        "   change to catch anything that shifts unexpectedly. versions_disagree flags rows where versions differ.",
+        "",
+        "COLUMN MEANINGS (Per-search detail)",
+        "consumer - the system that made the search        query_type - which inputs were used",
+        "input_name / input_dob / input_cob / input_anumber / input_receipt - the actual search terms typed in",
+        "prod_returned / VERSION_returned - the top person production / that version returned",
+        "prod_matched_terms / VERSION_matched_terms - which input terms that person matched (first, last, dob)",
+        "prod_name_score / VERSION_name_score - fuzzy name closeness, 0 to 1",
+        "prod_dob / VERSION_dob - DOB result: exact / digit-flip / within 6mo / no / n/a",
+        "prod_good / VERSION_good - TRUE if that returned person is a good match to the input by the rule",
+        "versions_disagree - TRUE if the versions do not agree on the good / not-good call",
+        "",
+        "NOTE ON DATE OF BIRTH: consumers match DOB by exact digits (a 1-digit typo still 'matches'); the query",
+        "uses a +/- 6 month range. So a version can return the right NAME but a different DOB and still score",
+        "not-good. That gap is the reason a name+high-DOB-boost tuning version is being tested.",
+    ]})
+
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out=os.path.join(RESULTS_DIR, f"Query_Comparison_Results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
     with pd.ExcelWriter(out, engine="openpyxl") as xl:
-        summary.to_excel(xl, sheet_name="Good match by version", index=False)
-        out_detail.to_excel(xl, sheet_name="Per-search detail", index=False)
-        regression.to_excel(xl, sheet_name="Regression set", index=False)
+        readme.to_excel(xl, sheet_name="Read me", index=False, header=False)
+        # each data tab leads with a one-line title, then the table below it
+        pd.DataFrame({"": ["Good match by version - scoreboard: % of searches where each version's top result matched the input terms"]}).to_excel(xl, sheet_name="Good match by version", index=False, header=False)
+        summary.to_excel(xl, sheet_name="Good match by version", index=False, startrow=2)
+        pd.DataFrame({"": ["Per-search detail - one row per search: what was typed, what each version returned, and which terms matched"]}).to_excel(xl, sheet_name="Per-search detail", index=False, header=False)
+        out_detail.to_excel(xl, sheet_name="Per-search detail", index=False, startrow=2)
+        pd.DataFrame({"": ["Regression set - fixed subset kept as a smoke test; re-run after any template change to catch shifts"]}).to_excel(xl, sheet_name="Regression set", index=False, header=False)
+        regression.to_excel(xl, sheet_name="Regression set", index=False, startrow=2)
+        # widen the Read me column for readability
+        xl.sheets["Read me"].column_dimensions["A"].width=110
     print(f"\nExcel written: {out}")
     print("\nNOTE: this is a COMPARISON, not an accuracy score. There is no ground truth. A 'good' result "
           "means the returned top record matched the input search terms by the rule above. Use the "
