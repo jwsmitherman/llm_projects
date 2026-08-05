@@ -30,19 +30,15 @@ from datetime import date
 # ------------------------- CONFIG -------------------------------------------
 ENDPOINT   = "https://opensearch-identity-prod.pcis.uscis.dhs.gov/iis-identity-api-alias/_search"
 AUTH_TOKEN = "PASTE_BASE64_TOKEN_HERE"
-# Query versions to compare, label -> template file. These are Arvin's actual tuning versions
-# (from the Aug 4 performance meeting); drop v6. Point each label at its template file:
+# Query versions to compare, label -> template file. Josh currently has the v7 template; use it.
+# When Arvin's tuning versions are shared as files, add them here to compare side by side:
 #   A = Chris's original (current default)          C = B with tiers 10 and 13 combined
 #   B = clauses removed for performance             D = C plus a name + high-DOB-boost tier (latest)
-# Notes from that meeting: B and C are checked into the codebase and can also be hit by changing the
-# client ID in the request payload; version D adds the high DOB boost because C returned too few
-# results; and max_expansions=10 on the fuzzy/prefix tier is what keeps the query under the max
-# clause count. Compare against "prod" (the legacy core search) using INCLUDE_PROD_BASELINE below.
+# (max_expansions=10 on the fuzzy/prefix tier is what keeps the query under the max clause count.)
+# Any template file that isn't found is skipped with a warning, so missing versions don't stop the run.
 VERSIONS = {
-    "A_current":  "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-template-A.txt",
-    "B_trimmed":  "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-template-B.txt",
-    "C_combined": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-template-C.txt",
-    "D_dob_boost":"/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-template-D.txt",
+    "v7": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-templatev7.txt",
+    # "D_dob_boost": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-template-D.txt",
 }
 INCLUDE_PROD_BASELINE = True    # score what production returned (from the log) as the "prod" column
 PROD_LOGS_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs"
@@ -195,9 +191,16 @@ def score_result(fields, res):
 if not CONFIGURED:
     print("Set AUTH_TOKEN and the VERSIONS templates in CONFIG, then re-run.")
 else:
-    templates={lbl:open(fp).read() for lbl,fp in VERSIONS.items()}
+    templates={}
+    for lbl,fp in VERSIONS.items():
+        try:
+            templates[lbl]=open(fp).read()
+        except FileNotFoundError:
+            print(f"  skipping '{lbl}': template not found at {fp}")
+    if not templates:
+        raise FileNotFoundError("No template files found. Fix the paths in VERSIONS (Josh has search-templatev7.txt).")
     cases=load_cases(PROD_LOGS_DIR)
-    print(f"Loaded {len(cases)} searches. Scoring each version's top result against the input terms...\n")
+    print(f"Loaded {len(cases)} searches. Scoring {list(templates)} against the input terms...\n")
 
     rows=[]
     for c in cases:
