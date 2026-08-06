@@ -142,23 +142,42 @@ def _strip(n):
         for i,v in enumerate(n):
             if isinstance(v,str): n[i]=PH.sub("",v)
             elif isinstance(v,(dict,list)): _strip(v)
-def render(template_text, fields):
+def render(template_text, fields, size=1):
     p={k:("" if v is None else str(v)) for k,v in fields.items()}
     s=PH.sub(lambda m:(p[m.group(1)] if p.get(m.group(1)) else m.group(0)), template_text)
     s=re.sub(r'"size"\s*:\s*"(\d+)"', r'"size": \1', s)
     if s.lstrip()[:1]!="{": s="{"+s+"}"
     s=re.sub(r",(\s*[}\]])", r"\1", s)
-    q=json.loads(s); _prune(q); _strip(q); q["size"]=1; return q     # only the top result is scored
+    q=json.loads(s); _prune(q); _strip(q); q["size"]=size; q["track_total_hits"]=True; return q
+
+def _has_real_clauses(node):
+    """True only if the rendered query still has actual matching clauses. After pruning, a search the
+    template can't build (e.g. receipt-only when the template has no receipt clause) has NONE left -
+    sending it would match everything and return the same arbitrary top doc for every input (the bug
+    Paul flagged on the CRIS/UIPATH/GLOBAL rows). Detect that and skip instead of scoring garbage."""
+    if isinstance(node,dict):
+        if "bool" in node and isinstance(node["bool"],dict):
+            b=node["bool"]
+            if any(isinstance(b.get(k),list) and b[k] for k in ("must","should","filter")): return True
+        if any(k in node for k in ("match","term","match_phrase","multi_match","prefix","fuzzy","range")): return True
+        return any(_has_real_clauses(v) for v in node.values())
+    if isinstance(node,list): return any(_has_real_clauses(v) for v in node)
+    return False
+
 def top_result(template_text, fields):
     body=render(template_text, fields)
-    if "query" not in body or not body["query"]: return None
+    q=body.get("query",{})
+    if not q or not _has_real_clauses(q):
+        return {"unsupported":True}          # template cannot build a search from this input -> not scored
     r=requests.post(ENDPOINT, headers=HEADERS, json=body, verify=VERIFY_TLS, timeout=120)
     if r.status_code>=400: return None
-    hits=r.json().get("hits",{}).get("hits",[])
-    if not hits: return {"id":"","first":"","middle":"","last":"","dob":""}
+    j=r.json(); hits=j.get("hits",{}).get("hits",[])
+    total=(j.get("hits",{}).get("total",{}) or {}).get("value")
+    if not hits: return {"id":"","first":"","middle":"","last":"","dob":"","total_hits":total or 0}
     src=hits[0].get("_source",{}); nm=(src.get("biographicInfo",{}) or {}).get("name",{}) or {}
     return {"id":str(src.get(ID_FIELD,"")),"first":nm.get("first",""),"middle":nm.get("middle",""),
-            "last":nm.get("last",""),"dob":str(src.get("_search",{}).get("dateOfBirth","") if isinstance(src.get("_search"),dict) else src.get("dateOfBirth",""))}
+            "last":nm.get("last",""),"total_hits":total,
+            "dob":str(src.get("_search",{}).get("dateOfBirth","") if isinstance(src.get("_search"),dict) else src.get("dateOfBirth",""))}
 
 def _tok_match(in_val, res_tokens, thr=NAME_THRESHOLD):
     """Did this input term (e.g. first name) fuzzily appear in the returned name tokens?"""
@@ -169,9 +188,13 @@ def _tok_match(in_val, res_tokens, thr=NAME_THRESHOLD):
 def score_result(fields, res):
     """Score one returned top result against the INPUT search terms (the shared yardstick),
        and record which specific terms (first, last, DOB) matched — the 'compare matched terms' ask."""
+    if isinstance(res, dict) and res.get("unsupported"):
+        return {"name_score":None,"name_match":None,"dob_status":"n/a","good":None,
+                "returned_name":"(template cannot build this search)","supported":False,
+                "first_matched":None,"last_matched":None,"matched_terms":"","total_hits":None}
     if not res:
         return {"name_score":None,"name_match":None,"dob_status":"no result","good":False,"returned_name":"",
-                "first_matched":None,"last_matched":None,"matched_terms":""}
+                "supported":True,"first_matched":None,"last_matched":None,"matched_terms":"","total_hits":None}
     rtok=[t for t in (str(res.get("first")).split()+str(res.get("middle")).split()+str(res.get("last")).split()) if t]
     ns,ng=name_match(fields["FIRSTNAME"],fields["MIDDLENAME"],fields["LASTNAME"],
                      res.get("first"),res.get("middle"),res.get("last"))
@@ -183,7 +206,8 @@ def score_result(fields, res):
     if first_ok: matched.append("first")
     if last_ok:  matched.append("last")
     if ds in ("exact","digit-flip"): matched.append("dob")
-    return {"name_score":ns,"name_match":ng,"dob_status":ds,"good":is_good(ng,ds),
+    return {"name_score":ns,"name_match":ng,"dob_status":ds,"good":is_good(ng,ds),"supported":True,
+            "total_hits":res.get("total_hits"),
             "returned_name":" ".join(x for x in [res.get("first"),res.get("middle"),res.get("last")] if x),
             "first_matched":first_ok,"last_matched":last_ok,"matched_terms":", ".join(matched)}
 
@@ -225,20 +249,30 @@ else:
             except Exception: res=None
             sc=score_result(f, res)
             row.update({f"{lbl}_returned":sc["returned_name"],f"{lbl}_matched_terms":sc["matched_terms"],
-                        f"{lbl}_name_score":sc["name_score"],f"{lbl}_dob":sc["dob_status"],f"{lbl}_good":sc["good"]})
+                        f"{lbl}_name_score":sc["name_score"],f"{lbl}_dob":sc["dob_status"],
+                        f"{lbl}_total_hits":sc.get("total_hits"),f"{lbl}_supported":sc.get("supported"),
+                        f"{lbl}_good":sc["good"]})
         rows.append(row)
     detail=pd.DataFrame(rows)
 
-    # summary: "good match to input" rate per version, by consumer + overall (NOT accuracy)
+    # summary: "good match to input" rate per version, by consumer + overall (a VERSION COMPARISON,
+    # NOT accuracy). Searches the template cannot build (receipt-only, etc.) are counted separately
+    # and EXCLUDED from the rate, so they no longer skew the numbers (the CRIS/UIPATH/GLOBAL issue).
     good_cols=[c for c in detail.columns if c.endswith("_good")]
+    sup_cols={gc: gc.replace("_good","_supported") for gc in good_cols}
     summ=[]
     for grp,sub in list(detail.groupby("consumer"))+[("OVERALL",detail)]:
         r={"consumer":grp,"searches":len(sub)}
         for gc in good_cols:
-            r[gc.replace("_good","_good_pct")]=round(100*sub[gc].mean(),1) if len(sub) else None
+            lbl=gc.replace("_good","")
+            supc=sup_cols[gc]
+            supported = sub[sub[supc]==True] if supc in sub else sub
+            r[f"{lbl}_supported"]=len(supported)
+            r[f"{lbl}_not_supported"]=int((sub[supc]==False).sum()) if supc in sub else 0
+            r[f"{lbl}_good_pct"]=round(100*supported[gc].mean(),1) if len(supported) else None
         summ.append(r)
     summary=pd.DataFrame(summ)
-    print("GOOD-MATCH-TO-INPUT rate by version (rule-based yardstick; NOT accuracy, NO ground truth)")
+    print("GOOD-MATCH rate by version — over SEARCHES THE TEMPLATE CAN BUILD (version comparison, not accuracy)")
     display(summary)
 
     # where versions DIFFER on the good/not-good call (the useful signal, per the meeting)
@@ -272,9 +306,16 @@ else:
         "This replays the same search terms against each query version (e.g. v7) and checks whether the person",
         "it returns MATCHES THE INPUT terms, using one shared rule. It then compares the versions.",
         "",
-        "IMPORTANT: this is a COMPARISON, not an accuracy score. There is no source of truth - production is",
-        "known to be wrong in some cases - so a 'good' result only means the returned person matched what was",
-        "typed in (name + date of birth) by the rule below, not that it is the objectively correct person.",
+        "IMPORTANT: this is a VERSION COMPARISON, not an accuracy score. There is no source of truth -",
+        "production is known to be wrong in some cases - so a 'good' result only means the returned person",
+        "matched what was typed in (name + date of birth) by the rule below. The point is to check that a",
+        "tuned version does NOT degrade results versus the current one, not to certify an absolute accuracy.",
+        "",
+        "SEARCHES THE TEMPLATE CANNOT BUILD (why earlier numbers were skewed)",
+        "Receipt-only and some ID-only searches have no clause the current template can build. Those are now",
+        "marked '(template cannot build this search)', shown as not_supported, and EXCLUDED from the good-match",
+        "rate - previously they were sent as a match-everything query and returned the SAME arbitrary person",
+        "for every input (the repeated name on the CRIS / UIPATH / GLOBAL rows), which dragged the numbers down.",
         "",
         "THE RULE FOR A 'GOOD' MATCH",
         "- Name: every input name token appears (fuzzily) in the returned name (handles 2-part surnames).",
