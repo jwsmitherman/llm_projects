@@ -5,7 +5,7 @@
 
 # - Two scoring axes, not one label: a **mobility** axis (why other transport is
 #   contraindicated) and a **monitoring** axis (why this level of service).
-# - A **two-bucket** determination - clearly necessary / clearly not necessary - with an
+# - A factual necessity label - necessary / not_necessary - against CMS criteria, with an
 #   explicit **indeterminate** middle to be refined over time.
 # - **Weighted concepts** and a **confidence** score, both driven from one config block.
 # - No payment-focused terminology in any output column.
@@ -142,8 +142,8 @@ CONCEPTS = [
 ]
 
 # Thresholds - tune here. A single named, weight-3 concept (score 3) is a clear reason.
-MOBILITY_CLEAR    = 3   # mobility score at/above this = clearly necessary on the mobility axis
-MONITORING_CLEAR  = 3   # monitoring score at/above this = clearly necessary on the monitoring axis
+MOBILITY_CLEAR    = 3   # mobility score at/above this meets the necessity threshold
+MONITORING_CLEAR  = 3   # monitoring score at/above this meets the necessity threshold
 INDETERMINATE_MIN = 1   # any Group A signal below the clear thresholds = indeterminate
 
 # The three prongs of the bed-confined test. [BPM10] 10.2.3 requires ALL THREE to be met, and
@@ -184,39 +184,61 @@ if FREE_TEXT_COL is None:
         "FIELD_CANDIDATES['free_text']. Available columns: " + ", ".join(df.columns)
     )
 
-# Scope: non-emergent ground only. Rideshare, air, and emergent trips are excluded; they do not
-# carry the [BPM10] 10.2.1 non-emergency documentation requirement.
-
-# IMPORTANT: scope is defined by EXCLUSION, not by an exact-match whitelist. A whitelist silently
-# drops every row whose level-of-service string is spelled or coded differently than expected
-# (e.g. "BLS" vs "Basic life support"), which can collapse the dataset to a handful of rows.
-# Air / rideshare are removed by pattern; emergent is removed via a trip-type flag if present.
+# Scope: non-emergent GROUND AMBULANCE only. Exclusions are explicit and configurable below,
+# because the real level-of-service field uses short codes (BLS, ALS, WC, EMG, FWQUOTE, ...) that
+# a generic pattern does not reliably catch. The distinct-value print confirms them against data.
 
 raw_count = df.count()
 
-# Show what level-of-service values actually exist, so the scope can be verified, not assumed.
+# Show what level-of-service values actually exist, so scope is verified rather than assumed.
 if LOS_COL is not None:
     print("Distinct " + LOS_COL + " values (top 40 by count):")
     df.groupBy(LOS_COL).count().orderBy(F.desc("count")).show(40, truncate=False)
 
-# Remove non-ground levels of service by pattern (keeps BLS/ALS/CCT/Team/wheelchair/ambulatory
-# regardless of exact spelling). Extend the pattern if the real data uses other labels.
+# --- Exclusion 1: air / non-ground. Not subject to the ground ambulance necessity test. ---
+NON_GROUND_LOS = ["FWQUOTE", "ORGAN"]          # fixed-wing quote, organ transport
 NON_GROUND_PATTERN = r"air|fixed ?wing|rotor|helicopter|flight|rideshare|uber|lyft|livery|taxi"
-if LOS_COL is not None:
-    df = df.filter(~F.lower(F.coalesce(F.col(LOS_COL), F.lit(""))).rlike(NON_GROUND_PATTERN))
-else:
-    print("WARNING: no level-of-service column resolved - non-ground exclusion NOT applied.")
 
-# Remove emergent trips via a trip-type / priority flag if one is present.
-EMERGENT_PATTERN = r"emergen|911|lights|code ?3|stat"
+# --- Exclusion 2: emergent. Outside the NON-emergent scope ([BPM10] 10.2.1). ---
+# Catches standalone EMG and the -EMG suffix (ALS-EMG, CCT-EMG), plus spelled-out emergent.
+EMERGENT_LOS_PATTERN = r"(^|[-_ ])emg($|[-_ ])|emergen"
+
+# --- Exclusion 3: non-ambulance ground. A wheelchair van or ambulatory transport is the cheaper
+# alternative, so ambulance necessity concepts do not apply and produce all-indeterminate noise.
+# Excluded by default. Set INCLUDE_NON_AMBULANCE = True to keep them in scope. ---
+NON_AMBULANCE_LOS = ["WC", "AMBLTY"]           # wheelchair van, ambulatory
+INCLUDE_NON_AMBULANCE = False
+
+# --- Unidentified codes: kept in scope and flagged. Identify with the business before treating
+# the headline as final - e.g. ST (large, all-indeterminate) and CC_CF_C5. ---
+REVIEW_LOS = ["ST", "CC_CF_C5"]
+
+if LOS_COL is not None:
+    los_l = F.lower(F.coalesce(F.col(LOS_COL), F.lit("")))
+    exclude_exact = [c.lower() for c in NON_GROUND_LOS]
+    if not INCLUDE_NON_AMBULANCE:
+        exclude_exact += [c.lower() for c in NON_AMBULANCE_LOS]
+    df = df.filter(~los_l.isin(exclude_exact))
+    df = df.filter(~los_l.rlike(NON_GROUND_PATTERN))
+    df = df.filter(~los_l.rlike(EMERGENT_LOS_PATTERN))
+    # Flag any review codes still present, so they are not silently trusted.
+    present_review = [c for c in REVIEW_LOS
+                      if df.filter(los_l == c.lower()).limit(1).count() > 0]
+    if present_review:
+        print("REVIEW: unidentified level-of-service codes still in scope - "
+              "identify before finalising: " + ", ".join(present_review))
+else:
+    print("WARNING: no level-of-service column resolved - scope exclusions NOT applied.")
+
+# Also remove emergent trips via a trip-type / priority flag if one is present.
+EMERGENT_PATTERN = r"emergen|911|lights|code ?3"
 for trip_type_col in ("TripType", "trip_type", "TransportType", "Priority", "CallType"):
     if trip_type_col in df.columns:
         df = df.filter(~F.lower(F.coalesce(F.col(trip_type_col), F.lit(""))).rlike(EMERGENT_PATTERN))
         print(f"Applied emergent exclusion on column: {trip_type_col}")
         break
 else:
-    print("NOTE: no trip-type column found for emergent exclusion - verify emergent trips are "
-          "not in this table, or add the column to the loop above.")
+    print("NOTE: no trip-type column found - emergent exclusion relies on the LOS codes above.")
 
 df = df.withColumn("_text", F.lower(F.coalesce(F.col(FREE_TEXT_COL), F.lit(""))))
 df = df.withColumn("_has_text", F.length(F.trim(F.col("_text"))) > 0)
@@ -226,12 +248,13 @@ has_text_count = df.filter(F.col("_has_text")).count()
 print(f"\nRaw rows:            {raw_count:,}")
 print(f"In scope:            {scope_count:,}  ({scope_count/raw_count*100:.1f}% of raw)")
 print(f"  with free text:    {has_text_count:,}  ({has_text_count/max(scope_count,1)*100:.1f}% of scope)")
+print("Excluded: air/non-ground (" + ", ".join(NON_GROUND_LOS) + " + patterns), emergent (EMG), "
+      + ("non-ambulance (" + ", ".join(NON_AMBULANCE_LOS) + ")" if not INCLUDE_NON_AMBULANCE else "non-ambulance KEPT"))
 
-# Guardrails - catch the failure mode that produced the TEAM-only, all-zero result.
+# Guardrail - catch a scope that collapses to too few rows.
 if scope_count < 0.2 * raw_count:
     print("\nWARNING: scope kept under 20% of rows. Check the distinct level-of-service values "
-          "above - the exclusion pattern may be dropping valid ground rows, or the wrong column "
-          "resolved. Do not use these results until the scope looks right.")
+          "above - an exclusion may be dropping valid ground rows, or the wrong column resolved.")
 if has_text_count < 0.5 * max(scope_count, 1):
     print("\nWARNING: over half of in-scope orders have no free text. Confirm FREE_TEXT_COL "
           "resolved to the real reason-for-transport field (see the 'Resolved columns' output).")
@@ -264,7 +287,7 @@ df = df.withColumn("mobility_score",   axis_score("mobility"))
 df = df.withColumn("monitoring_score", axis_score("monitoring"))
 
 # named vs inferred / filler counts, for confidence and the clear threshold.
-# named = concept explicit in CMS text; only named concepts can reach clearly_necessary alone.
+# named = concept explicit in CMS text; only named concepts meet the necessity threshold alone.
 named_a = [n for n, a, w, g, b, *_ in CONCEPTS if g == "A" and b == "named"]
 df = df.withColumn("named_a_hits", sum([F.col(f"c_{n}").cast("int") for n in named_a]))
 df = df.withColumn("has_named_a", F.col("named_a_hits") > 0)
@@ -279,21 +302,21 @@ df = df.withColumn("bed_confined_full", prong_expr)  # cite: [BPM10] 10.2.3
 filler_cols = [f"c_{n}" for n, a, *_ in CONCEPTS if a == "filler"]
 df = df.withColumn("any_filler", sum([F.col(c).cast("int") for c in filler_cols]) > 0)
 
-# necessity_class: clearly_necessary / clearly_not_necessary / indeterminate.
-# clearly_necessary requires the full [BPM10] 10.2.3 test, OR a named CMS concept at the clear
-#   threshold - inferred concepts alone cannot reach it.
-# clearly_not_necessary maps to [RSN] AM600 territory: no documented reason other transport
-#   was contraindicated (empty, or filler only).
+# necessity_class: a factual label for the order text against CMS criteria.
+#   necessary     = a named CMS concept meets the clear threshold, or the full 10.2.3 test is met.
+#   not_necessary = no Group A concept present (field empty, or filler only).
+#   indeterminate = a signal below the threshold, or text that matched no term.
+# This labels the documentation, not the trip.
 df = df.withColumn(
     "necessity_class",
     F.when(
         F.col("bed_confined_full") |
         (F.col("has_named_a") &
          ((F.col("mobility_score") >= MOBILITY_CLEAR) | (F.col("monitoring_score") >= MONITORING_CLEAR))),
-        F.lit("clearly_necessary"),          # cite: [BPM10] 10.2.3 / 10.2.1 ; [414.605]
+        F.lit("necessary"),          # cite: [BPM10] 10.2.3 / 10.2.1 ; [414.605]
     ).when(
         ~F.col("any_a") & (~F.col("_has_text") | F.col("any_filler")),
-        F.lit("clearly_not_necessary"),      # cite: [RSN] AM600 ; [MLN]
+        F.lit("not_necessary"),      # cite: [RSN] AM600 ; [MLN]
     ).otherwise(F.lit("indeterminate")),
 )
 
@@ -340,6 +363,34 @@ df = df.withColumn(
     F.col("mobility_score") + F.col("monitoring_score")
     + F.when(F.col("bed_confined_full"), F.lit(BED_CONFINED_BONUS)).otherwise(F.lit(0)),
 )
+
+# gy_disposition: relates the necessity label to the GY-modifier process the review teams use.
+# Per the 4 Aug review-process meeting: billing may mark a non-emergency Medicare trip with a GY
+# modifier ("transport provided, payment not requested"). not_necessary = no documented reason
+# recorded (a GY candidate); necessary = a documented reason is present; indeterminate = a partial
+# or unread signal. This describes the order text at order time, not a billing determination.
+df = df.withColumn(
+    "gy_disposition",
+    F.when(F.col("necessity_class") == "not_necessary", F.lit("no documented reason - GY candidate"))
+     .when(F.col("necessity_class") == "necessary", F.lit("documented reason present"))
+     .otherwise(F.lit("partial - review")),
+)
+
+# classification_method: how the labels were assigned. Keyword/term matching today; the
+# text_unmatched orders are the set a language model would categorise in a later pass.
+df = df.withColumn("classification_method", F.lit("keyword_match"))
+
+# why_labeled: for each order, the concepts that matched and the exact text that triggered each -
+# e.g. "mobility_deficit[unable to ambulate]; oxygen[o2]". This is the reviewer's view of HOW an
+# order was labeled: the actual words behind each concept. Empty when nothing matched (the
+# text_unmatched case), which is itself the signal that the rules found nothing to go on.
+_match_exprs = []
+for _n, _a, _w, _g, _b, _ref, _url, _pat in CONCEPTS:
+    _m = F.regexp_extract(F.col("_text"), _pat, 0)
+    _match_exprs.append(
+        F.when(F.col(f"c_{_n}"), F.concat(F.lit(_n + "["), _m, F.lit("]"))).otherwise(F.lit(None))
+    )
+df = df.withColumn("why_labeled", F.concat_ws("; ", F.array(*_match_exprs)))
 
 # 6. Summary outputs (display only - nothing is written)
 
@@ -390,7 +441,7 @@ else:
 _example_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
     "mobility_score", "monitoring_score", "confidence", "indeterminate_reason", FREE_TEXT_COL
 ]
-for cls in ["clearly_necessary", "indeterminate", "clearly_not_necessary"]:
+for cls in ["necessary", "indeterminate", "not_necessary"]:
     print("=" * 70)
     print(cls.upper())
     display(
@@ -442,7 +493,7 @@ concept_sums = df.agg(
 ).collect()[0].asDict()
 concept_pdf = pd.DataFrame([
     {"concept": n, "group": g, "axis": a, "weight": w, "basis": b,
-     "cms_ref": ref, "source_url": url,
+     "cms_ref": ref, "source_url": url, "match_terms": pat,
      "tags": int(concept_sums[n] or 0),
      "pct_of_orders": round((concept_sums[n] or 0) / total * 100, 1)}
     for (n, a, w, g, b, ref, url, pat) in CONCEPTS
@@ -468,6 +519,29 @@ if LOS_COL is not None:
           .orderBy(F.desc("orders")).toPandas()
     ))
 
+# --- Detail tab: row-level trace. Original order data -> every concept label -> scores ->
+# necessity class -> GY disposition, so a reviewer can walk a single order end to end.
+# The xlsx tab holds a stratified sample (DETAIL_SAMPLE_N per class) to stay openable; set
+# WRITE_FULL_DETAIL_CSV to also write every scored order to a CSV beside the workbook. ---
+DETAIL_SAMPLE_N = 150
+WRITE_FULL_DETAIL_CSV = True
+
+concept_names = [n for n, *_ in CONCEPTS]
+context_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
+# concept hit columns, cast to 1/0 and named by the concept (the "labels")
+label_cols = [F.col(f"c_{n}").cast("int").alias(n) for n in concept_names]
+derived_cols = ["mobility_score", "monitoring_score", "total_necessity_score",
+                "bed_confined_full", "named_a_hits", "necessity_class",
+                "indeterminate_reason", "confidence", "recommended_los",
+                "gy_disposition", "why_labeled", "classification_method"]
+detail_select = ([F.col(c) for c in context_cols] + label_cols
+                 + [F.col(c) for c in derived_cols] + [F.col(FREE_TEXT_COL)])
+
+detail_pdf = pd.concat([
+    df.filter(F.col("necessity_class") == cls).select(*detail_select).limit(DETAIL_SAMPLE_N).toPandas()
+    for cls in ["necessary", "indeterminate", "not_necessary"]
+], ignore_index=True)
+
 # --- Examples tab: sampled free-text per class ---
 ex_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
     "necessity_class", "total_necessity_score", "mobility_score", "monitoring_score",
@@ -475,13 +549,13 @@ ex_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
 ]
 examples_pdf = pd.concat([
     df.filter(F.col("necessity_class") == cls).select(*ex_cols).limit(20).toPandas()
-    for cls in ["clearly_necessary", "indeterminate", "clearly_not_necessary"]
+    for cls in ["necessary", "indeterminate", "not_necessary"]
 ], ignore_index=True)
 
 # --- Definitions tab: embedded so the workbook is self-explaining ---
 definitions_pdf = pd.DataFrame([
-    ["necessity_class = clearly_necessary", "Full bed-confined test met, or a named CMS concept at the clear weight threshold.", "BPM10 10.2.3 / 10.2.1; 414.605"],
-    ["necessity_class = clearly_not_necessary", "No Group A concept present - field empty or vague filler only.", "RSN AM600; MLN"],
+    ["necessity_class = necessary", "A named CMS concept meets the clear threshold, or the full 10.2.3 test is met in the order text.", "BPM10 10.2.3 / 10.2.1; 414.605"],
+    ["necessity_class = not_necessary", "No Group A concept in the order text - field empty, or filler only.", "RSN AM600; MLN"],
     ["necessity_class = indeterminate", "Some signal but below the clear threshold, or text present that matched no term.", "BPM10 10.2.1"],
     ["indeterminate_reason = text_unmatched", "Text entered but no term matched - the target for language-model classification.", "BPM10 10.2.1"],
     ["indeterminate_reason = weak_or_inferred_only", "Only inferred or low-weight concepts present.", "BPM10 10.2.1"],
@@ -490,9 +564,16 @@ definitions_pdf = pd.DataFrame([
     ["total_necessity_score", "mobility_score + monitoring_score + bed-confined bonus. See the Scoring tab.", "composite (provisional)"],
     ["confidence", "Internal quality flag on the classification (high / medium / low). Not a CMS construct.", "n/a"],
     ["recommended_los", "Level of service implied by the monitoring axis. Descriptive, not a billing call.", "414.605; 410.40(c)"],
+    ["gy_disposition", "Relates the label to the GY process: not_necessary = no documented reason (GY candidate); necessary = documented reason present; indeterminate = partial, review.", "review-process 4 Aug"],
+    ["GY modifier", "Billing marks a non-medically-necessary Medicare trip GY: transport provided, payment not requested. Enables billing the facility/patient and building a record.", "review-process 4 Aug"],
+    ["PCS", "Physician Certification Statement - the order-time certification. This analysis reads the order-time (PCS-side) free text.", "410.40(d); review-process"],
+    ["PCR", "Patient Care Report - the crew's documentation in ImageTrend. A separate source, NOT in this table. Billing requires the PCR to support the PCS.", "review-process 4 Aug"],
+    ["Routing", "Non-emergency Medicare trips go to Hemlata Khatri's team (under Jen); Medicaid, commercial and self-pay go to Integra. Coding, with medical-necessity confirmation, is the first step for both.", "review-process 4 Aug"],
+    ["classification_method", "How labels were assigned: keyword_match today. text_unmatched orders are the set a language model would categorise next.", "n/a"],
     ["Group A vs Group B", "A = a clinical reason (12 concepts). B = vague filler that confers no necessity (3).", "BPM10 10.2.1; MLN"],
     ["named vs inferred", "named = explicit in CMS text. inferred = derived from the 10.2.1 general test.", "BPM10 10.2.1"],
-    ["Scope", f"Non-emergent ground only. {total:,} orders in scope, 2024 to present.", "BPM10 10.2.1"],
+    ["Limitation", "Necessity here reflects ORDER-TIME documentation only. The final billing determination also depends on the crew PCR supporting the PCS, which is not in this dataset.", "review-process 4 Aug"],
+    ["Scope", f"Non-emergent ground ambulance only. {total:,} orders in scope, 2024 to present. Wheelchair, ambulatory, air and emergent codes excluded.", "BPM10 10.2.1"],
 ], columns=["term", "definition", "cms_ref"])
 
 # --- Scoring tab: weight table, aggregation formula, and score distribution ---
@@ -532,7 +613,9 @@ sheets = {
                     ("Aggregation formula", formula_pdf),
                     ("Total score distribution", total_dist_pdf),
                     ("Total score by necessity class", score_by_class_pdf)],
-    "Concepts":    [("Concept dictionary with CMS citations", concept_pdf)],
+    "Concepts":    [("Concept dictionary - terms, weights, CMS basis", concept_pdf)],
+    "Detail":      [(f"Row-level trace: order -> labels -> class -> GY disposition "
+                     f"(sample of {DETAIL_SAMPLE_N} per class)", detail_pdf)],
     "Where":       where_blocks or [("No customer/LOS column resolved", pd.DataFrame({"note": ["set FIELD_CANDIDATES"]}))],
     "Examples":    [("Sampled order text per class", examples_pdf)],
 }
@@ -583,6 +666,111 @@ else:
         print("Wrote local copy:", local_path)
         print("Copy to", dest, "failed - set OUTPUT_DIR to a writable path.")
         print("Reason:", e)
+
+# Full row-level detail as CSV beside the workbook (every scored order, not just the sample).
+if WRITE_FULL_DETAIL_CSV:
+    csv_name = OUTPUT_XLSX.replace(".xlsx", "_detail.csv")
+    full_detail = df.select(*detail_select)
+    if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
+        csv_dest = f"{OUTPUT_DIR.rstrip('/')}/{csv_name}"
+        full_detail.toPandas().to_csv(csv_dest, index=False)
+        print("Saved full detail CSV to:", csv_dest)
+    else:
+        local_csv = f"/tmp/{csv_name}"
+        full_detail.toPandas().to_csv(local_csv, index=False)
+        try:
+            dbutils.fs.cp(f"file:{local_csv}", f"{OUTPUT_DIR.rstrip('/')}/{csv_name}")
+            print("Saved full detail CSV to:", f"{OUTPUT_DIR.rstrip('/')}/{csv_name}")
+        except Exception as e:
+            print("Wrote local detail CSV:", local_csv, "| copy failed:", e)
+
+# 9. Review workbook - for walking through actual orders and how each was labeled
+
+# A separate, scrollable workbook aimed at the business review, not analysis. Each tab is a
+# curated view: the free text is shown first, then the class, the GY disposition, and why_labeled
+# (the exact words that triggered each concept). Header rows are frozen so labels stay visible
+# while scrolling. Built with pandas for speed on the large tabs.
+
+from openpyxl.utils import get_column_letter
+
+BUILD_REVIEW_WORKBOOK = True
+REVIEW_XLSX = "med_nec_review.xlsx"
+MAX_REVIEW_ROWS = 200000   # safety cap for the "All with text" tab
+
+if BUILD_REVIEW_WORKBOOK:
+    review_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None] + [
+        FREE_TEXT_COL, "necessity_class", "gy_disposition", "why_labeled",
+        "total_necessity_score", "mobility_score", "monitoring_score",
+        "confidence", "indeterminate_reason", "recommended_los",
+    ]
+
+    def review_frame(spark_df, limit=None):
+        d = spark_df.select(*review_cols)
+        if limit:
+            d = d.limit(limit)
+        return d.toPandas()
+
+    with_text = df.filter(F.col("_has_text"))
+    # Borderline: orders near the necessary/not-necessary boundary - the cases worth scrutiny.
+    #   single-concept clears, indeterminate orders with a real signal, and reason-plus-filler.
+    borderline = df.filter(
+        ((F.col("necessity_class") == "necessary") & (F.col("named_a_hits") == 1) & ~F.col("bed_confined_full"))
+        | ((F.col("necessity_class") == "indeterminate") & (F.col("total_necessity_score") >= 2))
+        | (F.col("any_a") & F.col("any_filler"))
+    )
+
+    guide_pdf = pd.DataFrame([
+        ["Purpose", "Walk through actual orders and see how each was labeled for medical necessity."],
+        ["free text (ClinicalData)", "The reason-for-transport text entered at order time. Read this first."],
+        ["necessity_class", "Label for the order text: necessary / indeterminate / not_necessary."],
+        ["gy_disposition", "GY process relation: no documented reason (GY candidate) / documented reason present / partial, review."],
+        ["why_labeled", "The concepts that matched and the exact words that triggered each. Empty = the rules found nothing (text_unmatched)."],
+        ["total_necessity_score", "Weighted score. Higher = stronger documented necessity. See the Scoring tab of the summary workbook."],
+        ["Tab: All with text", "Every order that has free text."],
+        ["Tab: Not necessary", "Orders labeled not_necessary - no documented reason in the order text."],
+        ["Tab: Rules missed", "text_unmatched - text present that no keyword rule read. The language-model candidates."],
+        ["Tab: Borderline", "Orders near the decision boundary - single-concept clears, near-miss indeterminates, reason-plus-filler."],
+        ["Limitation", "Reflects ORDER-TIME documentation only. Final billing also depends on the crew PCR supporting the PCS, which is not in this data."],
+    ], columns=["item", "meaning"])
+
+    review_tabs = {
+        "How to read": guide_pdf,
+        "All with text": review_frame(with_text, MAX_REVIEW_ROWS),
+        "Not necessary": review_frame(df.filter(F.col("necessity_class") == "not_necessary")),
+        "Rules missed": review_frame(df.filter(F.col("indeterminate_reason") == "text_unmatched")),
+        "Borderline": review_frame(borderline),
+    }
+
+    def build_review(path, tabs):
+        with pd.ExcelWriter(path, engine="openpyxl") as xw:
+            for name, pdf in tabs.items():
+                sheet = name[:31]
+                pdf.to_excel(xw, sheet_name=sheet, index=False)
+                ws = xw.sheets[sheet]
+                for cell in ws[1]:
+                    cell.font = Font(bold=True)
+                ws.freeze_panes = "A2"
+                for i, col in enumerate(pdf.columns, 1):
+                    L = get_column_letter(i)
+                    if col in (FREE_TEXT_COL, "why_labeled"):
+                        ws.column_dimensions[L].width = 60
+                    else:
+                        ws.column_dimensions[L].width = min(26, max(len(str(col)) + 2, 10))
+
+    review_dest = f"{OUTPUT_DIR.rstrip('/')}/{REVIEW_XLSX}"
+    if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
+        build_review(review_dest, review_tabs)
+        print("Saved review workbook to:", review_dest)
+        for nm, pdf in review_tabs.items():
+            print(f"  {nm}: {len(pdf):,} rows")
+    else:
+        local_review = f"/tmp/{REVIEW_XLSX}"
+        build_review(local_review, review_tabs)
+        try:
+            dbutils.fs.cp(f"file:{local_review}", review_dest)
+            print("Saved review workbook to:", review_dest)
+        except Exception as e:
+            print("Wrote local review workbook:", local_review, "| copy failed:", e)
 
 # Notes / open items
 
