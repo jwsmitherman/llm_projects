@@ -1,0 +1,6 @@
+Fix DOB matching first. This is the biggest gap — v7 uses a ±6-month range while consumers match on exact digits, so v7 returns the right name but the wrong birthdate and fails. Add a high-boost tier for exact-and-near-exact DOB (including single-digit "fat-finger" flips), which is what Arvin's version D targets.
+Make exact ID matches win. When an A-number or receipt is supplied, boost that exact match so the matching record is forced to the top — this addresses the cases where v7 returned a different person than the one tied to the ID.
+Add receipt-number search. v7 can't search by receipt at all, so a whole consumer (UIPATH) and many CRIS searches return nothing usable. Add a receipt clause.
+Ignore bad input. Placeholder A-numbers like A000000007 are being searched as if real. Drop or skip known-placeholder and malformed IDs so the query falls back to name plus DOB.
+Loosen the filter for recall. Keep the query broad enough that the right person reaches the top 10 instead of being filtered out, then let ranking sort them — the same recall problem Arvin's B and C versions were tuning.
+Keep the query under the max clause count. Hold max_expansions at 10 on the fuzzy/prefix tier so the tuning changes above don't push it back over the limit.
