@@ -459,8 +459,34 @@ for cls in ["necessary", "indeterminate", "not_necessary"]:
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font
+from datetime import datetime
+import re as _re
 
-OUTPUT_XLSX = "med_nec_buckets_v2.xlsx"
+# openpyxl rejects ASCII control characters (except tab/newline/carriage return) with
+# IllegalCharacterError. Real order text can contain them (stray glyphs from copy/paste, form
+# artifacts like the character before "L1 kyphoplasty"), so strip them from every string cell
+# before any Excel write. Applied to workbook builders and to the review/CSV frames.
+_ILLEGAL_XLSX = _re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+def _clean(v):
+    if isinstance(v, str):
+        return _ILLEGAL_XLSX.sub("", v)
+    return v
+
+def sanitize_df(pdf):
+    import pandas.api.types as _pt
+    pdf = pdf.copy()
+    for c in pdf.columns:
+        # Clean any column that is not purely numeric/bool (dtype may be 'object' or 'string').
+        if not (_pt.is_numeric_dtype(pdf[c]) or _pt.is_bool_dtype(pdf[c])):
+            pdf[c] = pdf[c].map(_clean)
+    return pdf
+
+# Run timestamp (YYYYMMDD_HHMMSS) appended to every output file so runs stay grouped and do not
+# overwrite each other. Set once here and reused for the workbook, detail CSV, and review workbook.
+RUN_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+OUTPUT_XLSX = f"med_nec_buckets_v2_{RUN_TS}.xlsx"
 # Destination directory. Workspace paths (/Workspace/...) are a real mounted filesystem, so the
 # workbook is written there directly with pandas/openpyxl - no dbutils.fs.cp needed.
 # For a Volume or DBFS destination instead, use e.g.:
@@ -623,7 +649,8 @@ sheets = {
 def _coerce(v):
     if pd.isna(v):
         return None
-    return v.item() if hasattr(v, "item") else v
+    v = v.item() if hasattr(v, "item") else v
+    return _clean(v)
 
 def build_workbook(path, sheets):
     wb = Workbook(); wb.remove(wb.active)
@@ -646,16 +673,19 @@ def build_workbook(path, sheets):
     wb.save(path)
 
 dest = f"{OUTPUT_DIR.rstrip('/')}/{OUTPUT_XLSX}"
+# Always build to a driver-local path first, then copy to the destination. Direct writes to
+# /Workspace and /Volumes FUSE paths are unreliable on serverless compute.
+local_path = f"/tmp/{OUTPUT_XLSX}"
+build_workbook(local_path, sheets)
+import os, shutil
 if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
-    # These are real mounted filesystem paths - write directly, no local hop or cp needed.
-    import os
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    build_workbook(dest, sheets)
+    try:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        shutil.copyfile(local_path, dest)
+    except Exception:
+        dbutils.fs.cp(f"file:{local_path}", dest)
     print("Saved workbook to:", dest)
 else:
-    # dbfs:/ or other fs-scheme paths - write locally, then copy with dbutils.
-    local_path = f"/tmp/{OUTPUT_XLSX}"
-    build_workbook(local_path, sheets)
     try:
         dbutils.fs.mkdirs(OUTPUT_DIR)
         dbutils.fs.cp(f"file:{local_path}", dest)
@@ -670,19 +700,17 @@ else:
 # Full row-level detail as CSV beside the workbook (every scored order, not just the sample).
 if WRITE_FULL_DETAIL_CSV:
     csv_name = OUTPUT_XLSX.replace(".xlsx", "_detail.csv")
-    full_detail = df.select(*detail_select)
-    if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
-        csv_dest = f"{OUTPUT_DIR.rstrip('/')}/{csv_name}"
-        full_detail.toPandas().to_csv(csv_dest, index=False)
+    csv_dest = f"{OUTPUT_DIR.rstrip('/')}/{csv_name}"
+    local_csv = f"/tmp/{csv_name}"
+    sanitize_df(df.select(*detail_select).toPandas()).to_csv(local_csv, index=False)
+    try:
+        if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
+            shutil.copyfile(local_csv, csv_dest)
+        else:
+            dbutils.fs.cp(f"file:{local_csv}", csv_dest)
         print("Saved full detail CSV to:", csv_dest)
-    else:
-        local_csv = f"/tmp/{csv_name}"
-        full_detail.toPandas().to_csv(local_csv, index=False)
-        try:
-            dbutils.fs.cp(f"file:{local_csv}", f"{OUTPUT_DIR.rstrip('/')}/{csv_name}")
-            print("Saved full detail CSV to:", f"{OUTPUT_DIR.rstrip('/')}/{csv_name}")
-        except Exception as e:
-            print("Wrote local detail CSV:", local_csv, "| copy failed:", e)
+    except Exception as e:
+        print("Wrote local detail CSV:", local_csv, "| copy failed:", e)
 
 # 9. Review workbook - for walking through actual orders and how each was labeled
 
@@ -694,7 +722,7 @@ if WRITE_FULL_DETAIL_CSV:
 from openpyxl.utils import get_column_letter
 
 BUILD_REVIEW_WORKBOOK = True
-REVIEW_XLSX = "med_nec_review.xlsx"
+REVIEW_XLSX = f"med_nec_review_{RUN_TS}.xlsx"
 MAX_REVIEW_ROWS = 200000   # safety cap for the "All with text" tab
 
 if BUILD_REVIEW_WORKBOOK:
@@ -742,9 +770,14 @@ if BUILD_REVIEW_WORKBOOK:
     }
 
     def build_review(path, tabs):
+        # Write to a driver-local path first, then the caller copies it to the destination.
+        # Direct pandas writes to /Workspace or /Volumes FUSE paths are unreliable on serverless.
         with pd.ExcelWriter(path, engine="openpyxl") as xw:
             for name, pdf in tabs.items():
-                sheet = name[:31]
+                sheet = (name[:31] or "Sheet")
+                if pdf is None or len(pdf) == 0:
+                    pdf = pd.DataFrame({"note": ["no rows for this view"]})
+                pdf = sanitize_df(pdf)
                 pdf.to_excel(xw, sheet_name=sheet, index=False)
                 ws = xw.sheets[sheet]
                 for cell in ws[1]:
@@ -758,14 +791,19 @@ if BUILD_REVIEW_WORKBOOK:
                         ws.column_dimensions[L].width = min(26, max(len(str(col)) + 2, 10))
 
     review_dest = f"{OUTPUT_DIR.rstrip('/')}/{REVIEW_XLSX}"
+    local_review = f"/tmp/{REVIEW_XLSX}"
+    build_review(local_review, review_tabs)
     if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
-        build_review(review_dest, review_tabs)
+        # Copy the finished file to the mounted destination (works on serverless).
+        import shutil
+        try:
+            shutil.copyfile(local_review, review_dest)
+        except Exception:
+            dbutils.fs.cp(f"file:{local_review}", review_dest)
         print("Saved review workbook to:", review_dest)
         for nm, pdf in review_tabs.items():
             print(f"  {nm}: {len(pdf):,} rows")
     else:
-        local_review = f"/tmp/{REVIEW_XLSX}"
-        build_review(local_review, review_tabs)
         try:
             dbutils.fs.cp(f"file:{local_review}", review_dest)
             print("Saved review workbook to:", review_dest)
