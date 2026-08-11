@@ -16,7 +16,7 @@
 # source they come from (BPM10, BPM10_10_2_3, CFR_414_605, RSN, MLN, ...). The notebook imports it
 # so citations live in one place. In Databricks, keep both files in the same Workspace folder with
 # Files enabled; if import is unavailable, run `%run ./cms_references` in a cell first.
-from cms_references import CMS_REFERENCES, ref_url
+from cms_references import ref_url
 
 # 0. Environment
 
@@ -502,6 +502,8 @@ mobility_pdf = pd.DataFrame([
 ]).sort_values("orders", ascending=False).reset_index(drop=True)
 
 
+# --- Where tab: by customer, by level of service, transport appropriateness ---
+where_blocks = []
 if CUSTOMER_COL is not None:
     where_blocks.append((
         "Necessity by customer",
