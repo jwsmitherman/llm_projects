@@ -12,20 +12,11 @@
 
 # Read-only throughout. No table writes.
 
-# CMS source documents (every field, concept, and term below cites one of these):
-#   [BPM10]  Medicare Benefit Policy Manual, Pub. 100-02, Ch. 10 - Ambulance Services
-#            https://www.cms.gov/Regulations-and-Guidance/Guidance/Manuals/Downloads/bp102c10.pdf
-#            - 10.2.1 general medical necessity test; 10.2.3 bed-confined three-prong test.
-#   [410.40] 42 CFR 410.40 - Coverage of ambulance services (levels of service, physician cert.)
-#            https://www.ecfr.gov/current/title-42/chapter-IV/subchapter-B/part-410/subpart-B/section-410.40
-#   [414.605] 42 CFR 414.605 - Definitions of BLS, ALS1, ALS2, SCT, ALS assessment/intervention
-#            https://www.ecfr.gov/current/title-42/chapter-IV/subchapter-B/part-414/subpart-H/section-414.605
-#   [CPM15]  Medicare Claims Processing Manual, Pub. 100-04, Ch. 15 - Ambulance (adjudication)
-#            https://www.cms.gov/Regulations-and-Guidance/Guidance/Manuals/Downloads/clm104c15ambulance.pdf
-#   [RSN]    CMS Ambulance Transport Reason Codes and Statements (denial codes, e.g. AM600)
-#            https://www.cms.gov/files/document/ambulance-transport-reason-codes-statements.pdf
-#   [MLN]    CMS MLN Ambulance Services - provider compliance tips (documentation guidance)
-#            https://www.cms.gov/training-education/medicare-learning-networkr-mln/compliance/medicare-provider-compliance-tips/ambulance-services
+# CMS source documents are defined in a separate module, cms_references.py, keyed by the CMS
+# source they come from (BPM10, BPM10_10_2_3, CFR_414_605, RSN, MLN, ...). The notebook imports it
+# so citations live in one place. In Databricks, keep both files in the same Workspace folder with
+# Files enabled; if import is unavailable, run `%run ./cms_references` in a cell first.
+from cms_references import CMS_REFERENCES, ref_url
 
 # 0. Environment
 
@@ -81,9 +72,10 @@ FIELD_CANDIDATES = {
 #   basis: "named"    = concept is explicit in the cited CMS text
 #          "inferred" = derived from the [BPM10] 10.2.1 general test, not separately named
 
-BPM10   = "https://www.cms.gov/Regulations-and-Guidance/Guidance/Manuals/Downloads/bp102c10.pdf"
-CFR414  = "https://www.ecfr.gov/current/title-42/chapter-IV/subchapter-B/part-414/subpart-H/section-414.605"
-MLN     = "https://www.cms.gov/training-education/medicare-learning-networkr-mln/compliance/medicare-provider-compliance-tips/ambulance-services"
+# Concept source URLs, resolved from the reference module (keyed by CMS source).
+BPM10   = ref_url("BPM10")
+CFR414  = ref_url("CFR_414_605")
+MLN     = ref_url("MLN")
 
 # fields: (concept, axis, weight, group, basis, cms_ref, source_url, term_pattern)
 CONCEPTS = [
@@ -796,6 +788,275 @@ if BUILD_REVIEW_WORKBOOK:
             print("Saved review workbook to:", review_dest)
         except Exception as e:
             print("Wrote local review workbook:", local_review, "| copy failed:", e)
+
+# 10. Genie table (optional) - persist the scored data as a curated table for AI/BI Genie
+
+# Genie queries a real table or view, so this is the one place the pipeline writes. It is OFF by
+# default to preserve the read-only default. Set WRITE_GENIE_TABLE = True and a target you can
+# write to. Writes only this derived output - it never touches the source table.
+
+WRITE_GENIE_TABLE = False
+GENIE_TABLE = "`prod-sandbox`.`vivekkumar_patel`.`med_nec_genie`"
+
+if WRITE_GENIE_TABLE:
+    concept_names_all = [n for n, *_ in CONCEPTS]
+    genie_cols = (
+        [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
+        + ["necessity_class", "gy_disposition", "total_score", "mobility_score",
+           "monitoring_score", "named_score", "has_named_concept", "unmatched_text",
+           "confidence", "recommended_los", "why_labeled", "classification_method"]
+        + [F.col(f"c_{n}").cast("int").alias(n) for n in concept_names_all]
+        + [F.col(FREE_TEXT_COL).alias("clinical_text")]
+    )
+    genie_df = df.select(*[F.col(c) if isinstance(c, str) else c for c in genie_cols])
+    genie_df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(GENIE_TABLE)
+    print("Wrote Genie table:", GENIE_TABLE, "-", genie_df.count(), "rows")
+
+    # Column comments - Genie relies on these to understand the data. Keep them factual.
+    col_comments = {
+        "necessity_class": "Label for the order text: necessary / not_necessary / indeterminate.",
+        "gy_disposition": "GY-process relation: not_necessary=no documented reason (GY candidate); necessary=documented reason present; indeterminate=partial.",
+        "total_score": "mobility_score + monitoring_score. 0=not_necessary; >=3 with a named concept=necessary; else indeterminate.",
+        "mobility_score": "Sum of matched mobility-axis concept weights (why other transport is contraindicated). BPM10 10.2.1/10.2.3.",
+        "monitoring_score": "Sum of matched monitoring-axis concept weights (why this level of service). 42 CFR 414.605.",
+        "named_score": "Points from named CMS concepts only. A named concept is required for necessary.",
+        "has_named_concept": "1 if any named CMS concept matched, else 0.",
+        "unmatched_text": "1 if text was entered but nothing scored (words no rule recognized). The language-model target set.",
+        "confidence": "Score-based quality flag: high / medium / low.",
+        "recommended_los": "Level of service implied by monitoring concepts (descriptive, not a billing call).",
+        "why_labeled": "The concepts that matched and the exact text that triggered each.",
+        "clinical_text": "The free-text reason-for-transport entered at order time (order-time / PCS-side documentation).",
+    }
+    for n, a, w, g, b, ref, url, pat in CONCEPTS:
+        col_comments[n] = f"1 if the order text matched the {n} concept ({a} axis, weight {w}, {b}). Basis: {ref}."
+    for col, comment in col_comments.items():
+        safe = comment.replace("'", "")
+        try:
+            spark.sql(f"ALTER TABLE {GENIE_TABLE} ALTER COLUMN {col} COMMENT '{safe}'")
+        except Exception as e:
+            print(f"  comment on {col} skipped:", e)
+    spark.sql(
+        f"COMMENT ON TABLE {GENIE_TABLE} IS "
+        "'Non-emergent ground ambulance orders scored for medical-necessity documentation against "
+        "CMS criteria (order-time text only). One row per order. Labels describe the documentation, "
+        "not the trip, and are not a billing determination.'"
+    )
+    print("Applied column and table comments. Point a Genie space at:", GENIE_TABLE)
+
+# 11. LLM approach (optional) - second opinion on the orders the rules could not read
+
+# The scoring path above is the rule-based approach. This is the LLM approach, using the same
+# pattern as the NurseNav project (OpenAI SDK -> Databricks serving endpoint, extract-then-judge):
+# the model extracts facts with an evidence quote for every flag, then the SAME cutoffs assign the
+# label. It runs ONLY on the unmatched_text set - orders where text was entered but no rule scored
+# it - because that is where scoring adds nothing and the LLM can. Running the two side by side is
+# the rule-based vs LLM experiment. OFF by default (it calls a paid endpoint). SAMPLE first.
+# All LLM code is inlined here (and imports openai) so it only loads when RUN_LLM is True.
+
+RUN_LLM = False
+LLM_SAMPLE_N = 200       # cap the rules-missed set while validating the prompt; None = all
+LLM_WRITE_CSV = True
+LLM_MODEL = "databricks-gpt-oss-120b"      # same model NurseNav uses
+LLM_BASE_URL = "https://adb-2790612761746757.17.azuredatabricks.net/serving-endpoints"
+
+if RUN_LLM:
+    import json as _json
+    from openai import OpenAI
+
+    # --- LLM client and call (OpenAI SDK -> Databricks serving endpoint, NurseNav pattern) ---
+    _token = (
+        dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+        if "dbutils" in dir() else os.environ.get("DATABRICKS_TOKEN", "")
+    )
+    _client = OpenAI(api_key=_token, base_url=LLM_BASE_URL)
+
+    def llm_call(system_prompt, user_prompt, max_tokens=1500):
+        resp = _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "system", "content": system_prompt},
+                      {"role": "user",   "content": user_prompt}],
+            temperature=0.1, max_tokens=max_tokens,
+        )
+        content = resp.choices[0].message.content
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    return item.get("text", "")
+            return _json.dumps(content)
+        return content
+
+    # --- Extraction prompt: the model pulls facts only; the rules below assign the label ---
+    MED_NEC_SYSTEM_PROMPT = """
+You are a clinical documentation information extraction assistant for non-emergent ground ambulance orders.
+Your ONLY task is to extract structured facts from the free-text transport reason recorded at order time.
+
+CRITICAL CONSTRAINTS
+- Do NOT provide medical advice, diagnose, or decide whether the transport was appropriate.
+- Do NOT guess. Only extract what is explicitly supported by the text.
+- Handle negations correctly (for example "no oxygen" is false).
+- For every boolean set to true you MUST provide a verbatim evidence quote from the text.
+- If no clinical reason is documented, set documentation.reason_documented = false.
+
+ABBREVIATIONS: BLS/ALS=basic/advanced life support, O2=oxygen, IV=intravenous, w/c=wheelchair,
+amb=ambulate/ambulatory, ETT=endotracheal tube, trach=tracheostomy.
+
+OUTPUT: valid JSON only, all keys present, booleans never null.
+
+SCHEMA:
+{
+  "order_id": string,
+  "text_summary": string,
+  "mobility": {
+    "bed_confined": boolean, "cannot_ambulate": boolean, "cannot_sit": boolean,
+    "bariatric_handling": boolean, "wound_or_ostomy_positioning": boolean,
+    "behavioral_or_altered_mental": boolean
+  },
+  "monitoring": {
+    "ventilator_or_airway": boolean, "airway_suctioning": boolean, "iv_medication": boolean,
+    "cardiac_monitoring": boolean, "oxygen": boolean, "isolation_precautions": boolean
+  },
+  "filler_only": {
+    "weakness_only": boolean, "fall_risk_only": boolean, "nonclinical_reason": boolean
+  },
+  "documentation": { "reason_documented": boolean, "note_is_operational_only": boolean },
+  "evidence": [ {"field": string, "value": boolean, "quote": string} ]
+}
+
+FIELD NOTES
+- mobility captures why the patient cannot travel by wheelchair van or car.
+- monitoring captures clinical care needed during transport (drives level of service).
+- filler_only captures vague terms that carry no necessity on their own.
+- Set reason_documented = false when the field is empty or contains only filler.
+
+Now extract from the following order text."""
+
+    def build_user_prompt(order_id, text):
+        return f"order_id: {order_id}\n\nOrder text:\n{text}"
+
+    # --- Validation: strict JSON, all sections present, every true flag carries evidence ---
+    BOOL_SECTIONS = {
+        "mobility": ["bed_confined", "cannot_ambulate", "cannot_sit", "bariatric_handling",
+                     "wound_or_ostomy_positioning", "behavioral_or_altered_mental"],
+        "monitoring": ["ventilator_or_airway", "airway_suctioning", "iv_medication",
+                       "cardiac_monitoring", "oxygen", "isolation_precautions"],
+        "filler_only": ["weakness_only", "fall_risk_only", "nonclinical_reason"],
+    }
+    REQUIRED_TOP_KEYS = {"order_id", "text_summary", "mobility", "monitoring",
+                         "filler_only", "documentation", "evidence"}
+    # Named concepts (explicit in CMS text) - only these can carry an order to necessary.
+    NAMED_FIELDS = {
+        "mobility.bed_confined", "mobility.cannot_ambulate", "mobility.cannot_sit",
+        "monitoring.ventilator_or_airway", "monitoring.airway_suctioning",
+        "monitoring.iv_medication", "monitoring.cardiac_monitoring",
+    }
+    LLM_WEIGHTS = {
+        "mobility.bed_confined": 3, "mobility.cannot_ambulate": 3, "mobility.cannot_sit": 3,
+        "mobility.bariatric_handling": 2, "mobility.wound_or_ostomy_positioning": 1,
+        "mobility.behavioral_or_altered_mental": 1,
+        "monitoring.ventilator_or_airway": 3, "monitoring.airway_suctioning": 3,
+        "monitoring.iv_medication": 3, "monitoring.cardiac_monitoring": 2,
+        "monitoring.oxygen": 1, "monitoring.isolation_precautions": 1,
+    }
+
+    def validate_extraction(raw):
+        try:
+            obj = _json.loads(raw)
+        except Exception as e:
+            return False, {}, f"invalid JSON: {e}"
+        missing = REQUIRED_TOP_KEYS - set(obj)
+        if missing:
+            return False, obj, f"missing keys: {sorted(missing)}"
+        for section, keys in BOOL_SECTIONS.items():
+            sec = obj.get(section, {})
+            if not isinstance(sec, dict):
+                return False, obj, f"{section} must be an object"
+            for k in keys:
+                if not isinstance(sec.get(k), bool):
+                    return False, obj, f"{section}.{k} must be boolean"
+        ev_fields = {e.get("field") for e in obj.get("evidence", []) if isinstance(e, dict)}
+        for section, keys in BOOL_SECTIONS.items():
+            for k in keys:
+                if obj[section][k] and f"{section}.{k}" not in ev_fields:
+                    return False, obj, f"true flag without evidence: {section}.{k}"
+        return True, obj, "OK"
+
+    # --- Rules engine: the SAME cutoffs as the scoring path, applied to extracted facts ---
+    def judge(obj):
+        mob = sum(LLM_WEIGHTS[f"mobility.{k}"] for k in BOOL_SECTIONS["mobility"] if obj["mobility"][k])
+        mon = sum(LLM_WEIGHTS[f"monitoring.{k}"] for k in BOOL_SECTIONS["monitoring"] if obj["monitoring"][k])
+        total = mob + mon
+        has_named = any(
+            obj[sec][k] for sec in ("mobility", "monitoring") for k in BOOL_SECTIONS[sec]
+            if f"{sec}.{k}" in NAMED_FIELDS
+        )
+        if total >= NECESSARY_CUTOFF and has_named:
+            cls = "necessary"
+        elif total == 0:
+            cls = "not_necessary"
+        else:
+            cls = "indeterminate"
+        return {"necessity_class_llm": cls, "mobility_score_llm": mob,
+                "monitoring_score_llm": mon, "total_score_llm": total,
+                "has_named_concept_llm": int(has_named)}
+
+    # --- Run on the rules-missed set ---
+    id_col = ORDER_ID_COL or "OrderId"
+    missed_pdf = (
+        df.filter(F.col("unmatched_text") == 1)
+          .select(F.col(id_col).alias("order_id"), F.col(FREE_TEXT_COL).alias("text"),
+                  F.col("necessity_class"))
+          .toPandas()
+    )
+    if LLM_SAMPLE_N:
+        missed_pdf = missed_pdf.head(LLM_SAMPLE_N)
+    print(f"LLM approach: extracting {len(missed_pdf):,} rules-missed orders via {LLM_MODEL}")
+
+    rows = []
+    for _, r in missed_pdf.iterrows():
+        prompt = build_user_prompt(str(r["order_id"]), r["text"] or "")
+        try:
+            raw = llm_call(MED_NEC_SYSTEM_PROMPT, prompt)
+            ok, obj, msg = validate_extraction(raw)
+        except Exception as e:
+            ok, obj, msg = False, {}, f"call failed: {e}"
+        rec = {"order_id": r["order_id"], "necessity_class": r["necessity_class"],
+               "extraction_valid": int(ok), "extraction_error": "" if ok else msg,
+               "clinical_text": r["text"]}
+        if ok:
+            rec.update(judge(obj))
+            rec["text_summary"] = obj.get("text_summary", "")
+            rec["evidence"] = "; ".join(
+                f'{e.get("field")}[{e.get("quote")}]' for e in obj.get("evidence", [])
+                if isinstance(e, dict)
+            )
+        rows.append(rec)
+
+    llm_pdf = pd.DataFrame(rows)
+    valid_rate = llm_pdf["extraction_valid"].mean() if len(llm_pdf) else 0.0
+    print(f"Valid extractions: {valid_rate:.1%}  (target >= 95% before scaling)")
+    if valid_rate < 0.95 and len(llm_pdf):
+        print("  Below target - review extraction_error before running the full set:")
+        print(llm_pdf.loc[llm_pdf.extraction_valid == 0, "extraction_error"].value_counts().head(10))
+
+    ok_pdf = llm_pdf[llm_pdf.extraction_valid == 1]
+    if len(ok_pdf):
+        print("Rule-based label vs LLM label on the rules-missed set:")
+        print(ok_pdf.groupby(["necessity_class", "necessity_class_llm"]).size()
+                    .reset_index(name="orders").sort_values("orders", ascending=False).to_string(index=False))
+
+    if LLM_WRITE_CSV and len(llm_pdf):
+        llm_csv = f"med_nec_llm_{RUN_TS}.csv"
+        local_llm = f"/tmp/{llm_csv}"
+        sanitize_df(llm_pdf).to_csv(local_llm, index=False)
+        llm_dest = f"{OUTPUT_DIR.rstrip('/')}/{llm_csv}"
+        try:
+            if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
+                shutil.copyfile(local_llm, llm_dest)
+            else:
+                dbutils.fs.cp(f"file:{local_llm}", llm_dest)
+            print("Saved LLM results to:", llm_dest)
+        except Exception as e:
+            print("Wrote local LLM CSV:", local_llm, "| copy failed:", e)
 
 # Notes / open items
 
