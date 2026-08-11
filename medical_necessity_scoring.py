@@ -721,11 +721,12 @@ if BUILD_REVIEW_WORKBOOK:
 
     with_text = df.filter(F.col("_has_text"))
     # Borderline: orders near the necessary/not-necessary boundary - the cases worth scrutiny.
-    #   single-concept clears, indeterminate orders with a real signal, and reason-plus-filler.
+    #   single-concept clears, indeterminate orders with a real signal, and a scored concept
+    #   sitting alongside filler wording.
     borderline = df.filter(
         ((F.col("necessity_class") == "necessary") & (F.col("total_score") == NECESSARY_CUTOFF))
         | ((F.col("necessity_class") == "indeterminate") & (F.col("total_score") >= 2))
-        | (F.col("any_a") & F.col("any_filler"))
+        | ((F.col("total_score") >= 1) & F.col("any_filler"))
     )
 
     guide_pdf = pd.DataFrame([
