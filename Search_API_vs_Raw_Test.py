@@ -1,23 +1,18 @@
 # Databricks notebook source
 
 # ============================================================================
-# SEARCH RESULTS: APPLICATION API vs RAW OPENSEARCH  (one cell, runs both)
+# SEARCH TEST: query built from the PSS config, run against OpenSearch  (one cell)
 #
-# CONFIRMED from PSS run + Jay: PSS builds ONE tiered query and POSTs it to the OpenSearch _search
-# endpoint. Every tier holds a clause for each field the caller supplied - INCLUDING receipt
-# (_search.identifiers.RECEIPT_NBR). Receipt search is NOT missing from the real query; it was missing
-# from the stale template this notebook used, which is why our receipt searches returned nothing while
-# Jay's returned the right person.
+# For each production-log search this builds the query FROM the repo yaml config
+# (search-max-clause-test.yaml) - filling PSS's identifier slots (RECEIPT_NBR / ALIEN_NBR) - and
+# runs it against the OpenSearch _search endpoint, then scores the top result against the input.
 #
-# This script now gets results BOTH ways for every search and reports them side by side:
-#   raw  -> POSTs ONE tiered query (from a master template that mirrors what PSS builds, receipt
-#           included) straight to the _search endpoint - the same call Jay makes.
-#   api  -> calls the application /search endpoint (PSS builds the query for you). Use once the URL +
-#           body are confirmed; then api and raw should agree because both use the real query.
+# HONEST NAMING: the "pss_config" columns are OUR Python build of the query from the config. It is a
+# close mirror of PSS, NOT PSS itself - PSS builds the query in Java, and small differences are likely.
+# The 'Query built per search' tab holds the exact query sent so you can diff it against PSS's output.
 #
-# Each result is scored against the INPUT terms (name fuzzy + DOB) - a COMPARISON, not an accuracy
-# score (no ground truth). The master template is a close mirror of PSS, not PSS itself; for exact
-# fidelity, prefer the api path (or paste the current generated query into the master template).
+# Duplicate log rows (the same search repeated) are collapsed to one; dup_count shows how many merged.
+# This is a COMPARISON against what production returned, not an accuracy score (no ground truth).
 # ============================================================================
 import requests, json, re, os, glob
 from datetime import datetime, date
@@ -27,12 +22,7 @@ import pandas as pd
 # ------------------------- CONFIG -------------------------------------------
 AUTH_TOKEN = "PASTE_BASE64_TOKEN_HERE"
 
-# Option A - application /search endpoint (does exact+similar+merge+DOB sort for you)
-SEARCH_API_ENDPOINT = "https://opensearch-identity-prod.pcis.uscis.dhs.gov/search"   # confirm real URL
-SEARCH_CLIENT_ID    = "max-clause-test"
-SEARCH_METHOD_TYPE  = "advancedSearch"
-
-# raw path - hits the SAME OpenSearch _search endpoint PSS uses, sending the query built from the REAL
+# query built from the repo yaml config, run against the OpenSearch _search endpoint (the same call PSS
 # repo config (search-max-clause-test.yaml, the reduced-tier template with the max-clause fix). PSS
 # fills generic identifier slots: _search.identifiers.{{IDENTIFIER_NAME_1}} with {{IDENTIFIER_VALUE_1}},
 # so a receipt maps to RECEIPT_NBR and an A-number to ALIEN_NBR - which is why receipt searches work.
@@ -108,37 +98,7 @@ def _person_from_source(src):
     return {"id":str(src.get(ID_FIELD,"")),"first":nm.get("first",""),"middle":nm.get("middle",""),
             "last":nm.get("last",""),"dob":str(dob or "")}
 
-# ------------------------- OPTION A: application /search endpoint ------------
-def build_api_body(f):
-    body={"page":0,"pageSize":RESULT_SIZE,"clientId":SEARCH_CLIENT_ID,"searchMethodType":SEARCH_METHOD_TYPE}
-    nm={}
-    if f["FIRSTNAME"]: nm["first"]=f["FIRSTNAME"]
-    if f["MIDDLENAME"]: nm["middle"]=f["MIDDLENAME"]
-    if f["LASTNAME"]: nm["last"]=f["LASTNAME"]
-    if nm: body["names"]=[nm]
-    if f["DOB"]: body["dobs"]=[{"dob":f"{f['DOB'][:4]}-{f['DOB'][4:6]}-{f['DOB'][6:8]}"}]
-    if f["COB"]: body["cobs"]=[f["COB"]]
-    if f["COC"]: body["cocs"]=[f["COC"]]
-    ids=[]
-    if f["ANUMBER"]: ids.append({"type":"ALIEN_NBR","value":f["ANUMBER"]})
-    if f["RECEIPT"]: ids.append({"type":"RECEIPT_NBR","value":f["RECEIPT"]})
-    if ids: body["identifiers"]=ids
-    return body
-def results_api(f):
-    r=requests.post(SEARCH_API_ENDPOINT, headers=HEADERS, json=build_api_body(f), verify=VERIFY_TLS, timeout=120)
-    if r.status_code>=400: return [], 0
-    j=r.json()
-    out=[]; total=0
-    for block in ("exactMatches","similarMatches"):   # exact first, then similar (as the API returns)
-        blk=j.get(block,{}) or {}
-        total += blk.get("totalElements") or len(blk.get("content",[]) or [])
-        for item in blk.get("content",[]) or []:
-            nm=(item.get("biographicInfo",{}) or {}).get("name",{}) or {}
-            out.append({"id":str(item.get(ID_FIELD,"")),"first":nm.get("first",""),"middle":nm.get("middle",""),
-                        "last":nm.get("last",""),"dob":str(item.get("dateOfBirth","") or "")})
-    return out, total
-
-# ------------------------- OPTION B: raw OpenSearch, replicate merge+sort ----
+# ------------------------- build the query from the yaml config -------------
 PH=re.compile(r"\{\{\s*([A-Z_0-9]+)\s*\}\}")
 
 def load_template_from_yaml(path):
@@ -281,55 +241,70 @@ else:
     if not master_txt:
         print("raw: search config yaml not found - check SEARCH_CONFIG_YAML.")
     cases=load_cases(PROD_LOGS_DIR)
-    print(f"Loaded {len(cases)} searches. Running BOTH api and raw for each...\n")
-
-    rows=[]
+    # dedupe identical searches: the same search can appear on several log rows (e.g. the repeated ELIS
+    # A-number). Collapse them so each distinct search runs once. dup_count records how many rows collapsed.
+    seen={}; deduped=[]
     for c in cases:
         f=c["fields"]
-        row={"consumer":c["consumer"],
+        k=(c["consumer"], f["FIRSTNAME"],f["MIDDLENAME"],f["LASTNAME"],f["ANUMBER"],f["RECEIPT"],f["DOB"],f["COB"],f["COC"])
+        if k in seen: seen[k]["dup_count"]+=1; continue
+        c2=dict(c); c2["dup_count"]=1; seen[k]=c2; deduped.append(c2)
+    print(f"Loaded {len(cases)} log rows -> {len(deduped)} distinct searches (collapsed {len(cases)-len(deduped)} duplicates).")
+    print("Running the pss_config query (built from the yaml) for each...\n")
+
+    rows=[]
+    for c in deduped:
+        f=c["fields"]
+        row={"consumer":c["consumer"],"dup_count":c.get("dup_count",1),
              "input_name":" ".join(x for x in [f["FIRSTNAME"],f["MIDDLENAME"],f["LASTNAME"]] if x),
              "input_dob":f["DOB"],"input_anumber":f["ANUMBER"],"input_receipt":f["RECEIPT"]}
         # prod baseline (from the log, not truth)
         sc=score_top(f,[c["prod"]] if c["prod"]["id"] else [])
         row.update({"prod_returned":sc["returned"],"prod_matched":sc["matched"],"prod_dob":sc["dob"],"prod_good":sc["good"]})
         prod_id=c["prod"]["id"]
-        # api (application /search endpoint)
-        try: res,total=results_api(f)
-        except Exception: res,total=[],0
-        sc=score_top(f,res,prod_id); row.update({"api_returned":sc["returned"],"api_matched":sc["matched"],
-            "api_dob":sc["dob"],"api_returned_count":sc["returned_count"],"api_total_hits":total,
-            "api_prod_rank":sc["prod_rank"],"api_good":sc["good"]})
-        # raw (OpenSearch _search direct, ONE tiered query built like PSS - includes receipt)
+        # pss_config: query BUILT FROM the PSS yaml config and sent to the _search endpoint.
+        # NOTE: this is our Python build of the query from the config - a close mirror of PSS, NOT PSS
+        # itself (PSS builds it in Java). Use the query_sent column to diff against PSS's actual output.
+        try:
+            built = render(master_txt, f) if master_txt else {}
+            row["pss_config_query_sent"] = json.dumps(built)
+            row["pss_config_query_buildable"] = _has_real_clauses(built.get("query",{})) if built else False
+        except Exception as e:
+            row["pss_config_query_sent"] = f"(build error: {e})"; row["pss_config_query_buildable"]=False
         try: res,total=results_raw(f, master_txt)
         except Exception: res,total=[],0
-        sc=score_top(f,res,prod_id); row.update({"raw_returned":sc["returned"],"raw_matched":sc["matched"],
-            "raw_dob":sc["dob"],"raw_returned_count":sc["returned_count"],"raw_total_hits":total,
-            "raw_prod_rank":sc["prod_rank"],"raw_good":sc["good"]})
-        row["api_raw_agree"] = (row["api_returned"]==row["raw_returned"])
+        sc=score_top(f,res,prod_id); row.update({"pss_config_returned":sc["returned"],"pss_config_matched":sc["matched"],
+            "pss_config_dob":sc["dob"],"pss_config_returned_count":sc["returned_count"],"pss_config_total_hits":total,
+            "pss_config_prod_rank":sc["prod_rank"],"pss_config_good":sc["good"]})
         rows.append(row)
     detail=pd.DataFrame(rows)
 
-    good_cols=[c for c in detail.columns if c.endswith("_good") and c!="prod_good"]
     summ=[]
     for grp,sub in list(detail.groupby("consumer"))+[("OVERALL",detail)]:
-        r={"consumer":grp,"searches":len(sub),"prod_good_pct":round(100*sub["prod_good"].dropna().mean(),1) if sub["prod_good"].notna().any() else None}
-        for gc in good_cols:
-            g=sub[gc].dropna()
-            r[gc.replace("_good","_good_pct")]=round(100*g.mean(),1) if len(g) else None
+        r={"consumer":grp,"distinct_searches":len(sub),"log_rows":int(sub["dup_count"].sum()),
+           "prod_good_pct":round(100*sub["prod_good"].dropna().mean(),1) if sub["prod_good"].notna().any() else None,
+           "pss_config_good_pct":round(100*sub["pss_config_good"].dropna().mean(),1) if sub["pss_config_good"].notna().any() else None,
+           "buildable":int(sub["pss_config_query_buildable"].sum())}
         summ.append(r)
     summary=pd.DataFrame(summ)
-    print("GOOD-MATCH rate: prod baseline vs api vs raw (comparison, not accuracy)")
+    print("GOOD-MATCH rate: prod baseline vs pss_config (query built from the yaml). A comparison, not accuracy.")
     display(summary)
-    print(f"\napi and raw returned the SAME top person on {int(detail['api_raw_agree'].sum())} of {len(detail)} searches.")
+    nb=int((~detail["pss_config_query_buildable"]).sum())
+    if nb: print(f"\n{nb} searches did NOT build a query (pss_config_query_buildable=False) - inspect the query_sent tab.")
     print("\nPER-SEARCH DETAIL")
     display(detail)
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    out=os.path.join(RESULTS_DIR, f"Search_API_vs_Raw_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    out=os.path.join(RESULTS_DIR, f"Search_pss_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
     with pd.ExcelWriter(out, engine="openpyxl") as xl:
         summary.to_excel(xl, sheet_name="Summary", index=False)
-        detail.to_excel(xl, sheet_name="Per-search detail", index=False)
+        detail.drop(columns=["pss_config_query_sent"]).to_excel(xl, sheet_name="Per-search detail", index=False)
+        # a dedicated tab holding the exact query built for each search - diff these against PSS's output
+        detail[["consumer","input_name","input_anumber","input_receipt","pss_config_query_buildable","pss_config_query_sent"]]\
+            .to_excel(xl, sheet_name="Query built per search", index=False)
     print(f"\nExcel written: {out}")
-    print("\nNOTE: Option A (api) reflects what consumers actually get - two queries, merge, and the Java "
-          "DOB sort - and covers receipt lookups. Option B (raw) replicates that logic against OpenSearch "
-          "directly. Where api and raw disagree, the app layer is doing something the raw query does not.")
+    print("\nNAMING: the 'pss_config' columns are the query BUILT FROM the PSS yaml config and run against "
+          "OpenSearch - a close mirror of PSS, NOT PSS itself (PSS builds the query in Java). To verify, open "
+          "'Query built per search', take a receipt row's query, and diff it against what PSS builds for that "
+          "same receipt. If pss_config_query_buildable is False for receipts, the config did not load (parse/"
+          "brace error) or the identifier slots did not fill. Duplicate log rows are collapsed (see dup_count).")
