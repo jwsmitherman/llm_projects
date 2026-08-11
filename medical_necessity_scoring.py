@@ -5,8 +5,8 @@
 
 # - Two scoring axes, not one label: a **mobility** axis (why other transport is
 #   contraindicated) and a **monitoring** axis (why this level of service).
-# - A factual necessity label - necessary / not_necessary - against CMS criteria, with an
-#   explicit **indeterminate** middle to be refined over time.
+# - A single combined score drives the buckets by cutoff: 0 = not_necessary; >= 3 with a
+#   named concept = necessary; in between = indeterminate.
 # - **Weighted concepts** and a **confidence** score, both driven from one config block.
 # - No payment-focused terminology in any output column.
 
@@ -142,13 +142,7 @@ CONCEPTS = [
 ]
 
 # Thresholds - tune here. A single named, weight-3 concept (score 3) is a clear reason.
-MOBILITY_CLEAR    = 3   # mobility score at/above this meets the necessity threshold
-MONITORING_CLEAR  = 3   # monitoring score at/above this meets the necessity threshold
-INDETERMINATE_MIN = 1   # any Group A signal below the clear thresholds = indeterminate
-
-# The three prongs of the bed-confined test. [BPM10] 10.2.3 requires ALL THREE to be met, and
-# states bed confinement is neither sufficient nor necessary by itself - it is one factor.
-BED_CONFINED_PRONGS = ["bed_confined", "mobility_deficit", "cannot_sit"]  # cite: [BPM10] 10.2.3
+NECESSARY_CUTOFF  = 3   # total_score at/above this, with a named concept, = necessary
 
 # 3. Scope - non-emergent ground only
 
@@ -271,7 +265,7 @@ for name, axis, weight, group, basis, ref, url, pattern in CONCEPTS:
 
 # 5. Scores, classification, confidence, and level-of-service recommendation
 
-# All derived from the config - no hand-coded per-concept logic below this point.
+# All derived from the config. The bucket is driven by one combined score plus one named flag.
 
 def axis_score(axis):
     terms = [F.when(F.col(f"c_{n}"), F.lit(w)).otherwise(F.lit(0))
@@ -281,94 +275,66 @@ def axis_score(axis):
         expr = expr + t
     return expr
 
-# mobility_score: sum of mobility-axis concept weights. Basis: [BPM10] 10.2.1 / 10.2.3.
-df = df.withColumn("mobility_score",   axis_score("mobility"))
-# monitoring_score: sum of monitoring-axis concept weights. Basis: [414.605].
-df = df.withColumn("monitoring_score", axis_score("monitoring"))
+# Component scores (shown so the total is fully traceable). mobility + monitoring = total_score
+# exactly - there is no bonus or adjustment.
+df = df.withColumn("mobility_score",   axis_score("mobility"))    # [BPM10] 10.2.1 / 10.2.3
+df = df.withColumn("monitoring_score", axis_score("monitoring"))  # [414.605]
+df = df.withColumn("total_score", F.col("mobility_score") + F.col("monitoring_score"))
 
-# named vs inferred / filler counts, for confidence and the clear threshold.
-# named = concept explicit in CMS text; only named concepts meet the necessity threshold alone.
+# named_score: points from NAMED CMS concepts only (those explicit in CMS text). Shown because a
+# named concept is required to reach the necessary band - this column is what drives that.
 named_a = [n for n, a, w, g, b, *_ in CONCEPTS if g == "A" and b == "named"]
+named_terms = [F.when(F.col(f"c_{n}"), F.lit(w)).otherwise(F.lit(0))
+               for n, a, w, g, b, *_ in CONCEPTS if g == "A" and b == "named"]
+named_expr = named_terms[0]
+for t in named_terms[1:]:
+    named_expr = named_expr + t
+df = df.withColumn("named_score", named_expr)
 df = df.withColumn("named_a_hits", sum([F.col(f"c_{n}").cast("int") for n in named_a]))
-df = df.withColumn("has_named_a", F.col("named_a_hits") > 0)
-df = df.withColumn("any_a", (F.col("mobility_score") + F.col("monitoring_score")) > 0)
+df = df.withColumn("has_named_concept", (F.col("named_a_hits") > 0).cast("int"))
 
-# bed_confined_full: all three [BPM10] 10.2.3 prongs present = the full objective standard.
-prong_expr = F.col(f"c_{BED_CONFINED_PRONGS[0]}")
-for p in BED_CONFINED_PRONGS[1:]:
-    prong_expr = prong_expr & F.col(f"c_{p}")
-df = df.withColumn("bed_confined_full", prong_expr)  # cite: [BPM10] 10.2.3
-
+# unmatched_text: 1 when text was entered but nothing scored (words no rule recognized). Purely
+# informational - it does NOT change the bucket - and flags the language-model target set.
 filler_cols = [f"c_{n}" for n, a, *_ in CONCEPTS if a == "filler"]
 df = df.withColumn("any_filler", sum([F.col(c).cast("int") for c in filler_cols]) > 0)
+df = df.withColumn(
+    "unmatched_text",
+    (F.col("_has_text") & (F.col("total_score") == 0) & ~F.col("any_filler")).cast("int"),
+)
 
-# necessity_class: a factual label for the order text against CMS criteria.
-#   necessary     = a named CMS concept meets the clear threshold, or the full 10.2.3 test is met.
-#   not_necessary = no Group A concept present (field empty, or filler only).
-#   indeterminate = a signal below the threshold, or text that matched no term.
-# This labels the documentation, not the trip.
+# necessity_class: driven by total_score and the named flag. Simple cutoffs:
+#   total_score >= NECESSARY_CUTOFF and a named concept present -> necessary
+#   total_score == 0                                            -> not_necessary
+#   otherwise                                                   -> indeterminate
 df = df.withColumn(
     "necessity_class",
-    F.when(
-        F.col("bed_confined_full") |
-        (F.col("has_named_a") &
-         ((F.col("mobility_score") >= MOBILITY_CLEAR) | (F.col("monitoring_score") >= MONITORING_CLEAR))),
-        F.lit("necessary"),          # cite: [BPM10] 10.2.3 / 10.2.1 ; [414.605]
-    ).when(
-        ~F.col("any_a") & (~F.col("_has_text") | F.col("any_filler")),
-        F.lit("not_necessary"),      # cite: [RSN] AM600 ; [MLN]
-    ).otherwise(F.lit("indeterminate")),
+    F.when((F.col("total_score") >= NECESSARY_CUTOFF) & (F.col("has_named_concept") == 1),
+           F.lit("necessary"))
+     .when(F.col("total_score") == 0, F.lit("not_necessary"))
+     .otherwise(F.lit("indeterminate")),
 )
 
-# indeterminate_reason: text_unmatched (text present, no term matched - the LLM target) vs
-#   weak_or_inferred_only (some signal, below the clear threshold).
-df = df.withColumn(
-    "indeterminate_reason",
-    F.when(F.col("necessity_class") != "indeterminate", F.lit(None))
-     .when(F.col("_has_text") & ~F.col("any_a") & ~F.col("any_filler"), F.lit("text_unmatched"))
-     .otherwise(F.lit("weak_or_inferred_only")),
-)
-
-# confidence in the classification itself (not a CMS construct - internal quality flag).
+# confidence: score-based quality flag (not a CMS construct).
 df = df.withColumn(
     "confidence",
-    F.when(F.col("bed_confined_full"), F.lit("high"))
-     .when((F.col("named_a_hits") >= 2), F.lit("high"))
-     .when(~F.col("_has_text"), F.lit("high"))
-     .when(F.col("named_a_hits") == 1, F.lit("medium"))
-     .when(F.col("any_filler") & ~F.col("any_a"), F.lit("medium"))
+    F.when((F.col("total_score") >= NECESSARY_CUTOFF) & (F.col("has_named_concept") == 1), F.lit("high"))
+     .when(F.col("total_score") >= 1, F.lit("medium"))
      .otherwise(F.lit("low")),
 )
 
 # recommended_los: level of service implied by the monitoring axis, per [414.605] definitions.
-#   ventilator/suctioning -> CCT/SCT ; multiple monitoring or IV meds -> ALS ; else BLS.
 #   Descriptive only until CMS BLS/ALS eligibility criteria are confirmed - not a billing call.
 df = df.withColumn(
     "recommended_los",
-    F.when(F.col("c_ventilator") | F.col("c_suctioning"), F.lit("CCT/SCT"))          # cite: [414.605] SCT/ALS2
-     .when((F.col("monitoring_score") >= 2) | F.col("c_iv_medication"), F.lit("ALS"))  # cite: [414.605] ALS1/ALS2
-     .when(F.col("mobility_score") >= INDETERMINATE_MIN, F.lit("BLS"))               # cite: [414.605] BLS
+    F.when(F.col("c_ventilator") | F.col("c_suctioning"), F.lit("CCT/SCT"))            # [414.605] SCT/ALS2
+     .when((F.col("monitoring_score") >= 2) | F.col("c_iv_medication"), F.lit("ALS"))  # [414.605] ALS1/ALS2
+     .when(F.col("mobility_score") >= 1, F.lit("BLS"))                                 # [414.605] BLS
      .otherwise(F.lit("none/indeterminate")),
 )
 
-# total_necessity_score: the aggregate the 24 July review asked for. It combines both axes and
-# adds a bonus when the full [BPM10] 10.2.3 three-prong test is met, so a complete objective
-# standard outscores an equal sum of unrelated concepts.
-#   total = mobility_score + monitoring_score + (BED_CONFINED_BONUS if all three prongs present)
-# Interpretation is provisional - the multiplier/bonus is a tunable modelling choice, not a CMS
-# figure, and should be validated by the SMEs and against denial outcomes.
-BED_CONFINED_BONUS = 3   # cite: [BPM10] 10.2.3 - full three-prong test is the strongest signal
-df = df.withColumn(
-    "total_necessity_score",
-    F.col("mobility_score") + F.col("monitoring_score")
-    + F.when(F.col("bed_confined_full"), F.lit(BED_CONFINED_BONUS)).otherwise(F.lit(0)),
-)
-
-# gy_disposition: relates the necessity label to the GY-modifier process the review teams use.
-# Per the 4 Aug review-process meeting: billing may mark a non-emergency Medicare trip with a GY
-# modifier ("transport provided, payment not requested"). not_necessary = no documented reason
-# recorded (a GY candidate); necessary = a documented reason is present; indeterminate = a partial
-# or unread signal. This describes the order text at order time, not a billing determination.
+# gy_disposition: relates the class to the GY-modifier process (4 Aug review-process meeting).
+# not_necessary = no documented reason (a GY candidate); necessary = documented reason present;
+# indeterminate = partial / review. Describes the order text at order time, not a billing call.
 df = df.withColumn(
     "gy_disposition",
     F.when(F.col("necessity_class") == "not_necessary", F.lit("no documented reason - GY candidate"))
@@ -377,7 +343,7 @@ df = df.withColumn(
 )
 
 # classification_method: how the labels were assigned. Keyword/term matching today; the
-# text_unmatched orders are the set a language model would categorise in a later pass.
+# unmatched_text orders are the set a language model would categorise in a later pass.
 df = df.withColumn("classification_method", F.lit("keyword_match"))
 
 # why_labeled: for each order, the concepts that matched and the exact text that triggered each -
@@ -401,12 +367,9 @@ display(
       .orderBy(F.desc("orders"))
 )
 
-# Indeterminate breakdown - text_unmatched is the LLM opportunity ([BPM10] 10.2.1 reason present
-# but not captured by term matching)
+# Unmatched-text breakdown - words present that no rule scored (the language-model opportunity).
 display(
-    df.filter(F.col("necessity_class") == "indeterminate")
-      .groupBy("indeterminate_reason")
-      .agg(F.count("*").alias("orders"))
+    df.groupBy("unmatched_text").agg(F.count("*").alias("orders")).orderBy("unmatched_text")
 )
 
 # Necessity by customer (skipped if no customer column resolved)
@@ -439,7 +402,7 @@ else:
 # category is defined. Sampled, de-identified review only - not written back.
 
 _example_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
-    "mobility_score", "monitoring_score", "confidence", "indeterminate_reason", FREE_TEXT_COL
+    "total_score", "mobility_score", "monitoring_score", "named_score", "has_named_concept", "confidence", "unmatched_text", FREE_TEXT_COL
 ]
 for cls in ["necessary", "indeterminate", "not_necessary"]:
     print("=" * 70)
@@ -509,8 +472,7 @@ conf_pdf = with_pct(
     df.groupBy("confidence").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
 )
 indet_pdf = with_pct(
-    df.filter(F.col("necessity_class") == "indeterminate")
-      .groupBy("indeterminate_reason").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
+    df.groupBy("unmatched_text").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
 )
 
 # --- Concepts tab: dictionary with counts and CMS citations (backs the concept slide) ---
@@ -525,8 +487,29 @@ concept_pdf = pd.DataFrame([
     for (n, a, w, g, b, ref, url, pat) in CONCEPTS
 ]).sort_values("tags", ascending=False).reset_index(drop=True)
 
-# --- Where tab: by customer, by level of service, transport appropriateness ---
-where_blocks = []
+# --- Mobility reasons tab: what reasons for mobility appear in the order text, and how often.
+# Requested in the 10 Aug meeting (text analysis of reasons for mobility). Reuses the mobility-axis
+# concept tags already computed - no new matching. Overall counts, plus counts among necessary
+# orders, so the documented reasons that carry necessity are visible. ---
+mobility_concepts = [(n, w, b) for n, a, w, g, b, *_ in CONCEPTS if a == "mobility"]
+nec_df = df.filter(F.col("necessity_class") == "necessary")
+nec_total = nec_df.count()
+mob_sums_all = df.agg(
+    *[F.sum(F.col(f"c_{n}").cast("int")).alias(n) for n, *_ in mobility_concepts]
+).collect()[0].asDict()
+mob_sums_nec = nec_df.agg(
+    *[F.sum(F.col(f"c_{n}").cast("int")).alias(n) for n, *_ in mobility_concepts]
+).collect()[0].asDict()
+mobility_pdf = pd.DataFrame([
+    {"mobility_reason": n, "weight": w, "basis": b,
+     "orders": int(mob_sums_all[n] or 0),
+     "pct_of_scope": round((mob_sums_all[n] or 0) / total * 100, 1),
+     "orders_necessary": int(mob_sums_nec[n] or 0),
+     "pct_of_necessary": round((mob_sums_nec[n] or 0) / max(nec_total, 1) * 100, 1)}
+    for (n, w, b) in mobility_concepts
+]).sort_values("orders", ascending=False).reset_index(drop=True)
+
+
 if CUSTOMER_COL is not None:
     where_blocks.append((
         "Necessity by customer",
@@ -556,9 +539,9 @@ concept_names = [n for n, *_ in CONCEPTS]
 context_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
 # concept hit columns, cast to 1/0 and named by the concept (the "labels")
 label_cols = [F.col(f"c_{n}").cast("int").alias(n) for n in concept_names]
-derived_cols = ["mobility_score", "monitoring_score", "total_necessity_score",
-                "bed_confined_full", "named_a_hits", "necessity_class",
-                "indeterminate_reason", "confidence", "recommended_los",
+derived_cols = ["mobility_score", "monitoring_score", "total_score",
+                "named_score", "has_named_concept", "necessity_class",
+                "unmatched_text", "confidence", "recommended_los",
                 "gy_disposition", "why_labeled", "classification_method"]
 detail_select = ([F.col(c) for c in context_cols] + label_cols
                  + [F.col(c) for c in derived_cols] + [F.col(FREE_TEXT_COL)])
@@ -570,8 +553,8 @@ detail_pdf = pd.concat([
 
 # --- Examples tab: sampled free-text per class ---
 ex_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
-    "necessity_class", "total_necessity_score", "mobility_score", "monitoring_score",
-    "confidence", "indeterminate_reason", FREE_TEXT_COL,
+    "necessity_class", "total_score", "mobility_score", "monitoring_score",
+    "named_score", "has_named_concept", "confidence", "unmatched_text", FREE_TEXT_COL,
 ]
 examples_pdf = pd.concat([
     df.filter(F.col("necessity_class") == cls).select(*ex_cols).limit(20).toPandas()
@@ -581,16 +564,17 @@ examples_pdf = pd.concat([
 # --- Definitions tab: embedded so the workbook is self-explaining ---
 definitions_pdf = pd.DataFrame([
     ["necessity_class = necessary", "A named CMS concept meets the clear threshold, or the full 10.2.3 test is met in the order text.", "BPM10 10.2.3 / 10.2.1; 414.605"],
-    ["necessity_class = not_necessary", "No Group A concept in the order text - field empty, or filler only.", "RSN AM600; MLN"],
+    ["necessity_class = not_necessary", "Text present with a clinical reason field but only filler, no Group A concept.", "RSN AM600; MLN"],
     ["necessity_class = indeterminate", "Some signal but below the clear threshold, or text present that matched no term.", "BPM10 10.2.1"],
-    ["indeterminate_reason = text_unmatched", "Text entered but no term matched - the target for language-model classification.", "BPM10 10.2.1"],
-    ["indeterminate_reason = weak_or_inferred_only", "Only inferred or low-weight concepts present.", "BPM10 10.2.1"],
+    ["unmatched_text", "1 = text present but nothing scored (words no rule recognized). Informational; the language-model target. Does not change the bucket.", "BPM10 10.2.1"],
     ["mobility_score", "Weighted sum of mobility-axis concepts - why other transport is contraindicated.", "BPM10 10.2.1 / 10.2.3"],
     ["monitoring_score", "Weighted sum of monitoring-axis concepts - why this level of service.", "414.605"],
-    ["total_necessity_score", "mobility_score + monitoring_score + bed-confined bonus. See the Scoring tab.", "composite (provisional)"],
+    ["total_score", "mobility_score + monitoring_score. Drives the bucket via cutoffs.", "composite (provisional)"],
+    ["named_score", "Points from named CMS concepts only. A named concept (named_score > 0) is required for necessary.", "BPM10 / 414.605"],
+    ["has_named_concept", "1 if any named CMS concept matched. Gates the necessary band.", "BPM10 / 414.605"],
     ["confidence", "Internal quality flag on the classification (high / medium / low). Not a CMS construct.", "n/a"],
     ["recommended_los", "Level of service implied by the monitoring axis. Descriptive, not a billing call.", "414.605; 410.40(c)"],
-    ["gy_disposition", "Relates the label to the GY process: not_necessary = no documented reason (GY candidate); necessary = documented reason present; indeterminate = partial, review.", "review-process 4 Aug"],
+    ["gy_disposition", "GY process relation: not_necessary = no documented reason (GY candidate); necessary = documented reason present; indeterminate = partial, review.", "review-process 4 Aug"],
     ["GY modifier", "Billing marks a non-medically-necessary Medicare trip GY: transport provided, payment not requested. Enables billing the facility/patient and building a record.", "review-process 4 Aug"],
     ["PCS", "Physician Certification Statement - the order-time certification. This analysis reads the order-time (PCS-side) free text.", "410.40(d); review-process"],
     ["PCR", "Patient Care Report - the crew's documentation in ImageTrend. A separate source, NOT in this table. Billing requires the PCR to support the PCS.", "review-process 4 Aug"],
@@ -611,22 +595,23 @@ weight_pdf = pd.DataFrame([
 formula_pdf = pd.DataFrame([
     ["mobility_score", "sum of weights of matched mobility-axis concepts", "BPM10 10.2.1 / 10.2.3"],
     ["monitoring_score", "sum of weights of matched monitoring-axis concepts", "414.605"],
-    ["bed_confined bonus", f"+{BED_CONFINED_BONUS} when all three 10.2.3 prongs are present", "BPM10 10.2.3"],
-    ["total_necessity_score", "mobility_score + monitoring_score + bed_confined bonus", "composite (provisional)"],
-    ["clear threshold", f"mobility >= {MOBILITY_CLEAR} or monitoring >= {MONITORING_CLEAR}, with a named concept", "BPM10 / 414.605"],
+    ["total_score", "mobility_score + monitoring_score", "composite (provisional)"],
+    ["necessary", f"total_score >= {NECESSARY_CUTOFF} AND a named concept present", "BPM10 / 414.605"],
+    ["not_necessary", "total_score == 0", "RSN AM600"],
+    ["indeterminate", "everything else", "BPM10 10.2.1"],
     ["note", "weights and bonus are tunable modelling choices, not CMS figures - validate with SMEs", "n/a"],
 ], columns=["element", "definition", "cms_ref"])
 
 total_dist_pdf = with_pct(
-    df.groupBy("total_necessity_score").agg(F.count("*").alias("orders"))
-      .orderBy("total_necessity_score")
+    df.groupBy("total_score").agg(F.count("*").alias("orders"))
+      .orderBy("total_score")
 )
 
 score_by_class_pdf = (
     df.groupBy("necessity_class")
-      .agg(F.round(F.avg("total_necessity_score"), 2).alias("avg_total_score"),
-           F.min("total_necessity_score").alias("min_score"),
-           F.max("total_necessity_score").alias("max_score"),
+      .agg(F.round(F.avg("total_score"), 2).alias("avg_total_score"),
+           F.min("total_score").alias("min_score"),
+           F.max("total_score").alias("max_score"),
            F.count("*").alias("orders"))
       .orderBy(F.desc("avg_total_score")).toPandas()
 )
@@ -640,6 +625,8 @@ sheets = {
                     ("Total score distribution", total_dist_pdf),
                     ("Total score by necessity class", score_by_class_pdf)],
     "Concepts":    [("Concept dictionary - terms, weights, CMS basis", concept_pdf)],
+    "Mobility reasons": [("Reasons for mobility - frequency overall and among necessary orders",
+                          mobility_pdf)],
     "Detail":      [(f"Row-level trace: order -> labels -> class -> GY disposition "
                      f"(sample of {DETAIL_SAMPLE_N} per class)", detail_pdf)],
     "Where":       where_blocks or [("No customer/LOS column resolved", pd.DataFrame({"note": ["set FIELD_CANDIDATES"]}))],
@@ -728,8 +715,8 @@ MAX_REVIEW_ROWS = 200000   # safety cap for the "All with text" tab
 if BUILD_REVIEW_WORKBOOK:
     review_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None] + [
         FREE_TEXT_COL, "necessity_class", "gy_disposition", "why_labeled",
-        "total_necessity_score", "mobility_score", "monitoring_score",
-        "confidence", "indeterminate_reason", "recommended_los",
+        "total_score", "named_score", "mobility_score", "monitoring_score",
+        "has_named_concept", "confidence", "unmatched_text", "recommended_los",
     ]
 
     def review_frame(spark_df, limit=None):
@@ -742,8 +729,8 @@ if BUILD_REVIEW_WORKBOOK:
     # Borderline: orders near the necessary/not-necessary boundary - the cases worth scrutiny.
     #   single-concept clears, indeterminate orders with a real signal, and reason-plus-filler.
     borderline = df.filter(
-        ((F.col("necessity_class") == "necessary") & (F.col("named_a_hits") == 1) & ~F.col("bed_confined_full"))
-        | ((F.col("necessity_class") == "indeterminate") & (F.col("total_necessity_score") >= 2))
+        ((F.col("necessity_class") == "necessary") & (F.col("total_score") == NECESSARY_CUTOFF))
+        | ((F.col("necessity_class") == "indeterminate") & (F.col("total_score") >= 2))
         | (F.col("any_a") & F.col("any_filler"))
     )
 
@@ -753,7 +740,7 @@ if BUILD_REVIEW_WORKBOOK:
         ["necessity_class", "Label for the order text: necessary / indeterminate / not_necessary."],
         ["gy_disposition", "GY process relation: no documented reason (GY candidate) / documented reason present / partial, review."],
         ["why_labeled", "The concepts that matched and the exact words that triggered each. Empty = the rules found nothing (text_unmatched)."],
-        ["total_necessity_score", "Weighted score. Higher = stronger documented necessity. See the Scoring tab of the summary workbook."],
+        ["total_score", "mobility_score + monitoring_score. total_score == 0 -> not_necessary; >= 3 with a named concept -> necessary; else indeterminate."],
         ["Tab: All with text", "Every order that has free text."],
         ["Tab: Not necessary", "Orders labeled not_necessary - no documented reason in the order text."],
         ["Tab: Rules missed", "text_unmatched - text present that no keyword rule read. The language-model candidates."],
@@ -765,7 +752,7 @@ if BUILD_REVIEW_WORKBOOK:
         "How to read": guide_pdf,
         "All with text": review_frame(with_text, MAX_REVIEW_ROWS),
         "Not necessary": review_frame(df.filter(F.col("necessity_class") == "not_necessary")),
-        "Rules missed": review_frame(df.filter(F.col("indeterminate_reason") == "text_unmatched")),
+        "Rules missed": review_frame(df.filter(F.col("unmatched_text") == 1)),
         "Borderline": review_frame(borderline),
     }
 
