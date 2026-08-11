@@ -15,11 +15,14 @@
 # hits (id, name, dob, score) and the exact query sent for each, so you can eyeball and compare to PSS.
 # ============================================================================
 import requests, json, re, os
+from datetime import datetime
+import pandas as pd
 
 # ------------------------- CONFIG -------------------------------------------
 AUTH_TOKEN = "PASTE_BASE64_TOKEN_HERE"
 ENDPOINT   = "https://opensearch-identity-prod.pcis.uscis.dhs.gov/iis-identity-api-alias/_search"
 SEARCH_CONFIG_YAML = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-max-clause-test.yaml"
+RESULTS_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"   # Excel written here
 RECEIPT_FIELD = "_search.identifiers.RECEIPT_NBR"
 ID_FIELD   = "identityId"
 TOP_N      = 10
@@ -126,11 +129,23 @@ def show(label, receipt, body):
     if SHOW_QUERY:
         print(f"  [{label}] query: {json.dumps(body)[:300]}{'...' if len(json.dumps(body))>300 else ''}")
     res,err=run(body)
-    if err: print(f"  [{label}] ERROR: {err}"); return
+    rows=[]
+    if err:
+        print(f"  [{label}] ERROR: {err}")
+        rows.append({"receipt":receipt,"method":label.strip(),"rank":None,"name":f"ERROR: {err}",
+                     "dob":"","score":None,"total_matches":None,"query_sent":json.dumps(body)})
+        return rows
     print(f"  [{label}] total matches: {res['total']}   top {min(TOP_N,len(res['hits']))}:")
+    if not res["hits"]:
+        print("      (no results)")
+        rows.append({"receipt":receipt,"method":label.strip(),"rank":None,"name":"(no results)",
+                     "dob":"","score":None,"total_matches":res["total"],"query_sent":json.dumps(body)})
     for rank,h in enumerate(res["hits"][:TOP_N], start=1):
         print(f"      {rank:2}. score={h['score']!s:>8}  {h['name']:<45} dob={h['dob']:<9} id={h['id'][:16]}")
-    if not res["hits"]: print("      (no results)")
+        rows.append({"receipt":receipt,"method":label.strip(),"rank":rank,"name":h["name"],"dob":h["dob"],
+                     "score":h["score"],"total_matches":res["total"],"id":h["id"],
+                     "query_sent":json.dumps(body) if rank==1 else ""})
+    return rows
 
 # ------------------------- RUN ----------------------------------------------
 if not CONFIGURED:
@@ -141,12 +156,21 @@ else:
         print(f"Loaded receipt query template from {os.path.basename(SEARCH_CONFIG_YAML)}.\n")
     except Exception as e:
         tpl=None; print(f"Could not load the yaml template: {e}\nFalling back to EXACT-only.\n")
+    all_rows=[]
     for rcpt in RECEIPTS:
         print(f"RECEIPT {rcpt}")
         if tpl:
-            show("TEMPLATE (yaml config)", rcpt, render_template(tpl, rcpt))
-        show("EXACT term match       ", rcpt, exact_query(rcpt))
+            all_rows += show("TEMPLATE (yaml config)", rcpt, render_template(tpl, rcpt))
+        all_rows += show("EXACT term match       ", rcpt, exact_query(rcpt))
         print()
     print("Read it like this: if EXACT returns the right person at rank 1 but TEMPLATE ranks them lower "
           "or misses, the config's receipt clause is fuzzy/low-boost - it needs the high-boost exact-receipt "
           "tier PSS uses. Compare the TEMPLATE query above to what PSS builds for the same receipt.")
+
+    # save every hit (both methods) to a timestamped Excel so the results are kept, not just printed
+    results=pd.DataFrame(all_rows)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    out=os.path.join(RESULTS_DIR, f"Receipt_Search_Test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+    with pd.ExcelWriter(out, engine="openpyxl") as xl:
+        results.to_excel(xl, sheet_name="Receipt results", index=False)
+    print(f"\nExcel written: {out}")
