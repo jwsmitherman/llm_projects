@@ -10,7 +10,8 @@
 # - **Weighted concepts** and a **confidence** score, both driven from one config block.
 # - No payment-focused terminology in any output column.
 
-# Read-only throughout. No table writes.
+# The source table is read only and is never modified. The one write is the derived Genie table
+# in section 10, to a schema you control (WRITE_GENIE_TABLE).
 
 # CMS source documents are defined in a separate module, cms_references.py, keyed by the CMS
 # source they come from (BPM10, BPM10_10_2_3, CFR_414_605, RSN, MLN, ...). The notebook imports it
@@ -704,7 +705,11 @@ from openpyxl.utils import get_column_letter
 
 BUILD_REVIEW_WORKBOOK = True
 REVIEW_XLSX = f"med_nec_review_{RUN_TS}.xlsx"
-MAX_REVIEW_ROWS = 200000   # safety cap for the "All with text" tab
+# Excel's own hard limit is 1,048,576 rows per sheet including the header, so the "All with text"
+# tab cannot be truly uncapped. This is set to that ceiling rather than an arbitrary number, and
+# any truncation is printed explicitly below so a capped tab is never mistaken for a full count.
+# The uncapped, full-population outputs are the Genie table (section 10) and the detail CSV.
+MAX_REVIEW_ROWS = 1_048_575
 
 if BUILD_REVIEW_WORKBOOK:
     review_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None] + [
@@ -743,6 +748,9 @@ if BUILD_REVIEW_WORKBOOK:
         ["Limitation", "Reflects ORDER-TIME documentation only. Final billing also depends on the crew PCR supporting the PCS, which is not in this data."],
     ], columns=["item", "meaning"])
 
+    # Actual population for the "All with text" tab, so truncation is visible rather than implied.
+    with_text_total = with_text.count()
+
     review_tabs = {
         "How to read": guide_pdf,
         "All with text": review_frame(with_text, MAX_REVIEW_ROWS),
@@ -750,6 +758,12 @@ if BUILD_REVIEW_WORKBOOK:
         "Rules missed": review_frame(df.filter(F.col("unmatched_text") == 1)),
         "Borderline": review_frame(borderline),
     }
+
+    if with_text_total > MAX_REVIEW_ROWS:
+        print(f"NOTE: 'All with text' truncated to {MAX_REVIEW_ROWS:,} of {with_text_total:,} rows "
+              "(Excel sheet limit). Use the Genie table or the detail CSV for the full population.")
+    else:
+        print(f"'All with text' holds the full population: {with_text_total:,} rows.")
 
     def build_review(path, tabs):
         # Write to a driver-local path first, then the caller copies it to the destination.
@@ -794,15 +808,34 @@ if BUILD_REVIEW_WORKBOOK:
 
 # 10. Genie table (optional) - persist the scored data as a curated table for AI/BI Genie
 
-# Genie queries a real table or view, so this is the one place the pipeline writes. It is OFF by
-# default to preserve the read-only default. Set WRITE_GENIE_TABLE = True and a target you can
-# write to. Writes only this derived output - it never touches the source table.
+# Genie queries a real table or view, so this is the one place the pipeline writes. It writes only
+# this derived output, to a schema you control - the source table is read only and is never touched.
+# Set WRITE_GENIE_TABLE = False to restore the fully read-only posture.
 
-WRITE_GENIE_TABLE = False
-GENIE_TABLE = "`prod-sandbox`.`vivekkumar_patel`.`med_nec_genie`"
+WRITE_GENIE_TABLE = True
+
+# Target for the scored table, split so only GENIE_SCHEMA needs editing.
+# prod-sandbox uses one schema per person (von_aday, weilan_zeng, pavithra_dedigama, ...).
+# vivekkumar_patel is the SOURCE owner's schema - writing there needs his agreement, so point
+# this at your own schema. The source table is read only and is never modified either way.
+GENIE_CATALOG    = "prod-sandbox"
+GENIE_SCHEMA     = "vivekkumar_patel"     # <-- CHANGE to a schema you own
+GENIE_TABLE_NAME = "med_nec_genie"
+GENIE_TABLE = ".".join(f"`{p}`" for p in (GENIE_CATALOG, GENIE_SCHEMA, GENIE_TABLE_NAME))
 
 if WRITE_GENIE_TABLE:
+    # Fail early and clearly if the target schema is not writable, rather than part way through.
+    try:
+        spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{GENIE_CATALOG}`.`{GENIE_SCHEMA}`")
+    except Exception as e:
+        print(f"Cannot reach {GENIE_CATALOG}.{GENIE_SCHEMA}: {e}")
+        raise
+
     concept_names_all = [n for n, *_ in CONCEPTS]
+    # Column set is deliberate: order/level-of-service/customer context, the scoring outputs, the
+    # concept flags, and the order-time free text. Direct identifiers carried by the source table
+    # (MRN, MRNSource, requester name and phone) are NOT selected - a Genie space invites open
+    # questions and those fields have no analytical use here.
     genie_cols = (
         [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
         + ["necessity_class", "gy_disposition", "total_score", "mobility_score",
@@ -812,8 +845,20 @@ if WRITE_GENIE_TABLE:
         + [F.col(FREE_TEXT_COL).alias("clinical_text")]
     )
     genie_df = df.select(*[F.col(c) if isinstance(c, str) else c for c in genie_cols])
+
+    # Run provenance, so anyone querying the space can see how current the data is and what it
+    # came from. RUN_TS is the same constant used for every file output from this run.
+    genie_df = (genie_df
+                .withColumn("run_ts", F.lit(RUN_TS))
+                .withColumn("source_table", F.lit(SOURCE_TABLE)))
+
+    # Full in-scope population - no row cap. The Excel review workbook is capped by Excel's own
+    # sheet limit; this table is not, so it is the authoritative count for any question of "how many".
     genie_df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(GENIE_TABLE)
-    print("Wrote Genie table:", GENIE_TABLE, "-", genie_df.count(), "rows")
+    genie_rows = spark.table(GENIE_TABLE).count()
+    print(f"Wrote Genie table: {GENIE_TABLE} - {genie_rows:,} rows (full in-scope population)")
+    if genie_rows != scope_count:
+        print(f"  NOTE: table rows ({genie_rows:,}) != in-scope count ({scope_count:,}) - investigate.")
 
     # Column comments - Genie relies on these to understand the data. Keep them factual.
     col_comments = {
@@ -829,6 +874,8 @@ if WRITE_GENIE_TABLE:
         "recommended_los": "Level of service implied by monitoring concepts (descriptive, not a billing call).",
         "why_labeled": "The concepts that matched and the exact text that triggered each.",
         "clinical_text": "The free-text reason-for-transport entered at order time (order-time / PCS-side documentation).",
+        "run_ts": "Timestamp (YYYYMMDD_HHMMSS) of the scoring run that produced this table. All rows share one value; the table is overwritten each run.",
+        "source_table": "The source table this run read from.",
     }
     for n, a, w, g, b, ref, url, pat in CONCEPTS:
         col_comments[n] = f"1 if the order text matched the {n} concept ({a} axis, weight {w}, {b}). Basis: {ref}."
@@ -841,8 +888,9 @@ if WRITE_GENIE_TABLE:
     spark.sql(
         f"COMMENT ON TABLE {GENIE_TABLE} IS "
         "'Non-emergent ground ambulance orders scored for medical-necessity documentation against "
-        "CMS criteria (order-time text only). One row per order. Labels describe the documentation, "
-        "not the trip, and are not a billing determination.'"
+        "CMS criteria (order-time text only). One row per order, full in-scope population, no row cap. "
+        "Wheelchair, ambulatory, air and emergent codes are excluded from scope. Labels describe the "
+        "documentation, not the trip, and are not a billing determination. Overwritten each run; see run_ts.'"
     )
     print("Applied column and table comments. Point a Genie space at:", GENIE_TABLE)
 
