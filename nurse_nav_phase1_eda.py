@@ -63,17 +63,20 @@ os.makedirs(OUT_DIR, exist_ok=True)
 RUN_ID = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
 
 
+# In-memory registry of every result frame produced this run.
+# Nothing is written to disk here - only the final Excel workbook (Section 9.2) is saved.
+RESULTS = {}
+
+
 def save(df: pd.DataFrame, name: str, stamp: bool = True) -> str:
-    """Write a result to the results folder and report where it landed."""
-    fname = f"{name}_{RUN_ID}.csv" if stamp else f"{name}.csv"
-    path = os.path.join(OUT_DIR, fname)
-    df.to_csv(path, index=False)
-    print(f"saved  {len(df):>7,} rows -> {fname}")
-    return path
+    """Register a result frame in memory for the workbook. Does not write a CSV."""
+    RESULTS[name] = df.copy()
+    print(f"kept   {len(df):>7,} rows -> {name}")
+    return name
 
 
 print("RUN_ID:", RUN_ID)
-print("results ->", OUT_DIR)
+print("workbook will be saved to ->", OUT_DIR)
 
 
 # ---------------------------------------------------------------
@@ -212,10 +215,10 @@ for key in ["logis_notes", "ed_calls_prepped", "gold"]:
 
 # COMMAND ----------
 
-# ### 0.2 Verify we can actually write to the results folder
+# ### 0.2 Verify the results folder is writable
 #
-# Runs a throwaway write/read/delete before any analysis. If output is going to fail, it fails here in two
-# seconds rather than after an expensive LLM run.
+# The only file this notebook saves is the Excel workbook at the end. This runs a throwaway write/read/delete
+# first so a permissions problem fails here in two seconds rather than after an expensive LLM run.
 
 # COMMAND ----------
 
@@ -229,7 +232,7 @@ try:
     print(f"OK -- writable: {OUT_DIR}")
 except Exception as e:
     print(f"CANNOT WRITE to {OUT_DIR}\n  {type(e).__name__}: {e}\n")
-    print("Falling back to local disk. Files will be copied to the results folder at the end.")
+    print("Falling back to local disk for the workbook.")
     OUT_DIR = "/tmp/nurse_nav_results"
     os.makedirs(OUT_DIR, exist_ok=True)
     print(f"OUT_DIR now: {OUT_DIR}")
@@ -800,7 +803,8 @@ SCHEMA:
 
   "transport_mode": {
     "mode": "ambulance_als | ambulance_bls | rideshare | self_or_family | none | unknown",
-    "arranged_by_program": boolean
+    "arranged_by_program": boolean,
+    "ride_initiated_by": "patient_or_family | program_or_nurse | unknown"
   },
 
   "decision_driver": {
@@ -821,7 +825,6 @@ SCHEMA:
     "call_disconnected_or_technical": boolean,
     "patient_unable_to_participate": boolean,
     "protocol_exclusion": boolean,
-    "nurse_ended_for_acuity": boolean,
     "caller_was_not_patient": boolean
   },
 
@@ -841,6 +844,16 @@ FIELD NOTES
   from the recorded disposition. This is the field that re-classifies mislabeled "self-care".
 - patient_stayed_home = true ONLY if the note shows no further care was sought.
 - transport_mode captures HOW they got there, separately from WHERE.
+- ride_initiated_by = WHO arranged the transport, which decides true self-care:
+    * "patient_or_family" ONLY if the note explicitly says the patient or a family member arranged the
+      ride themselves (for example "patient ordered own Lyft", "family will drive patient").
+    * "program_or_nurse" if the note says the nurse or program arranged it (for example "ride ordered",
+      "nurse ordered ride", "arranged transport").
+    * "unknown" if the note only says "a ride was ordered" without stating who. Set it to "unknown";
+      the analysis treats unknown as program-arranged, because an unattributed ride is assumed to be
+      arranged by the program.
+  True self-care means the program provided neither care nor transport: the patient handled it
+  themselves. A program-arranged or unattributed ride is NOT self-care.
 - triage_incomplete_reason applies to NMTARA 6 cases; leave all false otherwise.
 
 Now extract from the following Nurse Notes."""
@@ -873,9 +886,35 @@ BOOL_SECTIONS = {
     "triage_incomplete_reason": [
         "patient_refused_triage", "call_disconnected_or_technical",
         "patient_unable_to_participate", "protocol_exclusion",
-        "nurse_ended_for_acuity", "caller_was_not_patient",
+        "caller_was_not_patient",
     ],
 }
+
+# Plain-English descriptions of what each category means, for the business-facing tables.
+REASON_LABELS = {
+    # why triage was not completed
+    "patient_refused_triage":          "Patient would not answer the triage questions (typically wanted the ER)",
+    "call_disconnected_or_technical":  "The call dropped or hit a technical problem before triage finished",
+    "patient_unable_to_participate":   "Patient could not take part (confused, unresponsive, or intoxicated)",
+    "protocol_exclusion":              "The protocol did not allow triage for this type of call",
+    "caller_was_not_patient":          "The caller was someone other than the patient",
+    # why an ambulance was sent anyway (overrides)
+    "clinical_escalation_by_nurse":    "The nurse escalated based on clinical judgement",
+    "mobility_or_transport_barrier":   "The patient could not get there another way (bedbound, no transport)",
+    "patient_requested_ambulance_or_ed":"The patient asked for an ambulance or the ER",
+    "patient_refused_recommendation":  "The patient declined the recommended lower-acuity option",
+    "no_provider_available":           "No provider or facility was available",
+    "facility_closed_or_after_hours":  "The facility was closed or it was after hours",
+    "no_appointment_available":        "No appointment was available",
+    "device_or_procedure_need":        "The patient needed a device or procedure (for example a catheter)",
+    "insurance_or_cost_barrier":       "Insurance or cost was a barrier",
+    "language_or_communication_barrier":"A language or communication barrier",
+}
+
+
+def plain_label(key: str) -> str:
+    return REASON_LABELS.get(key, key.replace("_", " ").capitalize())
+
 
 def validate_extraction(raw: str) -> Tuple[bool, Dict[str, Any], str]:
     try:
@@ -967,7 +1006,27 @@ for section, keys in BOOL_SECTIONS.items():
 valid["actual_setting"]  = valid["obj"].apply(lambda o: o.get("care_setting_actual", {}).get("setting", "unknown"))
 valid["stayed_home"]     = valid["obj"].apply(lambda o: bool(o.get("care_setting_actual", {}).get("patient_stayed_home", False)))
 valid["transport"]       = valid["obj"].apply(lambda o: o.get("transport_mode", {}).get("mode", "unknown"))
+valid["arranged_by_program"] = valid["obj"].apply(lambda o: bool(o.get("transport_mode", {}).get("arranged_by_program", False)))
+valid["ride_initiated_by"]   = valid["obj"].apply(lambda o: o.get("transport_mode", {}).get("ride_initiated_by", "unknown"))
 valid["reason_documented"] = valid["obj"].apply(lambda o: bool(o.get("documentation", {}).get("reason_documented", False)))
+
+
+def is_true_self_care(row) -> bool:
+    """True self-care = the program provided neither care nor transport.
+    Per the self-care definition agreed with the business:
+      - patient stayed home with no care sought -> true self-care
+      - patient went somewhere but arranged their OWN transport -> still self-care
+      - program/nurse arranged the ride, OR the note is silent on who did (assume program) -> NOT self-care
+    """
+    if row["stayed_home"]:
+        return True
+    if row["arranged_by_program"]:
+        return False
+    # ambiguous / unattributed ride is assumed to be program-arranged
+    return row["ride_initiated_by"] == "patient_or_family"
+
+
+valid["true_self_care"] = valid.apply(is_true_self_care, axis=1)
 
 print("Reason documented rate by bucket:")
 print(valid.groupby("phase1_bucket")["reason_documented"].mean().mul(100).round(1))
@@ -1019,10 +1078,12 @@ display(pd.crosstab(outcome_df["where"], outcome_df["how"]))
 # ### 7.1 The self-care question
 #
 # The single most important number in Phase 1: of everything currently labeled **self-care**, how much was
-# genuinely *no care needed*, and how much was a patient who actually went somewhere (ED, urgent care)?
+# genuinely self-care, and how much was mislabeled?
 #
-# This quantifies how much of the current self-care bucket is mislabeled - the calls whose notes show the
-# patient did seek care.
+# Per the agreed definition, true self-care means the program provided neither care nor transport. A call
+# is NOT true self-care if the program or nurse arranged the ride, or if the note only says "a ride was
+# ordered" without naming who (an unattributed ride is assumed to be program-arranged). Only a patient- or
+# family-arranged ride, or no ride at all, counts as self-care.
 
 # COMMAND ----------
 
@@ -1041,10 +1102,41 @@ if len(sc):
     ax.set_xlabel("% of self-care calls")
     plt.tight_layout(); plt.show()
 
-    true_sc = (sc["where"] == "No care setting (true self-care)").mean()
-    mislabeled = 1 - true_sc
-    print(f"True self-care (no care needed): {true_sc:.1%}")
-    print(f"Mislabeled (patient actually went somewhere): {mislabeled:.1%}")
+    # Refined true self-care: uses who arranged the ride, not just where the patient ended up
+    true_rate = sc["true_self_care"].mean()
+    print(f"True self-care (program provided neither care nor transport): {true_rate:.1%}")
+    print(f"Mislabeled (program arranged transport, or ride not attributed): {1 - true_rate:.1%}")
+
+# COMMAND ----------
+
+# ### 7.1a Self-care by who arranged the ride
+#
+# Breaks the current self-care bucket down by who set up any transport. This is the distinction Noah
+# raised: a patient who arranged their own ride is self-care; a program-arranged or unattributed ride is
+# not. The "unattributed" row is the data-quality gap - the note did not say who ordered the ride, so it
+# is assumed to be program-arranged.
+
+# COMMAND ----------
+
+if len(sc):
+    def initiator_label(row):
+        if row["stayed_home"]:
+            return "No ride - stayed home (self-care)"
+        if row["ride_initiated_by"] == "patient_or_family" and not row["arranged_by_program"]:
+            return "Patient / family arranged ride (self-care)"
+        if row["arranged_by_program"] or row["ride_initiated_by"] == "program_or_nurse":
+            return "Program / nurse arranged ride (not self-care)"
+        return "Ride not attributed - assumed program (not self-care)"
+
+    sc_init = sc.copy()
+    sc_init["self_care_class"] = sc_init.apply(initiator_label, axis=1)
+    init_breakdown = (
+        sc_init["self_care_class"].value_counts(normalize=True).mul(100).round(1)
+        .rename("pct_of_self_care").to_frame()
+    )
+    init_breakdown["calls"] = sc_init["self_care_class"].value_counts()
+    display(init_breakdown)
+    save(init_breakdown, "self_care_by_ride_initiator")
 
 # COMMAND ----------
 
@@ -1055,23 +1147,28 @@ if len(sc):
 
 # COMMAND ----------
 
+def reason_mix_table(frame, section, pct_label):
+    keys = [k for k in BOOL_SECTIONS[section] if f"{section}.{k}" in frame.columns]
+    shares = {k: round(frame[f"{section}.{k}"].mean() * 100, 1) for k in keys}
+    out = pd.DataFrame({
+        "reason": [k.replace("_", " ").capitalize() for k in keys],
+        "what it means": [plain_label(k) for k in keys],
+        pct_label: [shares[k] for k in keys],
+    }).sort_values(pct_label, ascending=False).reset_index(drop=True)
+    return out
+
+
 n6 = outcome_df[outcome_df["phase1_bucket"] == "NMTARA 6 (triage not completed)"] if "outcome_df" in globals() else pd.DataFrame()
 if len(n6):
-    cols = [f"triage_incomplete_reason.{k}" for k in BOOL_SECTIONS["triage_incomplete_reason"]]
-    mix = n6[cols].mean().mul(100).round(1).sort_values(ascending=False)
-    mix.index = [i.split(".")[-1].replace("_", " ").title() for i in mix.index]
-    n6_mix = mix.rename("% of NMTARA 6 calls").to_frame()
+    n6_mix = reason_mix_table(n6, "triage_incomplete_reason", "% of NMTARA 6 calls")
     display(n6_mix)
-    save(n6_mix.reset_index().rename(columns={"index": "reason"}), "nmtara6_reason_mix")
+    save(n6_mix, "nmtara6_reason_mix")
 
 ov = outcome_df[outcome_df["phase1_bucket"] == "1-5 ambulance override"] if "outcome_df" in globals() else pd.DataFrame()
 if len(ov):
-    cols = [f"decision_driver.{k}" for k in BOOL_SECTIONS["decision_driver"]]
-    mix = ov[cols].mean().mul(100).round(1).sort_values(ascending=False)
-    mix.index = [i.split(".")[-1].replace("_", " ").title() for i in mix.index]
-    ov_mix = mix.rename("% of override calls").to_frame()
+    ov_mix = reason_mix_table(ov, "decision_driver", "% of override calls")
     display(ov_mix)
-    save(ov_mix.reset_index().rename(columns={"index": "reason"}), "override_reason_mix")
+    save(ov_mix, "override_reason_mix")
 
 # COMMAND ----------
 
@@ -1132,6 +1229,44 @@ if len(ov):
     driver_split_out = driver_split.copy()
     driver_split_out.loc[len(driver_split_out)] = ["Calls with more than one reason", multi_reason_pct]
     save(driver_split_out, "override_driver_split")
+
+# COMMAND ----------
+
+# ### 7.3a Override reason combinations
+#
+# Because a single override can carry more than one reason, this lists the actual combinations of reasons
+# recorded together, most common first. Calls with one reason show that single reason; calls with several
+# show every reason included, joined with " + ". This makes the multi-reason overrides explicit rather than
+# hiding them inside the individual percentages above.
+
+# COMMAND ----------
+
+if len(ov):
+    drv_keys = [k for k in BOOL_SECTIONS["decision_driver"] if f"decision_driver.{k}" in ov.columns]
+
+    def reason_combo(row):
+        present = [k.replace("_", " ").capitalize() for k in drv_keys if row[f"decision_driver.{k}"]]
+        if not present:
+            return "None documented"
+        return " + ".join(present)
+
+    ov_combo = ov.copy()
+    ov_combo["reasons_included"] = ov_combo.apply(reason_combo, axis=1)
+    ov_combo["n_reasons"] = ov_combo[[f"decision_driver.{k}" for k in drv_keys]].sum(axis=1)
+
+    combos = (
+        ov_combo["reasons_included"].value_counts()
+        .rename("calls").to_frame()
+        .assign(**{"% of override calls": lambda d: (d["calls"] / len(ov_combo) * 100).round(1)})
+        .reset_index().rename(columns={"index": "reasons_included"})
+        .head(15)
+    )
+    display(combos)
+    save(combos, "override_reason_combinations")
+
+    single = (ov_combo["n_reasons"] == 1).mean() * 100
+    multi = (ov_combo["n_reasons"] > 1).mean() * 100
+    print(f"Override calls with a single reason: {single:.1f}%  |  with more than one reason: {multi:.1f}%")
 
 # COMMAND ----------
 
@@ -1212,6 +1347,213 @@ examples = pd.concat([
 if len(examples):
     display(examples)
     save(examples, "reason_examples")
+
+# COMMAND ----------
+
+# ## 7.6 Phase 2 exploration checks
+#
+# The following sections answer the Phase 2 review questions. Each is current-system only and registers a
+# workbook tab. Sections that read reasons or transport use the AI sample; sections that use only the
+# disposition code or triage level use the full population.
+
+# COMMAND ----------
+
+# ### 7.6.1 Data coverage (Phase 2 item 1: extend the data)
+# Reports the actual date span and month coverage of whatever extract is loaded, so a one-month or a
+# full-year pull is described the same way with no hard-coded window.
+if DATE_COL:
+    _d = analysis[DATE_COL].dropna()
+    if len(_d):
+        months = _d.dt.to_period("M")
+        coverage = months.value_counts().sort_index().rename("calls").to_frame()
+        coverage.index = coverage.index.astype(str)
+        coverage.index.name = "month"
+        coverage = coverage.reset_index()
+        print(f"Date span: {_d.min().date()} to {_d.max().date()}  |  months covered: {months.nunique()}")
+        display(coverage)
+        save(coverage, "data_coverage")
+
+# COMMAND ----------
+
+# ### 7.6.2 Client storylines (Phase 2 item 2: insights by market and client)
+# One row per market with the key current-system rates, so each client has a self-contained storyline.
+if CLIENT_COL:
+    def storyline(frame, label):
+        n = len(frame)
+        if n == 0:
+            return None
+        dl = frame[DISPO_COL].fillna("").str.lower()
+        row = {
+            "market": label,
+            "calls": n,
+            "self_care_pct": round(dl.str.contains("self", na=False).mean() * 100, 1),
+            "urgent_care_pct": round(dl.str.contains("urgent", na=False).mean() * 100, 1),
+            "ambulance_pct": round(dl.str.contains("ambulance|bls|als|911", regex=True, na=False).mean() * 100, 1),
+        }
+        if "nmtara_level" in frame.columns:
+            row["nmtara6_pct"] = round(frame["nmtara_level"].eq(6).mean() * 100, 1)
+        if "is_amb_override" in frame.columns:
+            row["amb_override_pct"] = round(frame["is_amb_override"].mean() * 100, 1)
+        return row
+
+    rows = [storyline(analysis, "National")]
+    for cl, grp in analysis.groupby(CLIENT_COL):
+        if len(grp) >= (MIN_CLIENT_CALLS if "MIN_CLIENT_CALLS" in globals() else 100):
+            rows.append(storyline(grp, cl))
+    client_storylines = pd.DataFrame([r for r in rows if r])
+    display(client_storylines)
+    save(client_storylines, "client_storylines")
+
+# COMMAND ----------
+
+# ### 7.6.3 Self-care at home by chief complaint (Phase 2 item 3)
+# Among self-care calls where the patient stayed home, which chief complaints appear most often.
+if "outcome_df" in globals() and "protocol_trigger" in outcome_df.columns:
+    home = outcome_df[(outcome_df["phase1_bucket"] == "Self-care") & (outcome_df["stayed_home"])]
+    if len(home):
+        sc_complaint = (
+            home["protocol_trigger"].replace("", "Not stated").value_counts()
+            .rename("calls").to_frame()
+            .assign(**{"% of stayed-home self-care": lambda d: (d["calls"] / len(home) * 100).round(1)})
+            .reset_index().rename(columns={"index": "chief_complaint"})
+            .head(12)
+        )
+        display(sc_complaint)
+        save(sc_complaint, "self_care_by_complaint")
+
+# COMMAND ----------
+
+# ### 7.6.4 Program-arranged transport bins: GMR ambulance, ER, Lyft (Phase 2 item 4)
+# For rides the program or nurse arranged, bin by how the patient was moved and where to.
+if "outcome_df" in globals():
+    prog = outcome_df[(outcome_df["arranged_by_program"]) |
+                      (outcome_df["ride_initiated_by"] == "program_or_nurse")]
+    if len(prog):
+        def transport_bin(row):
+            mode = str(row.get("transport", "")).lower()
+            setting = str(row.get("actual_setting", "")).lower()
+            if "ambulance" in mode or "bls" in mode or "als" in mode:
+                return "GMR ambulance"
+            if "rideshare" in mode:
+                return "Rideshare / Lyft"
+            if "emergency" in setting:
+                return "To ER (mode not stated)"
+            return "Other / not stated"
+        prog = prog.copy()
+        prog["transport_bin"] = prog.apply(transport_bin, axis=1)
+        program_bins = (
+            prog["transport_bin"].value_counts()
+            .rename("calls").to_frame()
+            .assign(**{"% of program-arranged": lambda d: (d["calls"] / len(prog) * 100).round(1)})
+            .reset_index().rename(columns={"index": "transport_bin"})
+        )
+        display(program_bins)
+        save(program_bins, "program_transport_bins")
+
+# COMMAND ----------
+
+# ### 7.6.5 Call drop / technical issue focus (Phase 2 item 5)
+# The NMTARA 6 calls that ended from a dropped call or technical problem, sized and split by market.
+if "outcome_df" in globals() and "triage_incomplete_reason.call_disconnected_or_technical" in outcome_df.columns:
+    drop = outcome_df[outcome_df["triage_incomplete_reason.call_disconnected_or_technical"]]
+    n6_all = outcome_df[outcome_df["phase1_bucket"] == "NMTARA 6 (triage not completed)"]
+    print(f"Call-drop / technical calls: {len(drop)} "
+          f"({(len(drop)/len(n6_all)*100 if len(n6_all) else 0):.1f}% of NMTARA 6 calls read)")
+    if CLIENT_COL and CLIENT_COL in drop.columns and len(drop):
+        call_drop_focus = (
+            drop[CLIENT_COL].value_counts()
+            .rename("call_drop_calls").to_frame()
+            .reset_index().rename(columns={"index": "market"})
+        )
+        display(call_drop_focus)
+        save(call_drop_focus, "call_drop_focus")
+
+# COMMAND ----------
+
+# ### 7.6.6 Clinical-decision overrides by chief complaint (Phase 2 item 6)
+# For overrides the nurse escalated on clinical judgement, which presenting complaints drove them.
+if "ov" in globals() and "protocol_trigger" in ov.columns and "decision_driver.clinical_escalation_by_nurse" in ov.columns:
+    clin = ov[ov["decision_driver.clinical_escalation_by_nurse"]]
+    if len(clin):
+        clinical_by_complaint = (
+            clin["protocol_trigger"].replace("", "Not stated").value_counts()
+            .rename("calls").to_frame()
+            .assign(**{"% of clinical-escalation overrides": lambda d: (d["calls"] / len(clin) * 100).round(1)})
+            .reset_index().rename(columns={"index": "chief_complaint"})
+            .head(12)
+        )
+        display(clinical_by_complaint)
+        save(clinical_by_complaint, "clinical_escalation_by_complaint")
+
+# COMMAND ----------
+
+# ### 7.6.7 Top chief complaints driving overrides (Phase 2 item 7)
+# The presenting complaints most often behind an override, to spot divertible patterns.
+if "ov" in globals() and "protocol_trigger" in ov.columns and len(ov):
+    override_top_complaints = (
+        ov["protocol_trigger"].replace("", "Not stated").value_counts()
+        .rename("calls").to_frame()
+        .assign(**{"% of override calls": lambda d: (d["calls"] / len(ov) * 100).round(1)})
+        .reset_index().rename(columns={"index": "chief_complaint"})
+        .head(10)
+    )
+    display(override_top_complaints)
+    save(override_top_complaints, "override_top_complaints")
+
+# COMMAND ----------
+
+# ### 7.6.8 Mobility drivers (Phase 2 item 7: what drives mobility barriers)
+# Among overrides with a mobility or transport barrier, scan the notes for the specific driver.
+MOBILITY_DRIVERS = {
+    "Wheelchair":        ["wheelchair", "w/c"],
+    "Bedbound":          ["bedbound", "bed bound", "bed-bound"],
+    "Cannot ambulate":   ["cannot ambulate", "unable to ambulate", "non-ambulatory", "nonambulatory", "unable to walk"],
+    "Stairs":            ["stairs", "staircase", "second floor", "upstairs"],
+    "Bariatric / lift":  ["bariatric", "lift assist", "lift-assist", "heavy", "two person"],
+    "No transport":      ["no transport", "no ride", "no car", "no one to drive", "no way to get"],
+}
+if "ov" in globals() and "decision_driver.mobility_or_transport_barrier" in ov.columns and NOTES_COL in ov.columns:
+    mob = ov[ov["decision_driver.mobility_or_transport_barrier"]]
+    if len(mob):
+        text = mob[NOTES_COL].fillna("").str.lower()
+        rows = []
+        for label, terms in MOBILITY_DRIVERS.items():
+            hits = text.apply(lambda t: any(term in t for term in terms)).sum()
+            rows.append({"mobility_driver": label, "calls": int(hits),
+                         "% of mobility-barrier overrides": round(hits / len(mob) * 100, 1)})
+        mobility_drivers = pd.DataFrame(rows).sort_values("calls", ascending=False).reset_index(drop=True)
+        display(mobility_drivers)
+        save(mobility_drivers, "mobility_drivers")
+
+# COMMAND ----------
+
+# ### 7.6.9 Override opportunities: access vs mobility vs clinical (Phase 2 item 7)
+# Splits overrides into groups that suggest different opportunities. Access and appointment barriers may be
+# divertible to urgent care or telehealth; mobility barriers point to transport solutions; clinical
+# escalations are the nurse's judgement.
+if "ov" in globals() and len(ov):
+    def has_any(frame, keys):
+        cols = [f"decision_driver.{k}" for k in keys if f"decision_driver.{k}" in frame.columns]
+        return frame[cols].any(axis=1) if cols else pd.Series(False, index=frame.index)
+
+    access_keys = ["no_provider_available", "facility_closed_or_after_hours", "no_appointment_available",
+                   "insurance_or_cost_barrier"]
+    opp = pd.DataFrame({
+        "opportunity_group": [
+            "Access / appointment (divertible to UC or telehealth)",
+            "Mobility / transport (transport solution)",
+            "Patient request",
+            "Clinical escalation (nurse judgement)",
+        ],
+        "% of override calls": [
+            round(has_any(ov, access_keys).mean() * 100, 1),
+            round(has_any(ov, ["mobility_or_transport_barrier", "device_or_procedure_need"]).mean() * 100, 1),
+            round(has_any(ov, ["patient_requested_ambulance_or_ed", "patient_refused_recommendation"]).mean() * 100, 1),
+            round(has_any(ov, ["clinical_escalation_by_nurse"]).mean() * 100, 1),
+        ],
+    })
+    display(opp)
+    save(opp, "override_opportunities")
 
 # COMMAND ----------
 
@@ -1323,6 +1665,59 @@ if "outcome_df" in globals() and len(outcome_df):
 
 # COMMAND ----------
 
+# ### 8.3 Logis-coded vs LLM-abstracted bucket percentages
+#
+# The Logis assessment column already carries a discrete code the nurse selected, and leadership reviews
+# those codes today. This compares, per bucket, the percentage from that coded column against the percentage
+# the LLM abstracts from the notes.
+#
+# The gap is the insight: if the coded rate and the note-abstracted rate differ sharply, it points to
+# overrides or self-care that were performed but not registered in the Logis codes - that is, the coded data
+# may be incomplete. NMTARA 6 is usually visible in the coded column; overrides often are not, because the
+# code shows a BLS transport without the disposition, so that row may be coded-blank by design.
+
+# COMMAND ----------
+
+# Coded rate: share of ALL analysis calls whose recorded disposition code maps to each bucket.
+_all = analysis[DISPO_COL].fillna("").str.lower()
+coded = {
+    "Self-care": _all.str.contains("self", na=False).mean() * 100,
+    "NMTARA 6 (triage not completed)": analysis["nmtara_level"].eq(6).mean() * 100
+        if "nmtara_level" in analysis.columns else float("nan"),
+    "1-5 ambulance override": analysis["is_amb_override"].mean() * 100
+        if "is_amb_override" in analysis.columns else float("nan"),
+}
+
+# Abstracted rate: share the LLM read of the notes supports, over the same denominator.
+# Self-care uses the refined true_self_care flag; the other two use the note-confirmed reason.
+abstracted = {}
+if "outcome_df" in globals() and len(outcome_df):
+    n_total = len(analysis)
+    sc_all = outcome_df[outcome_df["phase1_bucket"] == "Self-care"]
+    abstracted["Self-care"] = (sc_all["true_self_care"].sum() / n_total * 100) if n_total else float("nan")
+
+    n6_all = outcome_df[outcome_df["phase1_bucket"] == "NMTARA 6 (triage not completed)"]
+    n6_conf = n6_all[[f"triage_incomplete_reason.{k}" for k in BOOL_SECTIONS["triage_incomplete_reason"]
+                      if f"triage_incomplete_reason.{k}" in n6_all.columns]].any(axis=1).sum() if len(n6_all) else 0
+    abstracted["NMTARA 6 (triage not completed)"] = (n6_conf / n_total * 100) if n_total else float("nan")
+
+    ov_all = outcome_df[outcome_df["phase1_bucket"] == "1-5 ambulance override"]
+    ov_conf = ov_all[[f"decision_driver.{k}" for k in BOOL_SECTIONS["decision_driver"]
+                      if f"decision_driver.{k}" in ov_all.columns]].any(axis=1).sum() if len(ov_all) else 0
+    abstracted["1-5 ambulance override"] = (ov_conf / n_total * 100) if n_total else float("nan")
+
+compare = pd.DataFrame({
+    "bucket": list(coded.keys()),
+    "coded_pct": [round(coded[k], 1) for k in coded],
+    "llm_abstracted_pct": [round(abstracted.get(k, float("nan")), 1) for k in coded],
+})
+compare["gap_pts"] = (compare["llm_abstracted_pct"] - compare["coded_pct"]).round(1)
+display(compare)
+save(compare, "coded_vs_abstracted")
+print("A large gap suggests the Logis codes may not capture every override or self-care case.")
+
+# COMMAND ----------
+
 # ## 9. Baseline by client
 #
 # The current-system reported rates for each bucket, national and per client. This is the "before" picture
@@ -1357,59 +1752,36 @@ save(baseline, "phase1_baseline_by_client")
 
 # COMMAND ----------
 
-# ### 9.1 Export everything to the results folder
+# ### 9.1 Register remaining frames for the workbook
 #
-# Writes every artifact this notebook produced to
-# `Workspace > Users > josh.smitherman@gmr.net > nurse_nav > results`, each stamped with the run ID so prior
-# runs are never overwritten and any number can be traced back to the run that produced it.
-#
-# | File | What it is | Who it's for |
-# |---|---|---|
-# | `bucket_summary` | Size of each of the three buckets | Anisa - the "before" picture |
-# | `bucket_trend_quarterly` | Bucket mix over time | Anisa - is history stable enough to use as one baseline |
-# | `note_quality_by_bucket` | Usable-note share per bucket | Internal - feasibility / coverage caveat |
-# | `reason_keyword_coverage` | Keyword pre-pass results | Internal - sanity check before LLM spend |
-# | `llm_extractions_raw` | Raw JSON extractions | Internal - the expensive artifact, reusable |
-# | `self_care_breakdown` | Where the current self-care bucket actually went | **Client-facing headline** |
-# | `nmtara6_reason_mix` | Why triage wasn't completed | Anisa |
-# | `override_reason_mix` | Why an ambulance was sent anyway | Anisa |
-# | `override_reasons_by_protocol` | Override drivers by chief complaint | Clinical - Dr. Stites / Dr. Troutman |
-# | `validation_disagreements` | Cases differing from the hand-coded set | Anisa - trust building |
-# | `evidence_audit_sample` | Extracted flags with supporting quotes | Clinical sign-off |
-# | `phase1_baseline_by_client` | KPI baseline, national and per client | Account teams |
+# The analysis cells above already registered their results in memory via save(). This cell registers a few
+# extra frames that are built inline (inventory, profile, case-level outcomes, analysis frame). Nothing is
+# written to disk here - the single Excel workbook in Section 9.2 is the only file this notebook saves.
 
 # COMMAND ----------
 
-written = []
-
-def try_save(obj_name: str, name: str):
-    """Save a frame by variable name -- tolerates cells that were skipped or failed."""
+def register(obj_name: str, name: str):
+    """Add a frame to the workbook registry by variable name; tolerates skipped cells."""
     obj = globals().get(obj_name)
     if obj is None:
-        print(f"skip   {name} (not built -- upstream cell skipped or failed)")
+        print(f"skip   {name} (not built)")
         return
     try:
         if len(obj) == 0:
             print(f"skip   {name} (empty)")
             return
         df = obj.to_frame() if isinstance(obj, pd.Series) else obj
-        if isinstance(df.index, pd.MultiIndex) or df.index.name or not isinstance(
-            df.index, pd.RangeIndex
-        ):
+        if isinstance(df.index, pd.MultiIndex) or df.index.name or not isinstance(df.index, pd.RangeIndex):
             df = df.reset_index()
-        written.append((name, save(df, name), len(df)))
+        RESULTS[name] = df
+        print(f"kept   {len(df):>7,} rows -> {name}")
     except Exception as e:
         print(f"FAILED {name}: {e}")
 
 
-try_save("inventory",  "data_folder_inventory")
-try_save("summary",    "bucket_summary")
-try_save("trend_pct",  "bucket_trend_quarterly")
-try_save("qual",       "note_quality_by_bucket")
-try_save("heat",       "reason_keyword_coverage")
-try_save("profile",    "field_profile")
+register("inventory", "data_folder_inventory")
+register("profile",   "field_profile")
 
-# case-level outcomes: one row per call with the documented outcome read from the note
 if "outcome_df" in globals():
     outcome_cols = [c for c in [
         "case_id", "phase1_bucket", "nmtara_level", "protocol_trigger",
@@ -1417,33 +1789,21 @@ if "outcome_df" in globals():
         "where", "how", "reason_documented",
     ] if c in outcome_df.columns]
     globals()["_outcome_export"] = outcome_df[outcome_cols]
-    try_save("_outcome_export", "case_level_outcomes")
+    register("_outcome_export", "case_level_outcomes")
 
-try_save("breakdown", "self_care_breakdown")
-
-# always export the analysis frame, even if the LLM steps never ran
 base_cols = [c for c in [
     "case_id", EPISODE_KEY, "phase1_bucket", "nmtara_level", NMTARA_COL,
     DISPO_COL, CLIENT_COL, DATE_COL, "note_len", "note_quality",
     "is_operational_only", "n_reason_tags",
 ] if c and c in analysis.columns]
 globals()["_analysis_export"] = analysis[base_cols]
-try_save("_analysis_export", "analysis_frame")
+register("_analysis_export", "analysis_frame")
 
 print("\n" + "=" * 70)
-print(f"{len(written)} files written to {OUT_DIR}")
+print(f"{len(RESULTS)} frames registered for the workbook")
 print("=" * 70)
-display(pd.DataFrame(written, columns=["artifact", "path", "rows"]))
-
-# Confirm files are on disk; don't trust the write blind
-on_disk = sorted(glob.glob(os.path.join(OUT_DIR, f"*{RUN_ID}*")))
-print(f"\nFiles present in results folder for run {RUN_ID}: {len(on_disk)}")
-for f in on_disk:
-    print(f"  {os.path.basename(f):55s} {os.path.getsize(f)/1024:>8,.1f} KB")
-
-if not on_disk:
-    print("\nNOTHING WAS WRITTEN. Check section 0.2 -- the folder may not be writable "
-          "from this cluster, or an earlier cell failed and these frames never got built.")
+for k, v in RESULTS.items():
+    print(f"  {k:32s} {len(v):>7,} rows")
 
 # COMMAND ----------
 
@@ -1461,12 +1821,24 @@ if not on_disk:
 # | **Start Here** | Goal, method, how to read the workbook |
 # | **Bucket Sizes** | How big each of the three buckets is |
 # | **Self-Care Breakdown** | Where the current self-care bucket actually went - the headline |
+# | **Self-Care by Ride** | Self-care split by who arranged the ride (patient vs program) |
 # | **NMTARA 6 Reasons** | Why triage wasn't completed |
 # | **Override Reasons** | Why an ambulance was sent anyway |
 # | **Override Driver Split** | Nurse-initiated vs patient-initiated vs access |
+# | **Override Combinations** | The actual reason combinations recorded together |
 # | **Override by Protocol** | Override drivers by chief complaint |
 # | **Diversion Insight** | Self-care / urgent-care share kept out of the ED |
 # | **AI vs System Match** | How often the AI category matches the recorded code |
+# | **Coded vs Abstracted** | Bucket rates from Logis codes vs from the notes, with the gap |
+# | **Client Storylines** | Key current-system rates per market |
+# | **Self-Care by Complaint** | Chief complaints among stayed-home self-care |
+# | **Program Transport Bins** | Program-arranged rides by GMR ambulance / ER / rideshare |
+# | **Call Drop Focus** | The dropped-call / technical NMTARA 6 subset, by market |
+# | **Clinical by Complaint** | Clinical-escalation overrides by chief complaint |
+# | **Override Top Complaints** | Top chief complaints driving overrides |
+# | **Mobility Drivers** | What drives mobility-barrier overrides (wheelchair, stairs, etc.) |
+# | **Override Opportunities** | Access vs mobility vs clinical, for diversion opportunities |
+# | **Data Coverage** | Calls per month in the loaded extract |
 # | **Reason Examples** | Sample notes with quotes for a chosen reason |
 # | **Baseline by Client** | KPI baseline, national and per client |
 # | **Note Coverage** | Share of usable notes per bucket (feasibility) |
@@ -1480,15 +1852,27 @@ if not on_disk:
 WORKBOOK_TABS = [
     ("bucket_summary",              "Bucket Sizes"),
     ("self_care_breakdown",         "Self-Care Breakdown"),
+    ("self_care_by_ride_initiator", "Self-Care by Ride"),
     ("nmtara6_reason_mix",          "NMTARA 6 Reasons"),
     ("override_reason_mix",         "Override Reasons"),
     ("override_driver_split",       "Override Driver Split"),
+    ("override_reason_combinations","Override Combinations"),
     ("override_reasons_by_protocol","Override by Protocol"),
     ("diversion_insight",           "Diversion Insight"),
     ("bucket_trend_quarterly",      "Bucket Trend"),
     ("phase1_baseline_by_client",   "Baseline by Client"),
     ("note_quality_by_bucket",      "Note Coverage"),
+    ("client_storylines",           "Client Storylines"),
+    ("self_care_by_complaint",      "Self-Care by Complaint"),
+    ("program_transport_bins",      "Program Transport Bins"),
+    ("call_drop_focus",             "Call Drop Focus"),
+    ("clinical_escalation_by_complaint","Clinical by Complaint"),
+    ("override_top_complaints",     "Override Top Complaints"),
+    ("mobility_drivers",            "Mobility Drivers"),
+    ("override_opportunities",      "Override Opportunities"),
+    ("data_coverage",               "Data Coverage"),
     ("categorization_match",        "AI vs System Match"),
+    ("coded_vs_abstracted",         "Coded vs Abstracted"),
     ("reason_examples",             "Reason Examples"),
     ("validation_disagreements",    "Validation"),
     ("evidence_audit_sample",       "Evidence Sample"),
@@ -1515,8 +1899,10 @@ INTRO_TEXT = [
      "behind every finding so a clinician can check it.", "p"),
     ("4. Read from each note where the patient actually ended up, which exposes mislabeled self-care.", "p"),
     ("5. Grouped override reasons by who drove the decision (nurse, patient, or access).", "p"),
-    ("6. Checked the AI categories against the codes the current system already records, and against the "
-     "cases coded by hand.", "p"),
+    ("6. Classified self-care by who arranged the ride: a patient-arranged ride is self-care, a "
+     "program-arranged or unattributed ride is not.", "p"),
+    ("7. Checked the AI categories against the codes the current system already records, and compared the "
+     "bucket rates from the Logis codes against the rates read from the notes.", "p"),
     ("", "gap"),
     ("The headline question", "h"),
     ("Of everything currently labelled 'self-care', how much was truly no-care-needed versus a patient "
@@ -1577,14 +1963,10 @@ with pd.ExcelWriter(xlsx_path, engine=engine) as writer:
         intro_df.to_excel(writer, sheet_name="Start Here", index=False)
 
     for stem, tab in WORKBOOK_TABS:
-        matches = glob.glob(os.path.join(OUT_DIR, f"{stem}_{RUN_ID}.csv"))
-        if not matches:
-            print(f"skip   {tab:22s} (no {stem} csv this run)")
+        df = RESULTS.get(stem)
+        if df is None:
+            print(f"skip   {tab:22s} (not produced this run)")
             continue
-        try:
-            df = pd.read_csv(matches[0])
-        except pd.errors.EmptyDataError:
-            df = pd.DataFrame()
         if df.empty:
             print(f"skip   {tab:22s} (empty)")
             continue
@@ -1608,8 +1990,8 @@ with pd.ExcelWriter(xlsx_path, engine=engine) as writer:
         print(f"added  {tab}")
 
 print(f"\nWorkbook written: {os.path.basename(xlsx_path)}  ({tabs_written + 1} tabs)")
-present = glob.glob(os.path.join(OUT_DIR, f"Nurse_Nav_Phase1_Analysis_{RUN_ID}.xlsx"))
-print("On disk:", bool(present), present[0] if present else "")
+print("On disk:", os.path.exists(xlsx_path), "->", xlsx_path)
+print("This workbook is the only file this notebook writes; no CSVs are saved.")
 
 # COMMAND ----------
 
