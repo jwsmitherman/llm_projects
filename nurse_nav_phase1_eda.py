@@ -1,38 +1,4 @@
 # Databricks notebook source
-# # Nurse Navigation - Phase 1 Exploratory Data Analysis
-#
-# **Purpose:** establish a historical baseline for the three buckets that will move most when the new
-# operating system goes live: **Self-Care**, **NMTARA 6 (triage not completed)**, and
-# **NMTARA 1-5 ambulance overrides**.
-#
-# **Method:** the existing `nurse_nav_eda.py` pipeline (clean -> LLM extraction -> rules engine -> disposition LLM
-# -> rationale rollup) is reused, but pointed at the three buckets and extended with the exploratory steps
-# needed before we can trust the output at scale.
-#
-# **Notebook flow**
-#
-# | Section | Question it answers |
-# |---|---|
-# | 1 | What data do we actually have, and over what period? |
-# | 2 | What is a "call"? (work set ID de-duplication) |
-# | 3 | How big are the three buckets, nationally and by client? |
-# | 4 | Are the notes good enough to answer *why*? |
-# | 5 | What reasons show up, before we spend money on an LLM? |
-# | 6 | Structured extraction of the *why* from the notes |
-# | 7 | Where each call ended up, override driver split, diversion, examples |
-# | 8 | Validation, and AI categories vs the current system codes |
-# | 9 | Baseline by client (current-system rates) |
-#
-# > Cells that call the LLM endpoint are marked **[COST]**. Run them on a sample first.
-
-# COMMAND ----------
-
-# ## 0. Setup and configuration
-#
-# Everything environment-specific lives here so the rest of the notebook is portable between the
-# Databricks volume and a local copy.
-
-# COMMAND ----------
 
 import os, re, json, warnings
 from typing import Dict, Any, List, Tuple
@@ -46,25 +12,18 @@ pd.set_option("display.max_columns", 200)
 pd.set_option("display.width", 200)
 pd.set_option("display.max_colwidth", 300)
 
-# ---------------------------------------------------------------
-# CONFIG: Databricks workspace files
-#   Workspace > Users > josh.smitherman@gmr.net > nurse_nav > data
-# ---------------------------------------------------------------
 DATA_DIR = "/Workspace/Users/josh.smitherman@gmr.net/nurse_nav/data"
 OUT_DIR  = "/Workspace/Users/josh.smitherman@gmr.net/nurse_nav/results"
 
-SAMPLE_N    = 500      # rows per run while iterating
+SAMPLE_N    = 500
 RANDOM_SEED = 42
 LLM_MODEL   = "databricks-gpt-oss-120b"
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# Stamp every run so prior runs aren't overwritten
 RUN_ID = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
 
 
-# In-memory registry of every result frame produced this run.
-# Nothing is written to disk here - only the final Excel workbook (Section 9.2) is saved.
 RESULTS = {}
 
 
@@ -79,20 +38,10 @@ print("RUN_ID:", RUN_ID)
 print("workbook will be saved to ->", OUT_DIR)
 
 
-# ---------------------------------------------------------------
-# File discovery
-#
-# Filenames are NOT hardcoded. The folder contains a mix of .csv and .xlsx,
-# plus timestamped duplicates that Databricks creates on re-upload
-# (e.g. "logis_notes 2026-07-21 12:21:35.xlsx"). We resolve each logical
-# dataset to a single newest file so the notebook keeps working as the
-# folder changes.
-# ---------------------------------------------------------------
 import glob
 
 READABLE_EXT = (".csv", ".xlsx", ".xls", ".parquet", ".tsv")
 
-# logical name -> regex for the filename stem (lowercased)
 DATASET_PATTERNS = {
     "logis_notes":      r"^logis[_ ]notes",
     "ed_calls_prepped": r"^ed[_ ]calls[_ ]nmtara[_ ]6[_ ]removed[_ ]prepped",
@@ -104,7 +53,6 @@ DATASET_PATTERNS = {
     "second_llm_set_2": r"^second[_ ]set[_ ]for[_ ]2nd[_ ]llm",
 }
 
-# preference order when the same dataset exists in multiple formats
 EXT_PREFERENCE = [".parquet", ".csv", ".xlsx", ".xls", ".tsv"]
 
 
@@ -120,7 +68,6 @@ def discover(data_dir: str) -> Dict[str, str]:
         ]
         if not hits:
             continue
-        # sort newest first, then by preferred format
         hits.sort(key=lambda f: (
             -os.path.getmtime(f),
             EXT_PREFERENCE.index(os.path.splitext(f)[1].lower())
@@ -134,8 +81,6 @@ def discover(data_dir: str) -> Dict[str, str]:
 PATHS = discover(DATA_DIR)
 PATHS["out_dir"] = OUT_DIR
 
-# Primary input for Phase 1. Needs ALL navigations; the ED_calls_* sets have
-# NMTARA 6 removed, which is one of the three buckets we must explain.
 PRIMARY_INPUT = PATHS.get("logis_notes") or PATHS.get("ed_calls_prepped")
 
 for k, v in PATHS.items():
@@ -143,23 +88,6 @@ for k, v in PATHS.items():
 print(f"\nPRIMARY_INPUT       -> {os.path.basename(PRIMARY_INPUT) if PRIMARY_INPUT else 'NOT FOUND'}")
 
 # COMMAND ----------
-
-# ### 0.1 What is actually in the data folder
-#
-# Lists every file present, flags timestamped duplicates, and shows which one each logical dataset resolved to.
-#
-# > **Two things to watch.**
-# >
-# > 1. **Duplicate uploads.** Databricks appends a timestamp when a file is re-uploaded, so
-# >    `logis_notes.xlsx` and `logis_notes 2026-07-21 12:21:35.xlsx` can both exist. The discovery step picks
-# >    the newest - verify below that it picked the one you intend.
-# > 2. **Scope gap (blocking).** The `ED_calls_*` sets are from the earlier ED-appropriateness run and have
-# >    **NMTARA 6 removed** - one of the three Phase 1 buckets. They are also ED-focused, so self-care and
-# >    1-5 ambulance overrides are likely under-represented. Phase 1 needs a full-population extract from Rich.
-# >    Until then, treat bucket sizes as provisional.
-
-# COMMAND ----------
-
 rows = []
 for f in sorted(glob.glob(os.path.join(DATA_DIR, "*"))):
     base = os.path.basename(f)
@@ -183,8 +111,6 @@ if len(dupes):
     display(dupes[["file", "MB", "modified", "resolved_as"]])
 
 # COMMAND ----------
-
-# Sheet/column preview for each candidate input to pick one to build on
 def peek(path: str, n: int = 3):
     print("=" * 90)
     print(os.path.basename(path))
@@ -214,14 +140,6 @@ for key in ["logis_notes", "ed_calls_prepped", "gold"]:
         peek(PATHS[key])
 
 # COMMAND ----------
-
-# ### 0.2 Verify the results folder is writable
-#
-# The only file this notebook saves is the Excel workbook at the end. This runs a throwaway write/read/delete
-# first so a permissions problem fails here in two seconds rather than after an expensive LLM run.
-
-# COMMAND ----------
-
 _probe = pd.DataFrame({"check": ["write_test"], "run_id": [RUN_ID]})
 _probe_path = os.path.join(OUT_DIR, f"_write_test_{RUN_ID}.csv")
 
@@ -238,17 +156,6 @@ except Exception as e:
     print(f"OUT_DIR now: {OUT_DIR}")
 
 # COMMAND ----------
-
-# ## 1. Load and standardize
-#
-# Reuses the column-cleaning and protocol-trigger parsing from `nurse_nav_eda.py` so this notebook and the
-# production script stay in sync. Do not re-implement these in the notebook - import or copy verbatim.
-#
-# `read_any()` dispatches on file extension, so nothing downstream cares whether a dataset arrived as
-# `.csv`, `.xlsx`, or `.parquet`.
-
-# COMMAND ----------
-
 def clean_col(col: str) -> str:
     col = re.sub(r"[^\w]+", "_", col.strip())
     return re.sub(r"_+", "_", col).lower()
@@ -304,20 +211,6 @@ print(f"{len(calls):,} rows | {calls.shape[1]} columns")
 calls.head(3)
 
 # COMMAND ----------
-
-# ### 1.2 Column resolution - the fix for `KeyError`
-#
-# **This is what broke the first run.** The notebook was written against expected column names
-# (`transaction_create_date_time_eastern`, `nurse_notes`, `nmtara_response`). The actual export uses different
-# ones, so Section 2 died on a `KeyError` and nothing downstream ever ran - which is why the results folder
-# stayed empty.
-#
-# Nothing below this cell references a column name directly. Everything goes through `COLS`, which is resolved
-# from what is actually in the file. **Check the printout and override anything it gets wrong** - that is the
-# one manual step, and it takes thirty seconds.
-
-# COMMAND ----------
-
 def find_col(df: pd.DataFrame, exact: List[str], contains: List[str] = None):
     """Resolve a logical column to a real one: exact match first, then substring."""
     for c in exact:
@@ -326,7 +219,6 @@ def find_col(df: pd.DataFrame, exact: List[str], contains: List[str] = None):
     for pat in (contains or []):
         hits = [c for c in df.columns if pat in c]
         if hits:
-            # shortest match is usually the least-qualified name
             return sorted(hits, key=len)[0]
     return None
 
@@ -372,24 +264,10 @@ for c in sorted(calls.columns):
     print(" ", c)
 
 # COMMAND ----------
-
-# **Override anything wrong here**, then re-run from this point. `notes` and `dispo` are the two that matter
-# most - the whole analysis rests on them.
-
-# COMMAND ----------
-
-# Manual overrides: set a real column name to force it, leave commented to auto-resolve
 OVERRIDES = {
-    # "notes":  "nurse_notes",
-    # "date":   "call_create_datetime",
-    # "nmtara": "nmtara_response",
-    # "dispo":  "transaction_response_names",
-    # "client": "market",
-    # "episode": "external_reference_number",
 }
 COLS.update({k: v for k, v in OVERRIDES.items() if v})
 
-# Bind to the names used throughout the rest of the notebook
 NOTES_COL   = COLS["notes"]
 DATE_COL    = COLS["date"]
 NMTARA_COL  = COLS["nmtara"]
@@ -398,7 +276,6 @@ CLIENT_COL  = COLS["client"]
 EPISODE_KEY = COLS["episode"]
 PROTO_COL   = COLS["protocol"]
 
-# Hard requirements: fail here, not 200 cells later
 missing = [k for k in ["notes", "dispo"] if not COLS[k]]
 if missing:
     raise ValueError(
@@ -406,12 +283,10 @@ if missing:
         f"Set them in OVERRIDES above. Available columns: {sorted(calls.columns)}"
     )
 
-# Soft requirements: skip related sections if missing
 for k in ["date", "nmtara", "client", "episode"]:
     if not COLS[k]:
         print(f"WARNING: no '{k}' column found -- related sections will be skipped")
 
-# Normalize types once, up front
 if DATE_COL:
     calls[DATE_COL] = pd.to_datetime(calls[DATE_COL], errors="coerce")
     print(f"\nDate range: {calls[DATE_COL].min()}  ->  {calls[DATE_COL].max()}")
@@ -420,11 +295,6 @@ calls[NOTES_COL] = calls[NOTES_COL].astype("string")
 print(f"Notes populated: {calls[NOTES_COL].notna().mean():.1%}")
 
 # COMMAND ----------
-
-# ### 1.3 Field profile
-
-# COMMAND ----------
-
 profile = pd.DataFrame({
     "dtype":      calls.dtypes.astype(str),
     "non_null":   calls.notna().sum(),
@@ -442,20 +312,6 @@ if DATE_COL:
     plt.tight_layout(); plt.show()
 
 # COMMAND ----------
-
-# ## 2. Work set ID de-duplication - what counts as a "call"?
-#
-# Flagged on the kickoff call: a **work set ID is created every time a nurse picks up the phone**. One patient
-# episode can generate several work set IDs within an hour, and some of them are *operational only* - the nurse
-# calling a facility, confirming a ride, updating a record - with the patient not on the line.
-#
-# If we count those as navigations, every denominator in the baseline is wrong. This section builds an
-# **episode key** and an **operational vs. clinical** flag before anything is measured.
-#
-# *Open item for Rich: confirm whether `external_reference_number` is the correct episode-level key.*
-
-# COMMAND ----------
-
 print("Episode key:", EPISODE_KEY or "NONE FOUND -- de-dup will be skipped")
 
 if EPISODE_KEY:
@@ -469,15 +325,6 @@ if EPISODE_KEY:
           f"-> naive counting inflates volume by ~{(per_episode.sum()/len(per_episode))-1:.1%}")
 
 # COMMAND ----------
-
-# ### 2.1 Operational vs. clinical notes
-#
-# Noah's point: a large share of note text is a record of *what the nurse did* rather than *what the patient
-# needed*. A first-pass heuristic separates the two so we know how much genuinely clinical text we have to
-# work with. Refine the term lists after eyeballing the samples printed below.
-
-# COMMAND ----------
-
 OPERATIONAL_MARKERS = [
     "called back", "left voicemail", "vm left", "no answer", "confirmed pickup",
     "lyft", "ride scheduled", "dispatch", "cad", "ems disposition saved",
@@ -508,8 +355,6 @@ print("\n--- sample clinical note ---")
 print(calls.loc[~calls["is_operational_only"], NOTES_COL].dropna().head(1).values)
 
 # COMMAND ----------
-
-# Analysis frame: one clinical work set ID per episode, operational rows dropped
 analysis = calls[~calls["is_operational_only"]].copy()
 
 if EPISODE_KEY:
@@ -524,20 +369,6 @@ print(f"Raw rows        : {len(calls):,}")
 print(f"Analysis rows   : {len(analysis):,}  ({len(analysis)/len(calls):.1%} retained)")
 
 # COMMAND ----------
-
-# ## 3. Sizing the three buckets
-#
-# Establishes the "before" picture. Anisa's expectation is Self-Care around **18-20%** of navigations - this
-# section confirms it, splits it by client, and shows whether the mix has drifted over time.
-#
-# Bucket definitions:
-#
-# - **Self-Care** - documented disposition is self-care
-# - **NMTARA 6** - triage not completed (the acuity is unknown, not low)
-# - **NMTARA 1-5 ambulance override** - triage did not call for an ambulance, but one was sent
-
-# COMMAND ----------
-
 def nmtara_level(x):
     m = re.search(r"(\d)", str(x))
     return int(m.group(1)) if m else np.nan
@@ -571,8 +402,6 @@ summary = (
 display(summary)
 
 # COMMAND ----------
-
-# Bucket mix over time: is history stable enough for one baseline?
 if DATE_COL:
     trend = (
         analysis.dropna(subset=[DATE_COL]).set_index(DATE_COL)
@@ -587,8 +416,6 @@ if DATE_COL:
     display(trend_pct.round(1).tail(8))
 
 # COMMAND ----------
-
-# Client-level view: each client needs its own story
 if CLIENT_COL:
     by_client = (
         pd.crosstab(analysis[CLIENT_COL], analysis["phase1_bucket"], normalize="index") * 100
@@ -599,18 +426,6 @@ else:
     print("No client/market column found -- request from Rich.")
 
 # COMMAND ----------
-
-# ## 4. Can the notes answer *why*?
-#
-# Anisa's estimate: roughly **25% of notes will be unusable**, and 50-75% coverage is enough to act on. This
-# section tests that estimate rather than assuming it, and does so *per bucket* - coverage may be much worse
-# for NMTARA 6 (where the call ended early) than for overrides.
-#
-# The output is a go/no-go input: if a bucket has thin notes, we tell the business that up front instead of
-# discovering it in the results.
-
-# COMMAND ----------
-
 def note_quality(text: str) -> str:
     if not isinstance(text, str) or len(text.strip()) < 20:
         return "empty/stub"
@@ -633,8 +448,6 @@ print("\nEstimated usable share by bucket:")
 print(analysis.groupby("phase1_bucket")["note_usable"].mean().mul(100).round(1))
 
 # COMMAND ----------
-
-# Has documentation quality improved? (Noah: "pretty good in the last year or two")
 if DATE_COL:
     ax = (analysis.dropna(subset=[DATE_COL]).set_index(DATE_COL)
                   .groupby(pd.Grouper(freq="QS"))["note_len"]
@@ -645,14 +458,6 @@ if DATE_COL:
     plt.tight_layout(); plt.show()
 
 # COMMAND ----------
-
-# ### 4.1 Read the notes
-#
-# No substitute for this. Pull a stratified sample from each bucket and read them before designing the
-# extraction schema - this is where the real reason codes come from.
-
-# COMMAND ----------
-
 if "protocol_trigger" not in analysis.columns:
     analysis["protocol_trigger"] = analysis[PROTO_COL] if PROTO_COL else ""
 
@@ -670,18 +475,6 @@ for b in ["Self-care", "NMTARA 6 (triage not completed)", "1-5 ambulance overrid
         print("-" * 100)
 
 # COMMAND ----------
-
-# ## 5. Cheap signal first - keyword pre-pass
-#
-# Before spending LLM budget on 200k notes, a lexicon pass shows whether the reasons we expect are even
-# present in the text, and roughly how often. It also produces the candidate reason-code list that the
-# extraction schema in Section 6 is built around.
-#
-# The lexicons below are seeded from the kickoff discussion (no provider available, patient refusal, no
-# after-hours option, mobility/catheter, self-transport). Expand them after reading the samples above.
-
-# COMMAND ----------
-
 REASON_LEXICON = {
     "Patient refused alternative":  ["refused", "declined", "insisted", "wants ambulance", "demanded"],
     "No provider available":        ["no provider", "unavailable", "no one available", "wait time", "queue"],
@@ -716,27 +509,6 @@ heat = (
 display(heat)
 
 # COMMAND ----------
-
-# **How to read the table above.** High keyword coverage in a bucket means the extraction step will have
-# something to work with. Low coverage means either our vocabulary is wrong or the reason genuinely is not
-# documented - that distinction is worth resolving manually before scaling.
-
-# COMMAND ----------
-
-# ## 6. Structured extraction of the *why*  **[COST]**
-#
-# This is the existing Step 2 pattern from `nurse_nav_eda.py` - strict-JSON extraction with a mandatory
-# evidence quote for every `true` flag - retargeted from ED-appropriateness to the three Phase 1 buckets.
-#
-# Two design choices carried over deliberately:
-#
-# 1. **Extraction and judgement stay separate.** The model pulls facts; a deterministic rules engine
-#    (Section 7) makes the call. Business rules can then change without re-running the LLM.
-# 2. **Every `true` needs a verbatim quote.** This makes the output auditable for clinical review - Dr. Stites
-#    or Dr. Troutman can check the evidence rather than trusting a score.
-
-# COMMAND ----------
-
 from openai import OpenAI
 
 DATABRICKS_TOKEN = (
@@ -766,7 +538,6 @@ def llm_call(system_prompt: str, user_prompt: str, max_tokens: int = 2500) -> st
     return content
 
 # COMMAND ----------
-
 NAV_REASON_SYSTEM_PROMPT = """
 You are a clinical note information extraction assistant for a nurse navigation program.
 Your ONLY task is to extract structured facts from the "Nurse Notes" free text.
@@ -868,7 +639,6 @@ def build_user_prompt(case_id: str, bucket: str, protocol: str, notes: str) -> s
     )
 
 # COMMAND ----------
-
 REQUIRED_TOP_KEYS = {
     "case_id", "bucket_context", "call_summary", "care_setting_actual",
     "transport_mode", "decision_driver", "triage_incomplete_reason",
@@ -890,15 +660,12 @@ BOOL_SECTIONS = {
     ],
 }
 
-# Plain-English descriptions of what each category means, for the business-facing tables.
 REASON_LABELS = {
-    # why triage was not completed
     "patient_refused_triage":          "Patient would not answer the triage questions (typically wanted the ER)",
     "call_disconnected_or_technical":  "The call dropped or hit a technical problem before triage finished",
     "patient_unable_to_participate":   "Patient could not take part (confused, unresponsive, or intoxicated)",
     "protocol_exclusion":              "The protocol did not allow triage for this type of call",
     "caller_was_not_patient":          "The caller was someone other than the patient",
-    # why an ambulance was sent anyway (overrides)
     "clinical_escalation_by_nurse":    "The nurse escalated based on clinical judgement",
     "mobility_or_transport_barrier":   "The patient could not get there another way (bedbound, no transport)",
     "patient_requested_ambulance_or_ed":"The patient asked for an ambulance or the ER",
@@ -934,7 +701,6 @@ def validate_extraction(raw: str) -> Tuple[bool, Dict[str, Any], str]:
             if not isinstance(sec.get(k), bool):
                 return False, obj, f"{section}.{k} must be boolean"
 
-    # every true flag must carry an evidence quote
     ev_fields = {e.get("field") for e in obj.get("evidence", []) if isinstance(e, dict)}
     for section, keys in BOOL_SECTIONS.items():
         for k in keys:
@@ -944,8 +710,6 @@ def validate_extraction(raw: str) -> Tuple[bool, Dict[str, Any], str]:
     return True, obj, "OK"
 
 # COMMAND ----------
-
-# Run on a sample first
 sample = (
     analysis[analysis["phase1_bucket"] != "Other"]
     .groupby("phase1_bucket", group_keys=False)
@@ -976,18 +740,9 @@ extractions = pd.DataFrame(rows)
 print(f"Valid extractions: {extractions['extraction_valid'].mean():.1%}")
 display(extractions.loc[extractions["extraction_valid"] == 0, "extraction_error"].value_counts().head(10))
 
-# Persist immediately: this is the expensive step, don't re-run by accident
 save(extractions, "llm_extractions_raw")
 
 # COMMAND ----------
-
-# ### 6.1 Extraction quality gate
-#
-# Parse-failure rate is the first quality signal. Anything below roughly 95% valid means the prompt or the
-# schema needs work before scaling - cheaper to find here than after 200k calls.
-
-# COMMAND ----------
-
 if "extractions" not in globals():
     raise RuntimeError("Run the extraction cell in Section 6 first (or load a saved "
                        "llm_extractions_raw_*.csv from the results folder).")
@@ -1022,7 +777,6 @@ def is_true_self_care(row) -> bool:
         return True
     if row["arranged_by_program"]:
         return False
-    # ambiguous / unattributed ride is assumed to be program-arranged
     return row["ride_initiated_by"] == "patient_or_family"
 
 
@@ -1032,16 +786,6 @@ print("Reason documented rate by bucket:")
 print(valid.groupby("phase1_bucket")["reason_documented"].mean().mul(100).round(1))
 
 # COMMAND ----------
-
-# ## 7. Where each call actually ended up
-#
-# All data here is from the current (old) system. This section does not remap anything into the new
-# system - it simply reads, from each note, where the patient actually ended up and how they got there.
-# That read is what exposes mislabeled self-care: a call recorded as "self-care" whose note shows the
-# patient went to the ED.
-
-# COMMAND ----------
-
 def actual_outcome(row) -> Dict[str, str]:
     """Read where the patient ended up (and transport) from the extracted note facts.
     This is a plain-language relabel of what the note already says - no new-system logic."""
@@ -1074,19 +818,6 @@ outcome_df = valid.join(pd.DataFrame(valid.apply(actual_outcome, axis=1).tolist(
 display(pd.crosstab(outcome_df["where"], outcome_df["how"]))
 
 # COMMAND ----------
-
-# ### 7.1 The self-care question
-#
-# The single most important number in Phase 1: of everything currently labeled **self-care**, how much was
-# genuinely self-care, and how much was mislabeled?
-#
-# Per the agreed definition, true self-care means the program provided neither care nor transport. A call
-# is NOT true self-care if the program or nurse arranged the ride, or if the note only says "a ride was
-# ordered" without naming who (an unattributed ride is assumed to be program-arranged). Only a patient- or
-# family-arranged ride, or no ride at all, counts as self-care.
-
-# COMMAND ----------
-
 sc = outcome_df[outcome_df["phase1_bucket"] == "Self-care"] if "outcome_df" in globals() else pd.DataFrame()
 
 if len(sc):
@@ -1102,22 +833,11 @@ if len(sc):
     ax.set_xlabel("% of self-care calls")
     plt.tight_layout(); plt.show()
 
-    # Refined true self-care: uses who arranged the ride, not just where the patient ended up
     true_rate = sc["true_self_care"].mean()
     print(f"True self-care (program provided neither care nor transport): {true_rate:.1%}")
     print(f"Mislabeled (program arranged transport, or ride not attributed): {1 - true_rate:.1%}")
 
 # COMMAND ----------
-
-# ### 7.1a Self-care by who arranged the ride
-#
-# Breaks the current self-care bucket down by who set up any transport. This is the distinction Noah
-# raised: a patient who arranged their own ride is self-care; a program-arranged or unattributed ride is
-# not. The "unattributed" row is the data-quality gap - the note did not say who ordered the ride, so it
-# is assumed to be program-arranged.
-
-# COMMAND ----------
-
 if len(sc):
     def initiator_label(row):
         if row["stayed_home"]:
@@ -1139,14 +859,6 @@ if len(sc):
     save(init_breakdown, "self_care_by_ride_initiator")
 
 # COMMAND ----------
-
-# ### 7.2 NMTARA 6 and ambulance overrides - reason mix
-#
-# The documented-reason distribution for the two remaining buckets, read from the notes: why triage was not
-# completed, and why an ambulance was sent when triage did not call for one.
-
-# COMMAND ----------
-
 def reason_mix_table(frame, section, pct_label):
     keys = [k for k in BOOL_SECTIONS[section] if f"{section}.{k}" in frame.columns]
     shares = {k: round(frame[f"{section}.{k}"].mean() * 100, 1) for k in keys}
@@ -1171,8 +883,6 @@ if len(ov):
     save(ov_mix, "override_reason_mix")
 
 # COMMAND ----------
-
-# Override reasons by protocol: tests the Riverside catheter pattern
 if len(ov) and "protocol_trigger" in ov.columns:
     top_protocols = ov["protocol_trigger"].value_counts().head(12).index
     sub = ov[ov["protocol_trigger"].isin(top_protocols)]
@@ -1184,21 +894,6 @@ if len(ov) and "protocol_trigger" in ov.columns:
     save(piv.reset_index(), "override_reasons_by_protocol")
 
 # COMMAND ----------
-
-# ### 7.3 Override drivers: nurse-initiated vs patient-initiated
-#
-# Review point from the categorization discussion: the reason percentages total over 100 because a single
-# override can carry more than one documented reason. This groups the reasons into who drove the decision
-# so the split is clear:
-#
-# - Nurse / clinical: the nurse escalated on clinical judgement
-# - Patient: the patient requested an ambulance/ED or refused the recommendation
-# - Access / logistics: no provider, closed, no appointment, transport or device barrier, cost, language
-#
-# It also reports how often an override note carries more than one reason.
-
-# COMMAND ----------
-
 DRIVER_GROUPS = {
     "Nurse / clinical": ["clinical_escalation_by_nurse"],
     "Patient": ["patient_requested_ambulance_or_ed", "patient_refused_recommendation"],
@@ -1231,16 +926,6 @@ if len(ov):
     save(driver_split_out, "override_driver_split")
 
 # COMMAND ----------
-
-# ### 7.3a Override reason combinations
-#
-# Because a single override can carry more than one reason, this lists the actual combinations of reasons
-# recorded together, most common first. Calls with one reason show that single reason; calls with several
-# show every reason included, joined with " + ". This makes the multi-reason overrides explicit rather than
-# hiding them inside the individual percentages above.
-
-# COMMAND ----------
-
 if len(ov):
     drv_keys = [k for k in BOOL_SECTIONS["decision_driver"] if f"decision_driver.{k}" in ov.columns]
 
@@ -1269,15 +954,6 @@ if len(ov):
     print(f"Override calls with a single reason: {single:.1f}%  |  with more than one reason: {multi:.1f}%")
 
 # COMMAND ----------
-
-# ### 7.4 Care-setting diversion
-#
-# Insight requested on the intake process: how often navigation kept a patient out of the ED, and how low
-# the self-care and urgent-care shares are. A low diverted-to-lower-acuity share can indicate a cautious
-# process that leans toward ambulance and ED.
-
-# COMMAND ----------
-
 _dispo = analysis[DISPO_COL].fillna("").str.lower()
 analysis["is_urgent_care"] = _dispo.str.contains("urgent", na=False)
 analysis["is_virtual"]     = _dispo.str.contains("virtual|telehealth|video", regex=True, na=False)
@@ -1308,14 +984,6 @@ display(diversion_insight)
 save(diversion_insight, "diversion_insight")
 
 # COMMAND ----------
-
-# ### 7.5 Reason examples
-#
-# Pulls a few real notes for a chosen reason, each with the evidence quote, so a category can be spot-checked
-# (for example, "patient unable to participate").
-
-# COMMAND ----------
-
 def reason_examples(section: str, key: str, n: int = 3) -> pd.DataFrame:
     field = f"{section}.{key}"
     if "valid" not in globals() or field not in globals().get("valid", pd.DataFrame()).columns:
@@ -1349,18 +1017,6 @@ if len(examples):
     save(examples, "reason_examples")
 
 # COMMAND ----------
-
-# ## 7.6 Phase 2 exploration checks
-#
-# The following sections answer the Phase 2 review questions. Each is current-system only and registers a
-# workbook tab. Sections that read reasons or transport use the AI sample; sections that use only the
-# disposition code or triage level use the full population.
-
-# COMMAND ----------
-
-# ### 7.6.1 Data coverage (Phase 2 item 1: extend the data)
-# Reports the actual date span and month coverage of whatever extract is loaded, so a one-month or a
-# full-year pull is described the same way with no hard-coded window.
 if DATE_COL:
     _d = analysis[DATE_COL].dropna()
     if len(_d):
@@ -1374,9 +1030,6 @@ if DATE_COL:
         save(coverage, "data_coverage")
 
 # COMMAND ----------
-
-# ### 7.6.2 Client storylines (Phase 2 item 2: insights by market and client)
-# One row per market with the key current-system rates, so each client has a self-contained storyline.
 if CLIENT_COL:
     def storyline(frame, label):
         n = len(frame)
@@ -1405,9 +1058,6 @@ if CLIENT_COL:
     save(client_storylines, "client_storylines")
 
 # COMMAND ----------
-
-# ### 7.6.3 Self-care at home by chief complaint (Phase 2 item 3)
-# Among self-care calls where the patient stayed home, which chief complaints appear most often.
 if "outcome_df" in globals() and "protocol_trigger" in outcome_df.columns:
     home = outcome_df[(outcome_df["phase1_bucket"] == "Self-care") & (outcome_df["stayed_home"])]
     if len(home):
@@ -1422,9 +1072,6 @@ if "outcome_df" in globals() and "protocol_trigger" in outcome_df.columns:
         save(sc_complaint, "self_care_by_complaint")
 
 # COMMAND ----------
-
-# ### 7.6.4 Program-arranged transport bins: GMR ambulance, ER, Lyft (Phase 2 item 4)
-# For rides the program or nurse arranged, bin by how the patient was moved and where to.
 if "outcome_df" in globals():
     prog = outcome_df[(outcome_df["arranged_by_program"]) |
                       (outcome_df["ride_initiated_by"] == "program_or_nurse")]
@@ -1451,9 +1098,6 @@ if "outcome_df" in globals():
         save(program_bins, "program_transport_bins")
 
 # COMMAND ----------
-
-# ### 7.6.5 Call drop / technical issue focus (Phase 2 item 5)
-# The NMTARA 6 calls that ended from a dropped call or technical problem, sized and split by market.
 if "outcome_df" in globals() and "triage_incomplete_reason.call_disconnected_or_technical" in outcome_df.columns:
     drop = outcome_df[outcome_df["triage_incomplete_reason.call_disconnected_or_technical"]]
     n6_all = outcome_df[outcome_df["phase1_bucket"] == "NMTARA 6 (triage not completed)"]
@@ -1469,9 +1113,6 @@ if "outcome_df" in globals() and "triage_incomplete_reason.call_disconnected_or_
         save(call_drop_focus, "call_drop_focus")
 
 # COMMAND ----------
-
-# ### 7.6.6 Clinical-decision overrides by chief complaint (Phase 2 item 6)
-# For overrides the nurse escalated on clinical judgement, which presenting complaints drove them.
 if "ov" in globals() and "protocol_trigger" in ov.columns and "decision_driver.clinical_escalation_by_nurse" in ov.columns:
     clin = ov[ov["decision_driver.clinical_escalation_by_nurse"]]
     if len(clin):
@@ -1486,9 +1127,6 @@ if "ov" in globals() and "protocol_trigger" in ov.columns and "decision_driver.c
         save(clinical_by_complaint, "clinical_escalation_by_complaint")
 
 # COMMAND ----------
-
-# ### 7.6.7 Top chief complaints driving overrides (Phase 2 item 7)
-# The presenting complaints most often behind an override, to spot divertible patterns.
 if "ov" in globals() and "protocol_trigger" in ov.columns and len(ov):
     override_top_complaints = (
         ov["protocol_trigger"].replace("", "Not stated").value_counts()
@@ -1501,9 +1139,6 @@ if "ov" in globals() and "protocol_trigger" in ov.columns and len(ov):
     save(override_top_complaints, "override_top_complaints")
 
 # COMMAND ----------
-
-# ### 7.6.8 Mobility drivers (Phase 2 item 7: what drives mobility barriers)
-# Among overrides with a mobility or transport barrier, scan the notes for the specific driver.
 MOBILITY_DRIVERS = {
     "Wheelchair":        ["wheelchair", "w/c"],
     "Bedbound":          ["bedbound", "bed bound", "bed-bound"],
@@ -1526,11 +1161,6 @@ if "ov" in globals() and "decision_driver.mobility_or_transport_barrier" in ov.c
         save(mobility_drivers, "mobility_drivers")
 
 # COMMAND ----------
-
-# ### 7.6.9 Override opportunities: access vs mobility vs clinical (Phase 2 item 7)
-# Splits overrides into groups that suggest different opportunities. Access and appointment barriers may be
-# divertible to urgent care or telehealth; mobility barriers point to transport solutions; clinical
-# escalations are the nurse's judgement.
 if "ov" in globals() and len(ov):
     def has_any(frame, keys):
         cols = [f"decision_driver.{k}" for k in keys if f"decision_driver.{k}" in frame.columns]
@@ -1556,17 +1186,6 @@ if "ov" in globals() and len(ov):
     save(opp, "override_opportunities")
 
 # COMMAND ----------
-
-# ## 8. Validation against human coding
-#
-# The manual coding Anisa's team already does is the benchmark. Before any of this reaches a client, we need
-# to show agreement on a set the humans coded themselves.
-#
-# Target: agreement high enough that the remaining disagreements are worth reviewing individually, and every
-# extracted flag is traceable to a quote a clinician can check.
-
-# COMMAND ----------
-
 if "gold" not in PATHS:
     print("No validation set found in the data folder -- skipping Section 8.")
     gold = pd.DataFrame()
@@ -1576,7 +1195,6 @@ if len(gold):
     gold.columns = [clean_col(x) for x in gold.columns]
     gold["case_id"] = gold.apply(choose_case_id, axis=1)
 
-# Expected: a human-assigned setting/reason column. Adjust name once the gold file is confirmed.
 HUMAN_COL = next((x for x in gold.columns if "human" in x or "manual" in x or "gold" in x), None) if len(gold) else None
 print("Human label column:", HUMAN_COL)
 
@@ -1593,14 +1211,6 @@ if HUMAN_COL and "outcome_df" in globals():
         save(disagree, "validation_disagreements")
 
 # COMMAND ----------
-
-# ### 8.1 Evidence audit
-#
-# A sample of extracted flags with their supporting quotes, formatted for clinical review. This is the
-# artifact to walk Dr. Stites through - not the accuracy percentage.
-
-# COMMAND ----------
-
 audit_rows = []
 for _, r in (valid.head(25).iterrows() if "valid" in globals() else []):
     for e in r["obj"].get("evidence", []):
@@ -1618,16 +1228,6 @@ display(audit.head(40))
 save(audit, "evidence_audit_sample")
 
 # COMMAND ----------
-
-# ### 8.2 AI categories vs the current system codes
-#
-# The current system already labels each call with a disposition code the nurse selected. This checks how
-# often the AI read of where the patient ended up lines up with that recorded code, so the AI categories can
-# be trusted against what the system captures today. Disagreements are where the recorded label and the note
-# differ - which is exactly what surfaces mislabeled self-care.
-
-# COMMAND ----------
-
 def system_setting(dispo: str) -> str:
     d = str(dispo).lower()
     if "self" in d:                                   return "home_no_care"
@@ -1641,7 +1241,6 @@ def system_setting(dispo: str) -> str:
 if "outcome_df" in globals() and len(outcome_df):
     match = outcome_df.copy()
     match["system_setting"] = match[DISPO_COL].apply(system_setting)
-    # compare on comparable rows only (both sides resolved)
     cmp = match[(match["system_setting"] != "other_unknown") & (match["actual_setting"] != "unknown")].copy()
     if len(cmp):
         cmp["agree"] = cmp["system_setting"] == cmp["actual_setting"]
@@ -1664,21 +1263,6 @@ if "outcome_df" in globals() and len(outcome_df):
         save(confusion.reset_index(), "categorization_confusion")
 
 # COMMAND ----------
-
-# ### 8.3 Logis-coded vs LLM-abstracted bucket percentages
-#
-# The Logis assessment column already carries a discrete code the nurse selected, and leadership reviews
-# those codes today. This compares, per bucket, the percentage from that coded column against the percentage
-# the LLM abstracts from the notes.
-#
-# The gap is the insight: if the coded rate and the note-abstracted rate differ sharply, it points to
-# overrides or self-care that were performed but not registered in the Logis codes - that is, the coded data
-# may be incomplete. NMTARA 6 is usually visible in the coded column; overrides often are not, because the
-# code shows a BLS transport without the disposition, so that row may be coded-blank by design.
-
-# COMMAND ----------
-
-# Coded rate: share of ALL analysis calls whose recorded disposition code maps to each bucket.
 _all = analysis[DISPO_COL].fillna("").str.lower()
 coded = {
     "Self-care": _all.str.contains("self", na=False).mean() * 100,
@@ -1688,8 +1272,6 @@ coded = {
         if "is_amb_override" in analysis.columns else float("nan"),
 }
 
-# Abstracted rate: share the LLM read of the notes supports, over the same denominator.
-# Self-care uses the refined true_self_care flag; the other two use the note-confirmed reason.
 abstracted = {}
 if "outcome_df" in globals() and len(outcome_df):
     n_total = len(analysis)
@@ -1717,14 +1299,6 @@ save(compare, "coded_vs_abstracted")
 print("A large gap suggests the Logis codes may not capture every override or self-care case.")
 
 # COMMAND ----------
-
-# ## 9. Baseline by client
-#
-# The current-system reported rates for each bucket, national and per client. This is the "before" picture
-# each client's own numbers will be read against. All figures are from the current system.
-
-# COMMAND ----------
-
 def kpi_block(frame: pd.DataFrame, label: str) -> Dict[str, Any]:
     total = len(frame)
     if total == 0:
@@ -1738,7 +1312,7 @@ def kpi_block(frame: pd.DataFrame, label: str) -> Dict[str, Any]:
         "ambulance_diversion_pct": round((1 - frame["is_ambulance"].mean()) * 100, 1),
     }
 
-MIN_CLIENT_CALLS = 100   # hide clients too small for stable percentages
+MIN_CLIENT_CALLS = 100
 
 blocks = [kpi_block(analysis, "National")]
 if CLIENT_COL:
@@ -1751,15 +1325,6 @@ display(baseline.sort_values("calls", ascending=False))
 save(baseline, "phase1_baseline_by_client")
 
 # COMMAND ----------
-
-# ### 9.1 Register remaining frames for the workbook
-#
-# The analysis cells above already registered their results in memory via save(). This cell registers a few
-# extra frames that are built inline (inventory, profile, case-level outcomes, analysis frame). Nothing is
-# written to disk here - the single Excel workbook in Section 9.2 is the only file this notebook saves.
-
-# COMMAND ----------
-
 def register(obj_name: str, name: str):
     """Add a frame to the workbook registry by variable name; tolerates skipped cells."""
     obj = globals().get(obj_name)
@@ -1806,49 +1371,6 @@ for k, v in RESULTS.items():
     print(f"  {k:32s} {len(v):>7,} rows")
 
 # COMMAND ----------
-
-# ### 9.2 Consolidate into a single Excel workbook
-#
-# The CSVs above are the machine-readable outputs - they feed Power BI and keep each artifact reproducible.
-# For anyone who just wants to *read the analysis*, this cell rolls the business-relevant ones into one
-# formatted `.xlsx` with a plain-language intro tab.
-#
-# Only the tabs that help someone understand the findings go in. The raw extraction JSON, the field profile,
-# the folder inventory, and the keyword sanity-check stay as CSVs and are left out to keep the workbook clean.
-#
-# | Tab | What it answers |
-# |---|---|
-# | **Start Here** | Goal, method, how to read the workbook |
-# | **Bucket Sizes** | How big each of the three buckets is |
-# | **Self-Care Breakdown** | Where the current self-care bucket actually went - the headline |
-# | **Self-Care by Ride** | Self-care split by who arranged the ride (patient vs program) |
-# | **NMTARA 6 Reasons** | Why triage wasn't completed |
-# | **Override Reasons** | Why an ambulance was sent anyway |
-# | **Override Driver Split** | Nurse-initiated vs patient-initiated vs access |
-# | **Override Combinations** | The actual reason combinations recorded together |
-# | **Override by Protocol** | Override drivers by chief complaint |
-# | **Diversion Insight** | Self-care / urgent-care share kept out of the ED |
-# | **AI vs System Match** | How often the AI category matches the recorded code |
-# | **Coded vs Abstracted** | Bucket rates from Logis codes vs from the notes, with the gap |
-# | **Client Storylines** | Key current-system rates per market |
-# | **Self-Care by Complaint** | Chief complaints among stayed-home self-care |
-# | **Program Transport Bins** | Program-arranged rides by GMR ambulance / ER / rideshare |
-# | **Call Drop Focus** | The dropped-call / technical NMTARA 6 subset, by market |
-# | **Clinical by Complaint** | Clinical-escalation overrides by chief complaint |
-# | **Override Top Complaints** | Top chief complaints driving overrides |
-# | **Mobility Drivers** | What drives mobility-barrier overrides (wheelchair, stairs, etc.) |
-# | **Override Opportunities** | Access vs mobility vs clinical, for diversion opportunities |
-# | **Data Coverage** | Calls per month in the loaded extract |
-# | **Reason Examples** | Sample notes with quotes for a chosen reason |
-# | **Baseline by Client** | KPI baseline, national and per client |
-# | **Note Coverage** | Share of usable notes per bucket (feasibility) |
-# | **Validation** | Cases differing from the hand-coded set |
-# | **Evidence Sample** | Extracted flags with supporting quotes |
-
-# COMMAND ----------
-
-# CSVs that go into the reading workbook, in tab order.
-# (csv stem without RUN_ID/extension, tab name <= 31 chars)
 WORKBOOK_TABS = [
     ("bucket_summary",              "Bucket Sizes"),
     ("self_care_breakdown",         "Self-Care Breakdown"),
@@ -1947,7 +1469,7 @@ def write_intro(writer, sheet_name="Start Here"):
 xlsx_path = os.path.join(OUT_DIR, f"Nurse_Nav_Phase1_Analysis_{RUN_ID}.xlsx")
 
 try:
-    import xlsxwriter  # noqa
+    import xlsxwriter
     engine = "xlsxwriter"
 except ImportError:
     engine = "openpyxl"
@@ -1992,32 +1514,3 @@ with pd.ExcelWriter(xlsx_path, engine=engine) as writer:
 print(f"\nWorkbook written: {os.path.basename(xlsx_path)}  ({tabs_written + 1} tabs)")
 print("On disk:", os.path.exists(xlsx_path), "->", xlsx_path)
 print("This workbook is the only file this notebook writes; no CSVs are saved.")
-
-# COMMAND ----------
-
-# ## 10. Findings and open items
-#
-# *Fill in after the first full run. Keep it to what the business needs to decide on.*
-#
-# ### What the data supports
-# - Bucket sizes, national and by client - Section 3
-# - Note usability by bucket - Section 4
-# - Reason mix for each bucket - Section 7
-# - Self-care breakdown: true no-care vs. mislabeled - Section 7
-#
-# ### Open items
-# - [ ] **Rich - data pull (blocking).** Current folder holds ED-appropriateness working sets. Phase 1 needs a
-#       full-population extract: all navigations, NMTARA 6 **included**, with disposition, NMTARA level, Cordy
-#       protocol, client/market, work set ID, episode key, and nurse notes
-# - [ ] **Rich** - confirm the correct episode key and the operational-call flag; validate against Power BI totals
-# - [ ] **Nathan Haron** - confirm NMTARA code definitions and Logis field meanings
-# - [ ] **Anisa** - confirm the human-coded gold set and its label column
-# - [ ] **Dr. Stites / Dr. Troutman** - review the evidence audit sample; sign off on reason categories
-# - [ ] Decide whether the historical reason categories become the structured override reason codes in the
-#       reason categories the reporting team standardizes on (findings can inform how reasons are captured)
-# - [ ] Confirm whether the self-care breakdown should be computed per client, not just nationally
-#
-# ### Scope note
-# Training-data drift is a real constraint: the move from the homegrown protocol to Schmitt Thompson means
-# historical notes reflect a different set of questions. Nothing here should be used to train a model that
-# scores *future* calls. The purpose is a one-time historical baseline.
