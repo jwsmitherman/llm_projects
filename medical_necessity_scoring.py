@@ -7,7 +7,7 @@
 #   contraindicated) and a **monitoring** axis (why this level of service).
 # - A single combined score drives the buckets by cutoff: 0 = not_necessary; >= 3 with a
 #   named concept = necessary; in between = indeterminate.
-# - **Weighted concepts** and a **confidence** score, both driven from one config block.
+# - **Weighted concepts** driven from one config block.
 # - No payment-focused terminology in any output column.
 
 # The source table is read only and is never modified. The one write is the derived Genie table
@@ -256,7 +256,7 @@ if has_text_count < 0.5 * max(scope_count, 1):
 for name, axis, weight, group, basis, ref, url, pattern in CONCEPTS:
     df = df.withColumn(f"c_{name}", F.col("_text").rlike(pattern) & F.col("_has_text"))
 
-# 5. Scores, classification, confidence, and level-of-service recommendation
+# 5. Scores, classification, and level-of-service recommendation
 
 # All derived from the config. The bucket is driven by one combined score plus one named flag.
 
@@ -274,8 +274,25 @@ df = df.withColumn("mobility_score",   axis_score("mobility"))    # [BPM10] 10.2
 df = df.withColumn("monitoring_score", axis_score("monitoring"))  # [414.605]
 df = df.withColumn("total_score", F.col("mobility_score") + F.col("monitoring_score"))
 
+# Per-concept weighted contribution: w_<concept> = the concept's weight when it matched, else 0.
+# The 1/0 concept flags alone cannot be added up to reach the scores, because each concept carries
+# a different weight that otherwise exists only in the CONCEPTS block above. These columns make the
+# arithmetic reconcile from the data itself:
+#     sum(w_* over mobility-axis concepts)   = mobility_score
+#     sum(w_* over monitoring-axis concepts) = monitoring_score
+#     mobility_score + monitoring_score      = total_score
+# Filler concepts carry weight 0 by design and contribute nothing, so they get no w_ column - their
+# 1/0 flag is kept because the presence of filler wording is itself informative.
+SCORING_CONCEPTS = [(n, a, w) for n, a, w, *_ in CONCEPTS if a in ("mobility", "monitoring")]
+for _n, _a, _w in SCORING_CONCEPTS:
+    df = df.withColumn(f"w_{_n}",
+                       F.when(F.col(f"c_{_n}"), F.lit(_w)).otherwise(F.lit(0)).cast("int"))
+
 # named_score: points from NAMED CMS concepts only (those explicit in CMS text). Shown because a
 # named concept is required to reach the necessary band - this column is what drives that.
+# IMPORTANT: named_score is a SUBSET of total_score, not a third component. The named concepts are
+# already counted inside mobility_score and monitoring_score. Adding named_score to those will
+# double-count and is the most likely reason a hand-checked total appears not to reconcile.
 named_a = [n for n, a, w, g, b, *_ in CONCEPTS if g == "A" and b == "named"]
 named_terms = [F.when(F.col(f"c_{n}"), F.lit(w)).otherwise(F.lit(0))
                for n, a, w, g, b, *_ in CONCEPTS if g == "A" and b == "named"]
@@ -285,6 +302,30 @@ for t in named_terms[1:]:
 df = df.withColumn("named_score", named_expr)
 df = df.withColumn("named_a_hits", sum([F.col(f"c_{n}").cast("int") for n in named_a]))
 df = df.withColumn("has_named_concept", (F.col("named_a_hits") > 0).cast("int"))
+
+# Reconciliation check: confirm the visible w_ columns actually sum to the scores, and that the
+# two axis scores sum to the total. Prints a count of any row that fails, so a scoring change that
+# breaks the arithmetic is caught here rather than by someone hand-adding columns later.
+_mob_w = [f"w_{n}" for n, a, w in SCORING_CONCEPTS if a == "mobility"]
+_mon_w = [f"w_{n}" for n, a, w in SCORING_CONCEPTS if a == "monitoring"]
+_recon = (df
+    .withColumn("_mob_sum", sum([F.col(c) for c in _mob_w]))
+    .withColumn("_mon_sum", sum([F.col(c) for c in _mon_w]))
+    .withColumn("_bad",
+        (F.col("_mob_sum") != F.col("mobility_score"))
+        | (F.col("_mon_sum") != F.col("monitoring_score"))
+        | ((F.col("mobility_score") + F.col("monitoring_score")) != F.col("total_score")))
+)
+_bad_rows = _recon.filter(F.col("_bad")).count()
+print(f"Score reconciliation: {_bad_rows:,} rows fail (expected 0).")
+print("  sum(w_* mobility) = mobility_score; sum(w_* monitoring) = monitoring_score; "
+      "mobility_score + monitoring_score = total_score")
+print("  named_score is a SUBSET of total_score, not a third component - do not add it in.")
+if _bad_rows:
+    display(_recon.filter(F.col("_bad"))
+                  .select(*_mob_w, "_mob_sum", "mobility_score",
+                          *_mon_w, "_mon_sum", "monitoring_score", "total_score")
+                  .limit(20))
 
 # unmatched_text: 1 when text was entered but nothing scored (words no rule recognized). Purely
 # informational - it does NOT change the bucket - and flags the language-model target set.
@@ -305,14 +346,6 @@ df = df.withColumn(
            F.lit("necessary"))
      .when(F.col("total_score") == 0, F.lit("not_necessary"))
      .otherwise(F.lit("indeterminate")),
-)
-
-# confidence: score-based quality flag (not a CMS construct).
-df = df.withColumn(
-    "confidence",
-    F.when((F.col("total_score") >= NECESSARY_CUTOFF) & (F.col("has_named_concept") == 1), F.lit("high"))
-     .when(F.col("total_score") >= 1, F.lit("medium"))
-     .otherwise(F.lit("low")),
 )
 
 # recommended_los: level of service implied by the monitoring axis, per [414.605] definitions.
@@ -395,7 +428,7 @@ else:
 # category is defined. Sampled, de-identified review only - not written back.
 
 _example_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
-    "total_score", "mobility_score", "monitoring_score", "named_score", "has_named_concept", "confidence", "unmatched_text", FREE_TEXT_COL
+    "total_score", "mobility_score", "monitoring_score", "named_score", "has_named_concept", "unmatched_text", FREE_TEXT_COL
 ]
 for cls in ["necessary", "indeterminate", "not_necessary"]:
     print("=" * 70)
@@ -405,12 +438,11 @@ for cls in ["necessary", "indeterminate", "not_necessary"]:
           .select(*_example_cols)
           .limit(15)
     )
+# 8. Output helpers - shared by the LLM section and every export below
+# (numbering: 8 helpers, 9 LLM, 10 buckets workbook, 11 review workbook, 12 Genie table)
 
-# 8. Export summary workbook - med_nec_buckets_v2.xlsx
-
-# Writes the aggregates that back the slides to a five-tab workbook. This is an OUTPUT FILE, not
-# a table write - the source table is never modified. Mirrors the original med_nec_buckets.xlsx,
-# updated to the medical-necessity schema (necessity_class, mobility/monitoring, appropriateness).
+# Excel-safe string cleaning, the run timestamp, and the pandas import. Defined once here because
+# the LLM section and all three exports use them.
 
 import pandas as pd
 from openpyxl import Workbook
@@ -441,6 +473,294 @@ def sanitize_df(pdf):
 # Run timestamp (YYYYMMDD_HHMMSS) appended to every output file so runs stay grouped and do not
 # overwrite each other. Set once here and reused for the workbook, detail CSV, and review workbook.
 RUN_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
+# 9. LLM determination - the second, independent read of the same order text
+
+# There are two determinations per order, and they are kept side by side rather than merged:
+#   - the SCORE determination (necessity_class), from the weighted concept rules above
+#   - the LLM determination (necessity_class_llm), from this section
+# Both use the SAME cutoffs, so any difference comes from what was read out of the text, not from
+# different thresholds. The LLM path additionally records WHY: a plain-English rationale plus a
+# verbatim evidence quote for every fact it asserts.
+#
+# Pattern is the NurseNav one (OpenAI SDK -> Databricks serving endpoint, extract-then-judge): the
+# model extracts facts only, and the same deterministic rules engine assigns the label. The model
+# never picks the label itself, which is what keeps the two paths comparable and auditable.
+#
+# OFF by default - it calls a paid endpoint. Sample first, check the valid-extraction rate, then
+# widen. This section runs BEFORE the outputs so both determinations land in the workbook and table.
+
+RUN_LLM = False
+
+# Which orders the LLM reads:
+#   "unmatched"  - only orders where text was entered but no rule scored it (the rules' blind spot)
+#   "with_text"  - every order that has free text (full rule-vs-LLM comparison)
+#   "all"        - every in-scope order, including empty documentation
+# "unmatched" is the cheapest useful run. "with_text" is the real comparison but is a large job:
+# at ~323k orders this is a batch workload, not a notebook loop - sample first and size it.
+LLM_TARGET   = "unmatched"
+LLM_SAMPLE_N = 200        # cap while validating the prompt; None = the whole target set
+LLM_WORKERS  = 8          # parallel requests; raise carefully, the endpoint is shared
+LLM_MODEL    = "databricks-gpt-oss-120b"
+LLM_BASE_URL = "https://adb-2790612761746757.17.azuredatabricks.net/serving-endpoints"
+
+# Columns the LLM path contributes. Defined outside the RUN_LLM block so the downstream outputs
+# have a stable schema whether or not the LLM ran - unrun orders carry nulls and llm_status="not_run".
+LLM_OUTPUT_COLS = ["necessity_class_llm", "mobility_score_llm", "monitoring_score_llm",
+                   "total_score_llm", "has_named_concept_llm", "llm_rationale",
+                   "llm_evidence", "llm_summary", "llm_status", "determination_agreement"]
+
+llm_pdf = None
+
+if RUN_LLM:
+    import json as _json
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    from openai import OpenAI
+
+    _token = (
+        dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+        if "dbutils" in dir() else os.environ.get("DATABRICKS_TOKEN", "")
+    )
+    _client = OpenAI(api_key=_token, base_url=LLM_BASE_URL)
+
+    def llm_call(system_prompt, user_prompt, max_tokens=1500):
+        resp = _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "system", "content": system_prompt},
+                      {"role": "user",   "content": user_prompt}],
+            temperature=0.1, max_tokens=max_tokens,
+        )
+        content = resp.choices[0].message.content
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    return item.get("text", "")
+            return _json.dumps(content)
+        return content
+
+    # --- Extraction prompt: the model pulls facts and explains them; the rules assign the label ---
+    MED_NEC_SYSTEM_PROMPT = """
+You are a clinical documentation information extraction assistant for non-emergent ground ambulance orders.
+Your ONLY task is to extract structured facts from the free-text transport reason recorded at order time,
+and to explain in plain English what the text does and does not establish.
+
+CRITICAL CONSTRAINTS
+- Do NOT provide medical advice, diagnose, or decide whether the transport was appropriate.
+- Do NOT decide the necessity label. A separate rules engine does that from your extracted facts.
+- Do NOT guess. Only extract what is explicitly supported by the text.
+- Handle negations correctly (for example "no oxygen" is false).
+- For every boolean set to true you MUST provide a verbatim evidence quote from the text.
+- If no clinical reason is documented, set documentation.reason_documented = false.
+
+ABBREVIATIONS: BLS/ALS=basic/advanced life support, O2=oxygen, IV=intravenous, w/c=wheelchair,
+amb=ambulate/ambulatory, ETT=endotracheal tube, trach=tracheostomy.
+
+OUTPUT: valid JSON only, all keys present, booleans never null.
+
+SCHEMA:
+{
+  "order_id": string,
+  "text_summary": string,
+  "rationale": string,
+  "mobility": {
+    "bed_confined": boolean, "cannot_ambulate": boolean, "cannot_sit": boolean,
+    "bariatric_handling": boolean, "wound_or_ostomy_positioning": boolean,
+    "behavioral_or_altered_mental": boolean
+  },
+  "monitoring": {
+    "ventilator_or_airway": boolean, "airway_suctioning": boolean, "iv_medication": boolean,
+    "cardiac_monitoring": boolean, "oxygen": boolean, "isolation_precautions": boolean
+  },
+  "filler_only": {
+    "weakness_only": boolean, "fall_risk_only": boolean, "nonclinical_reason": boolean
+  },
+  "documentation": { "reason_documented": boolean, "note_is_operational_only": boolean },
+  "evidence": [ {"field": string, "value": boolean, "quote": string} ]
+}
+
+FIELD NOTES
+- mobility captures why the patient cannot travel by wheelchair van or car.
+- monitoring captures clinical care needed during transport (drives level of service).
+- filler_only captures vague terms that carry no necessity on their own.
+- Set reason_documented = false when the field is empty or contains only filler.
+- rationale: two or three sentences, plain English, aimed at a reviewer who has not read the text.
+  State what the text establishes about mobility and about monitoring, and name what is absent or
+  vague. Refer only to the text in front of you. Do not state or imply a necessity label, a billing
+  outcome, or a recommendation. Example shape: "The text records an inability to bear weight, which
+  speaks to mobility. Nothing is recorded about monitoring needs during transport. The reference to
+  general weakness is not qualified by any functional consequence."
+
+Now extract from the following order text."""
+
+    def build_user_prompt(order_id, text):
+        return f"order_id: {order_id}\n\nOrder text:\n{text}"
+
+    # --- Validation: strict JSON, all sections present, every true flag carries evidence ---
+    BOOL_SECTIONS = {
+        "mobility": ["bed_confined", "cannot_ambulate", "cannot_sit", "bariatric_handling",
+                     "wound_or_ostomy_positioning", "behavioral_or_altered_mental"],
+        "monitoring": ["ventilator_or_airway", "airway_suctioning", "iv_medication",
+                       "cardiac_monitoring", "oxygen", "isolation_precautions"],
+        "filler_only": ["weakness_only", "fall_risk_only", "nonclinical_reason"],
+    }
+    REQUIRED_TOP_KEYS = {"order_id", "text_summary", "rationale", "mobility", "monitoring",
+                         "filler_only", "documentation", "evidence"}
+    # Named concepts (explicit in CMS text) - only these can carry an order to necessary.
+    NAMED_FIELDS = {
+        "mobility.bed_confined", "mobility.cannot_ambulate", "mobility.cannot_sit",
+        "monitoring.ventilator_or_airway", "monitoring.airway_suctioning",
+        "monitoring.iv_medication", "monitoring.cardiac_monitoring",
+    }
+    # Same weights as the CONCEPTS block, keyed to the LLM's field names.
+    LLM_WEIGHTS = {
+        "mobility.bed_confined": 3, "mobility.cannot_ambulate": 3, "mobility.cannot_sit": 3,
+        "mobility.bariatric_handling": 2, "mobility.wound_or_ostomy_positioning": 1,
+        "mobility.behavioral_or_altered_mental": 1,
+        "monitoring.ventilator_or_airway": 3, "monitoring.airway_suctioning": 3,
+        "monitoring.iv_medication": 3, "monitoring.cardiac_monitoring": 2,
+        "monitoring.oxygen": 1, "monitoring.isolation_precautions": 1,
+    }
+
+    def validate_extraction(raw):
+        try:
+            obj = _json.loads(raw)
+        except Exception as e:
+            return False, {}, f"invalid JSON: {e}"
+        missing = REQUIRED_TOP_KEYS - set(obj)
+        if missing:
+            return False, obj, f"missing keys: {sorted(missing)}"
+        if not isinstance(obj.get("rationale"), str) or not obj["rationale"].strip():
+            return False, obj, "rationale missing or empty"
+        for section, keys in BOOL_SECTIONS.items():
+            sec = obj.get(section, {})
+            if not isinstance(sec, dict):
+                return False, obj, f"{section} must be an object"
+            for k in keys:
+                if not isinstance(sec.get(k), bool):
+                    return False, obj, f"{section}.{k} must be boolean"
+        ev_fields = {e.get("field") for e in obj.get("evidence", []) if isinstance(e, dict)}
+        for section, keys in BOOL_SECTIONS.items():
+            for k in keys:
+                if obj[section][k] and f"{section}.{k}" not in ev_fields:
+                    return False, obj, f"true flag without evidence: {section}.{k}"
+        return True, obj, "OK"
+
+    # --- Rules engine: the SAME cutoffs as the score path, applied to the extracted facts ---
+    def judge(obj):
+        mob = sum(LLM_WEIGHTS[f"mobility.{k}"] for k in BOOL_SECTIONS["mobility"] if obj["mobility"][k])
+        mon = sum(LLM_WEIGHTS[f"monitoring.{k}"] for k in BOOL_SECTIONS["monitoring"] if obj["monitoring"][k])
+        total = mob + mon
+        has_named = any(
+            obj[sec][k] for sec in ("mobility", "monitoring") for k in BOOL_SECTIONS[sec]
+            if f"{sec}.{k}" in NAMED_FIELDS
+        )
+        if total >= NECESSARY_CUTOFF and has_named:
+            cls = "necessary"
+        elif total == 0:
+            cls = "not_necessary"
+        else:
+            cls = "indeterminate"
+        return {"necessity_class_llm": cls, "mobility_score_llm": mob,
+                "monitoring_score_llm": mon, "total_score_llm": total,
+                "has_named_concept_llm": int(has_named)}
+
+    # --- Select the target set ---
+    id_col = ORDER_ID_COL or "OrderId"
+    if LLM_TARGET == "unmatched":
+        target = df.filter(F.col("unmatched_text") == 1)
+    elif LLM_TARGET == "with_text":
+        target = df.filter(F.col("_has_text"))
+    elif LLM_TARGET == "all":
+        target = df
+    else:
+        raise ValueError(f"LLM_TARGET must be unmatched / with_text / all, got {LLM_TARGET!r}")
+
+    target_pdf = (target
+        .select(F.col(id_col).alias("_order_id"), F.col(FREE_TEXT_COL).alias("_text"))
+        .toPandas())
+    target_total = len(target_pdf)
+    if LLM_SAMPLE_N:
+        target_pdf = target_pdf.head(LLM_SAMPLE_N)
+    print(f"LLM determination: {len(target_pdf):,} of {target_total:,} orders in the "
+          f"'{LLM_TARGET}' target set, via {LLM_MODEL}")
+    if LLM_SAMPLE_N and target_total > LLM_SAMPLE_N:
+        print(f"  SAMPLED - {target_total - LLM_SAMPLE_N:,} target orders carry llm_status='not_run'.")
+
+    def process_one(rec):
+        oid, text = rec
+        out = {"_order_id": oid}
+        try:
+            raw = llm_call(MED_NEC_SYSTEM_PROMPT, build_user_prompt(str(oid), text or ""))
+            ok, obj, msg = validate_extraction(raw)
+        except Exception as e:
+            ok, obj, msg = False, {}, f"call failed: {e}"
+        if ok:
+            out.update(judge(obj))
+            out["llm_rationale"] = obj.get("rationale", "")
+            out["llm_summary"] = obj.get("text_summary", "")
+            out["llm_evidence"] = "; ".join(
+                f'{e.get("field")}[{e.get("quote")}]' for e in obj.get("evidence", [])
+                if isinstance(e, dict)
+            )
+            out["llm_status"] = "ok"
+        else:
+            out["llm_status"] = f"error: {msg}"
+        return out
+
+    records = list(zip(target_pdf["_order_id"], target_pdf["_text"]))
+    with ThreadPoolExecutor(max_workers=LLM_WORKERS) as pool:
+        rows = list(pool.map(process_one, records))
+
+    llm_pdf = pd.DataFrame(rows)
+    valid_rate = (llm_pdf["llm_status"] == "ok").mean() if len(llm_pdf) else 0.0
+    print(f"Valid extractions: {valid_rate:.1%}  (target >= 95% before widening LLM_TARGET)")
+    if valid_rate < 0.95 and len(llm_pdf):
+        print("  Below target - review llm_status before scaling up:")
+        print(llm_pdf.loc[llm_pdf.llm_status != "ok", "llm_status"].value_counts().head(10))
+
+# --- Attach the LLM determination to the scored data ---
+# One row per order carrying BOTH determinations. Orders the LLM did not read keep the score
+# determination and carry llm_status = "not_run", so the two columns are never silently conflated.
+_llm_schema_defaults = {
+    "necessity_class_llm": (F.lit(None).cast("string")),
+    "mobility_score_llm": (F.lit(None).cast("int")),
+    "monitoring_score_llm": (F.lit(None).cast("int")),
+    "total_score_llm": (F.lit(None).cast("int")),
+    "has_named_concept_llm": (F.lit(None).cast("int")),
+    "llm_rationale": (F.lit(None).cast("string")),
+    "llm_evidence": (F.lit(None).cast("string")),
+    "llm_summary": (F.lit(None).cast("string")),
+}
+
+if RUN_LLM and llm_pdf is not None and len(llm_pdf):
+    _llm_sdf = spark.createDataFrame(sanitize_df(llm_pdf).astype(object).where(pd.notnull(llm_pdf), None))
+    _join_col = ORDER_ID_COL or "OrderId"
+    df = df.join(_llm_sdf, df[_join_col] == _llm_sdf["_order_id"], "left").drop("_order_id")
+    df = df.withColumn("llm_status", F.coalesce(F.col("llm_status"), F.lit("not_run")))
+else:
+    for _c, _default in _llm_schema_defaults.items():
+        df = df.withColumn(_c, _default)
+    df = df.withColumn("llm_status", F.lit("not_run"))
+
+# determination_agreement: how the two determinations relate for this order. This is the column the
+# rule-vs-LLM comparison is built on - it is a comparison of two readings of the same text, not a
+# statement that either one is correct.
+df = df.withColumn(
+    "determination_agreement",
+    F.when(F.col("llm_status") != "ok", F.lit("llm_not_run"))
+     .when(F.col("necessity_class") == F.col("necessity_class_llm"), F.lit("agree"))
+     .otherwise(F.concat(F.lit("differ: score="), F.col("necessity_class"),
+                         F.lit(", llm="), F.col("necessity_class_llm"))),
+)
+
+if RUN_LLM:
+    print("Determination agreement:")
+    display(df.groupBy("determination_agreement").agg(F.count("*").alias("orders"))
+              .orderBy(F.desc("orders")))
+# 10. Export summary workbook - med_nec_buckets_v2.xlsx
+
+# Aggregates only. Row-level data lives in the review workbook and the detail CSV, so nothing
+# here repeats it.
 
 OUTPUT_XLSX = f"med_nec_buckets_v2_{RUN_TS}.xlsx"
 # Destination directory. Workspace paths (/Workspace/...) are a real mounted filesystem, so the
@@ -457,12 +777,9 @@ def with_pct(sdf, count_col="orders"):
     pdf["pct_of_scope"] = (pdf[count_col] / total * 100).round(1)
     return pdf
 
-# --- Summary tab: necessity, confidence, indeterminate reasons ---
+# --- Summary tab: necessity, indeterminate reasons ---
 nec_pdf = with_pct(
     df.groupBy("necessity_class").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
-)
-conf_pdf = with_pct(
-    df.groupBy("confidence").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
 )
 indet_pdf = with_pct(
     df.groupBy("unmatched_text").agg(F.count("*").alias("orders")).orderBy(F.desc("orders"))
@@ -523,38 +840,44 @@ if LOS_COL is not None:
           .orderBy(F.desc("orders")).toPandas()
     ))
 
-# --- Detail tab: row-level trace. Original order data -> every concept label -> scores ->
-# necessity class -> GY disposition, so a reviewer can walk a single order end to end.
-# The xlsx tab holds a stratified sample (DETAIL_SAMPLE_N per class) to stay openable; set
-# WRITE_FULL_DETAIL_CSV to also write every scored order to a CSV beside the workbook. ---
-DETAIL_SAMPLE_N = 150
+# --- Column set for the row-level outputs (detail CSV and review workbook). This workbook holds
+# aggregates only, so the same rows are not repeated across three files. ---
 WRITE_FULL_DETAIL_CSV = True
 
 concept_names = [n for n, *_ in CONCEPTS]
+weight_col_names = [f"w_{n}" for n, a, w in SCORING_CONCEPTS]
 context_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
 # concept hit columns, cast to 1/0 and named by the concept (the "labels")
 label_cols = [F.col(f"c_{n}").cast("int").alias(n) for n in concept_names]
+# weighted contribution per scoring concept, so the scores reconcile from the visible columns
+weight_cols = [F.col(c) for c in weight_col_names]
 derived_cols = ["mobility_score", "monitoring_score", "total_score",
                 "named_score", "has_named_concept", "necessity_class",
-                "unmatched_text", "confidence", "recommended_los",
+                "unmatched_text", "recommended_los",
                 "gy_disposition", "why_labeled", "classification_method"]
-detail_select = ([F.col(c) for c in context_cols] + label_cols
-                 + [F.col(c) for c in derived_cols] + [F.col(FREE_TEXT_COL)])
+# Both determinations travel together everywhere: score columns, then LLM columns.
+detail_select = ([F.col(c) for c in context_cols] + label_cols + weight_cols
+                 + [F.col(c) for c in derived_cols]
+                 + [F.col(c) for c in LLM_OUTPUT_COLS] + [F.col(FREE_TEXT_COL)])
 
-detail_pdf = pd.concat([
-    df.filter(F.col("necessity_class") == cls).select(*detail_select).limit(DETAIL_SAMPLE_N).toPandas()
-    for cls in ["necessary", "indeterminate", "not_necessary"]
-], ignore_index=True)
 
-# --- Examples tab: sampled free-text per class ---
-ex_cols = [c for c in [ORDER_ID_COL, LOS_COL] if c is not None] + [
-    "necessity_class", "total_score", "mobility_score", "monitoring_score",
-    "named_score", "has_named_concept", "confidence", "unmatched_text", FREE_TEXT_COL,
-]
-examples_pdf = pd.concat([
-    df.filter(F.col("necessity_class") == cls).select(*ex_cols).limit(20).toPandas()
-    for cls in ["necessary", "indeterminate", "not_necessary"]
-], ignore_index=True)
+# --- Determination comparison: score label vs LLM label. An aggregate, not row-level data.
+# Only meaningful for orders the LLM actually read (llm_status = ok). ---
+llm_read = df.filter(F.col("llm_status") == "ok")
+llm_read_n = llm_read.count()
+if llm_read_n:
+    agreement_pdf = (llm_read.groupBy("determination_agreement")
+                     .agg(F.count("*").alias("orders"))
+                     .orderBy(F.desc("orders")).toPandas())
+    agreement_pdf["pct_of_llm_read"] = (agreement_pdf["orders"] / llm_read_n * 100).round(1)
+    crosstab_pdf = (llm_read.groupBy("necessity_class", "necessity_class_llm")
+                    .agg(F.count("*").alias("orders"))
+                    .orderBy(F.desc("orders")).toPandas())
+    llm_status_pdf = (df.groupBy("llm_status").agg(F.count("*").alias("orders"))
+                      .orderBy(F.desc("orders")).toPandas())
+else:
+    _none = pd.DataFrame({"note": ["LLM did not run - set RUN_LLM = True"]})
+    agreement_pdf = crosstab_pdf = llm_status_pdf = _none
 
 # --- Definitions tab: embedded so the workbook is self-explaining ---
 definitions_pdf = pd.DataFrame([
@@ -567,7 +890,6 @@ definitions_pdf = pd.DataFrame([
     ["total_score", "mobility_score + monitoring_score. Drives the bucket via cutoffs.", "composite (provisional)"],
     ["named_score", "Points from named CMS concepts only. A named concept (named_score > 0) is required for necessary.", "BPM10 / 414.605"],
     ["has_named_concept", "1 if any named CMS concept matched. Gates the necessary band.", "BPM10 / 414.605"],
-    ["confidence", "Internal quality flag on the classification (high / medium / low). Not a CMS construct.", "n/a"],
     ["recommended_los", "Level of service implied by the monitoring axis. Descriptive, not a billing call.", "414.605; 410.40(c)"],
     ["gy_disposition", "GY process relation: not_necessary = no documented reason (GY candidate); necessary = documented reason present; indeterminate = partial, review.", "review-process 4 Aug"],
     ["GY modifier", "Billing marks a non-medically-necessary Medicare trip GY: transport provided, payment not requested. Enables billing the facility/patient and building a record.", "review-process 4 Aug"],
@@ -611,9 +933,11 @@ score_by_class_pdf = (
       .orderBy(F.desc("avg_total_score")).toPandas()
 )
 
+# Aggregates only - every tab answers a different question. Row-level orders are in the review
+# workbook and the detail CSV, and are deliberately not repeated here.
 sheets = {
     "Definitions": [("Definitions and CMS basis", definitions_pdf)],
-    "Summary":     [("Necessity", nec_pdf), ("Confidence", conf_pdf),
+    "Summary":     [("Necessity - score determination", nec_pdf),
                     ("Indeterminate - why", indet_pdf)],
     "Scoring":     [("Concept weights", weight_pdf),
                     ("Aggregation formula", formula_pdf),
@@ -622,10 +946,10 @@ sheets = {
     "Concepts":    [("Concept dictionary - terms, weights, CMS basis", concept_pdf)],
     "Mobility reasons": [("Reasons for mobility - frequency overall and among necessary orders",
                           mobility_pdf)],
-    "Detail":      [(f"Row-level trace: order -> labels -> class -> GY disposition "
-                     f"(sample of {DETAIL_SAMPLE_N} per class)", detail_pdf)],
+    "Determinations": [("Score vs LLM - agreement", agreement_pdf),
+                       ("Score label vs LLM label", crosstab_pdf),
+                       ("LLM coverage", llm_status_pdf)],
     "Where":       where_blocks or [("No customer/LOS column resolved", pd.DataFrame({"note": ["set FIELD_CANDIDATES"]}))],
-    "Examples":    [("Sampled order text per class", examples_pdf)],
 }
 
 def _coerce(v):
@@ -694,28 +1018,36 @@ if WRITE_FULL_DETAIL_CSV:
     except Exception as e:
         print("Wrote local detail CSV:", local_csv, "| copy failed:", e)
 
-# 9. Review workbook - for walking through actual orders and how each was labeled
+# 11. Review workbook - one row per order, both determinations side by side
 
-# A separate, scrollable workbook aimed at the business review, not analysis. Each tab is a
-# curated view: the free text is shown first, then the class, the GY disposition, and why_labeled
-# (the exact words that triggered each concept). Header rows are frozen so labels stay visible
-# while scrolling. Built with pandas for speed on the large tabs.
+# The row-level workbook, aimed at the business review. ONE data tab, not several: the previous
+# per-class tabs (Not necessary / Rules missed / Borderline) were all subsets of the same rows, so
+# the same order appeared in three places. They are Excel filters on the single Orders tab instead.
+# Free text is shown first, then the score determination, then the LLM determination and its
+# rationale. Header row frozen, autofilter on, so the subsets are one click away.
 
 from openpyxl.utils import get_column_letter
 
 BUILD_REVIEW_WORKBOOK = True
 REVIEW_XLSX = f"med_nec_review_{RUN_TS}.xlsx"
-# Excel's own hard limit is 1,048,576 rows per sheet including the header, so the "All with text"
-# tab cannot be truly uncapped. This is set to that ceiling rather than an arbitrary number, and
-# any truncation is printed explicitly below so a capped tab is never mistaken for a full count.
-# The uncapped, full-population outputs are the Genie table (section 10) and the detail CSV.
+# Excel's own hard limit is 1,048,576 rows per sheet including the header, so the Orders tab
+# cannot be truly uncapped. This is set to that ceiling rather than an arbitrary number, and any
+# truncation is printed explicitly below so a capped tab is never mistaken for a full count.
+# The uncapped, full-population outputs are the Genie table (section 12) and the detail CSV.
 MAX_REVIEW_ROWS = 1_048_575
 
 if BUILD_REVIEW_WORKBOOK:
+    # Reading order: context, the text itself, then the SCORE determination, then the LLM
+    # determination with its rationale, then how the two relate.
     review_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None] + [
-        FREE_TEXT_COL, "necessity_class", "gy_disposition", "why_labeled",
-        "total_score", "named_score", "mobility_score", "monitoring_score",
-        "has_named_concept", "confidence", "unmatched_text", "recommended_los",
+        FREE_TEXT_COL,
+        "necessity_class", "total_score", "mobility_score", "monitoring_score",
+        "named_score", "has_named_concept", "why_labeled", "gy_disposition",
+        "unmatched_text", "recommended_los",
+        "necessity_class_llm", "total_score_llm", "mobility_score_llm",
+        "monitoring_score_llm", "has_named_concept_llm",
+        "llm_rationale", "llm_evidence", "llm_summary", "llm_status",
+        "determination_agreement",
     ]
 
     def review_frame(spark_df, limit=None):
@@ -725,45 +1057,46 @@ if BUILD_REVIEW_WORKBOOK:
         return d.toPandas()
 
     with_text = df.filter(F.col("_has_text"))
-    # Borderline: orders near the necessary/not-necessary boundary - the cases worth scrutiny.
-    #   single-concept clears, indeterminate orders with a real signal, and a scored concept
-    #   sitting alongside filler wording.
-    borderline = df.filter(
-        ((F.col("necessity_class") == "necessary") & (F.col("total_score") == NECESSARY_CUTOFF))
-        | ((F.col("necessity_class") == "indeterminate") & (F.col("total_score") >= 2))
-        | ((F.col("total_score") >= 1) & F.col("any_filler"))
-    )
 
     guide_pdf = pd.DataFrame([
-        ["Purpose", "Walk through actual orders and see how each was labeled for medical necessity."],
+        ["Purpose", "Walk through actual orders and see how each was read for medical-necessity documentation."],
+        ["Tabs", "One data tab: Orders. Every order with free text, one row each. Use the column filters for subsets - there is no separate tab per subset."],
+        ["", ""],
+        ["TWO DETERMINATIONS", "Each order is read twice, independently, using the SAME cutoffs. Any difference comes from what was read out of the text, not from different thresholds."],
         ["free text (ClinicalData)", "The reason-for-transport text entered at order time. Read this first."],
-        ["necessity_class", "Label for the order text: necessary / indeterminate / not_necessary."],
+        ["", ""],
+        ["SCORE DETERMINATION", "Weighted keyword concepts."],
+        ["necessity_class", "Score label: necessary / indeterminate / not_necessary."],
+        ["total_score", "mobility_score + monitoring_score. 0 -> not_necessary; >= 3 with a named concept -> necessary; else indeterminate."],
+        ["why_labeled", "The concepts that matched and the exact words that triggered each. Empty = the rules found nothing."],
+        ["unmatched_text", "1 = text present that no keyword rule read. Filter on this for the rules' blind spot."],
         ["gy_disposition", "GY process relation: no documented reason (GY candidate) / documented reason present / partial, review."],
-        ["why_labeled", "The concepts that matched and the exact words that triggered each. Empty = the rules found nothing (text_unmatched)."],
-        ["total_score", "mobility_score + monitoring_score. total_score == 0 -> not_necessary; >= 3 with a named concept -> necessary; else indeterminate."],
-        ["Tab: All with text", "Every order that has free text."],
-        ["Tab: Not necessary", "Orders labeled not_necessary - no documented reason in the order text."],
-        ["Tab: Rules missed", "text_unmatched - text present that no keyword rule read. The language-model candidates."],
-        ["Tab: Borderline", "Orders near the decision boundary - single-concept clears, near-miss indeterminates, reason-plus-filler."],
+        ["", ""],
+        ["LLM DETERMINATION", "A language model extracts the same facts from the same text; the same rules then assign the label."],
+        ["necessity_class_llm", "LLM label: necessary / indeterminate / not_necessary. Blank where the LLM did not read the order."],
+        ["llm_rationale", "Plain-English explanation of what the text does and does not establish. This is the WHY behind the LLM label."],
+        ["llm_evidence", "Verbatim quote from the order text behind every fact the model asserted."],
+        ["llm_status", "ok = the LLM read this order; not_run = it did not; error = the extraction failed validation."],
+        ["", ""],
+        ["determination_agreement", "agree / differ (with both labels named) / llm_not_run. Filter on 'differ' for the cases worth reviewing."],
+        ["", ""],
         ["Limitation", "Reflects ORDER-TIME documentation only. Final billing also depends on the crew PCR supporting the PCS, which is not in this data."],
+        ["Not a billing determination", "These labels describe what the order text documents. They are not a coverage, denial, or payment decision."],
     ], columns=["item", "meaning"])
 
-    # Actual population for the "All with text" tab, so truncation is visible rather than implied.
+    # Actual population for the Orders tab, so truncation is visible rather than implied.
     with_text_total = with_text.count()
 
     review_tabs = {
         "How to read": guide_pdf,
-        "All with text": review_frame(with_text, MAX_REVIEW_ROWS),
-        "Not necessary": review_frame(df.filter(F.col("necessity_class") == "not_necessary")),
-        "Rules missed": review_frame(df.filter(F.col("unmatched_text") == 1)),
-        "Borderline": review_frame(borderline),
+        "Orders": review_frame(with_text, MAX_REVIEW_ROWS),
     }
 
     if with_text_total > MAX_REVIEW_ROWS:
-        print(f"NOTE: 'All with text' truncated to {MAX_REVIEW_ROWS:,} of {with_text_total:,} rows "
+        print(f"NOTE: 'Orders' truncated to {MAX_REVIEW_ROWS:,} of {with_text_total:,} rows "
               "(Excel sheet limit). Use the Genie table or the detail CSV for the full population.")
     else:
-        print(f"'All with text' holds the full population: {with_text_total:,} rows.")
+        print(f"'Orders' holds the full population: {with_text_total:,} rows.")
 
     def build_review(path, tabs):
         # Write to a driver-local path first, then the caller copies it to the destination.
@@ -779,9 +1112,13 @@ if BUILD_REVIEW_WORKBOOK:
                 for cell in ws[1]:
                     cell.font = Font(bold=True)
                 ws.freeze_panes = "A2"
+                # Autofilter on the data tab: the per-class tabs this replaces are now one click.
+                if name != "How to read" and len(pdf.columns):
+                    ws.auto_filter.ref = ws.dimensions
                 for i, col in enumerate(pdf.columns, 1):
                     L = get_column_letter(i)
-                    if col in (FREE_TEXT_COL, "why_labeled"):
+                    if col in (FREE_TEXT_COL, "why_labeled", "llm_rationale",
+                               "llm_evidence", "llm_summary"):
                         ws.column_dimensions[L].width = 60
                     else:
                         ws.column_dimensions[L].width = min(26, max(len(str(col)) + 2, 10))
@@ -806,7 +1143,7 @@ if BUILD_REVIEW_WORKBOOK:
         except Exception as e:
             print("Wrote local review workbook:", local_review, "| copy failed:", e)
 
-# 10. Genie table (optional) - persist the scored data as a curated table for AI/BI Genie
+# 12. Genie table - persist the scored data as a curated table for AI/BI Genie
 
 # Genie queries a real table or view, so this is the one place the pipeline writes. It writes only
 # this derived output, to a schema you control - the source table is read only and is never touched.
@@ -819,29 +1156,39 @@ WRITE_GENIE_TABLE = True
 # vivekkumar_patel is the SOURCE owner's schema - writing there needs his agreement, so point
 # this at your own schema. The source table is read only and is never modified either way.
 GENIE_CATALOG    = "prod-sandbox"
-GENIE_SCHEMA     = "vivekkumar_patel"     # <-- CHANGE to a schema you own
+GENIE_SCHEMA     = "josh_smitherman"
 GENIE_TABLE_NAME = "med_nec_genie"
 GENIE_TABLE = ".".join(f"`{p}`" for p in (GENIE_CATALOG, GENIE_SCHEMA, GENIE_TABLE_NAME))
 
 if WRITE_GENIE_TABLE:
-    # Fail early and clearly if the target schema is not writable, rather than part way through.
+    # Pre-flight: an existing schema you cannot write to passes CREATE SCHEMA IF NOT EXISTS as a
+    # no-op, so test the privilege that actually matters by creating and dropping a tiny table.
+    # This surfaces PERMISSION_DENIED in seconds rather than after the full scoring run.
+    _probe = f"`{GENIE_CATALOG}`.`{GENIE_SCHEMA}`.`_med_nec_write_probe`"
     try:
-        spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{GENIE_CATALOG}`.`{GENIE_SCHEMA}`")
+        spark.sql(f"CREATE OR REPLACE TABLE {_probe} AS SELECT 1 AS ok")
+        spark.sql(f"DROP TABLE IF EXISTS {_probe}")
+        print(f"Write access confirmed on {GENIE_CATALOG}.{GENIE_SCHEMA}")
     except Exception as e:
-        print(f"Cannot reach {GENIE_CATALOG}.{GENIE_SCHEMA}: {e}")
+        print(f"Cannot write to {GENIE_CATALOG}.{GENIE_SCHEMA}: {e}")
+        print("Set GENIE_SCHEMA to a schema you own, or request CREATE TABLE on this one.")
         raise
 
     concept_names_all = [n for n, *_ in CONCEPTS]
+    weight_names_all = [f"w_{n}" for n, a, w in SCORING_CONCEPTS]
     # Column set is deliberate: order/level-of-service/customer context, the scoring outputs, the
-    # concept flags, and the order-time free text. Direct identifiers carried by the source table
+    # concept flags, the per-concept weighted contributions (so the scores reconcile from the data
+    # itself), and the order-time free text. Direct identifiers carried by the source table
     # (MRN, MRNSource, requester name and phone) are NOT selected - a Genie space invites open
     # questions and those fields have no analytical use here.
     genie_cols = (
         [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
         + ["necessity_class", "gy_disposition", "total_score", "mobility_score",
            "monitoring_score", "named_score", "has_named_concept", "unmatched_text",
-           "confidence", "recommended_los", "why_labeled", "classification_method"]
+           "recommended_los", "why_labeled", "classification_method"]
         + [F.col(f"c_{n}").cast("int").alias(n) for n in concept_names_all]
+        + [F.col(c) for c in weight_names_all]
+        + [F.col(c) for c in LLM_OUTPUT_COLS]
         + [F.col(FREE_TEXT_COL).alias("clinical_text")]
     )
     genie_df = df.select(*[F.col(c) if isinstance(c, str) else c for c in genie_cols])
@@ -867,18 +1214,32 @@ if WRITE_GENIE_TABLE:
         "total_score": "mobility_score + monitoring_score. 0=not_necessary; >=3 with a named concept=necessary; else indeterminate.",
         "mobility_score": "Sum of matched mobility-axis concept weights (why other transport is contraindicated). BPM10 10.2.1/10.2.3.",
         "monitoring_score": "Sum of matched monitoring-axis concept weights (why this level of service). 42 CFR 414.605.",
-        "named_score": "Points from named CMS concepts only. A named concept is required for necessary.",
+        "named_score": "Points from named CMS concepts only. A SUBSET of total_score, not a third component - the named concepts are already counted in mobility_score and monitoring_score. Do not add it to them.",
         "has_named_concept": "1 if any named CMS concept matched, else 0.",
         "unmatched_text": "1 if text was entered but nothing scored (words no rule recognized). The language-model target set.",
-        "confidence": "Score-based quality flag: high / medium / low.",
         "recommended_los": "Level of service implied by monitoring concepts (descriptive, not a billing call).",
         "why_labeled": "The concepts that matched and the exact text that triggered each.",
         "clinical_text": "The free-text reason-for-transport entered at order time (order-time / PCS-side documentation).",
+        "necessity_class_llm": "The LLM determination for the same order text: necessary / not_necessary / indeterminate. NULL where the LLM did not read this order - check llm_status. This is a SECOND, independent reading, not a correction of necessity_class.",
+        "mobility_score_llm": "Mobility-axis score from the facts the LLM extracted. Same weights as mobility_score.",
+        "monitoring_score_llm": "Monitoring-axis score from the facts the LLM extracted. Same weights as monitoring_score.",
+        "total_score_llm": "mobility_score_llm + monitoring_score_llm. The SAME cutoffs as the score path are applied to it, so any label difference comes from what was read in the text.",
+        "has_named_concept_llm": "1 if the LLM found any named CMS concept, else 0.",
+        "llm_rationale": "Plain-English explanation of what the order text does and does not establish about mobility and monitoring. This is the stated reason behind necessity_class_llm.",
+        "llm_evidence": "Verbatim quotes from the order text supporting each fact the LLM asserted, as field[quote] pairs.",
+        "llm_summary": "One-line summary of the order text as read by the LLM.",
+        "llm_status": "ok = the LLM read this order; not_run = it did not (LLM off, or outside the target set, or beyond the sample); error: ... = the extraction failed validation.",
+        "determination_agreement": "How the two determinations relate: agree, differ (naming both labels), or llm_not_run. Only rows with llm_status = ok can agree or differ.",
         "run_ts": "Timestamp (YYYYMMDD_HHMMSS) of the scoring run that produced this table. All rows share one value; the table is overwritten each run.",
         "source_table": "The source table this run read from.",
     }
     for n, a, w, g, b, ref, url, pat in CONCEPTS:
         col_comments[n] = f"1 if the order text matched the {n} concept ({a} axis, weight {w}, {b}). Basis: {ref}."
+    for n, a, w in SCORING_CONCEPTS:
+        col_comments[f"w_{n}"] = (
+            f"Weighted contribution of {n} to the score: {w} when matched, 0 otherwise. "
+            f"Summing every w_ column on the {a} axis gives {a}_score."
+        )
     for col, comment in col_comments.items():
         safe = comment.replace("'", "")
         try:
@@ -887,228 +1248,16 @@ if WRITE_GENIE_TABLE:
             print(f"  comment on {col} skipped:", e)
     spark.sql(
         f"COMMENT ON TABLE {GENIE_TABLE} IS "
-        "'Non-emergent ground ambulance orders scored for medical-necessity documentation against "
+        "'Non-emergent ground ambulance orders assessed for medical-necessity documentation against "
         "CMS criteria (order-time text only). One row per order, full in-scope population, no row cap. "
-        "Wheelchair, ambulatory, air and emergent codes are excluded from scope. Labels describe the "
-        "documentation, not the trip, and are not a billing determination. Overwritten each run; see run_ts.'"
+        "TWO determinations per order from the same text and the same cutoffs: necessity_class from "
+        "weighted keyword concepts, and necessity_class_llm from language-model extraction with a "
+        "stated rationale in llm_rationale. They are independent readings, not one correcting the other; "
+        "determination_agreement compares them. Wheelchair, ambulatory, air and emergent codes are "
+        "excluded from scope. Labels describe the documentation, not the trip, and are not a billing "
+        "determination. Overwritten each run; see run_ts.'"
     )
     print("Applied column and table comments. Point a Genie space at:", GENIE_TABLE)
-
-# 11. LLM approach (optional) - second opinion on the orders the rules could not read
-
-# The scoring path above is the rule-based approach. This is the LLM approach, using the same
-# pattern as the NurseNav project (OpenAI SDK -> Databricks serving endpoint, extract-then-judge):
-# the model extracts facts with an evidence quote for every flag, then the SAME cutoffs assign the
-# label. It runs ONLY on the unmatched_text set - orders where text was entered but no rule scored
-# it - because that is where scoring adds nothing and the LLM can. Running the two side by side is
-# the rule-based vs LLM experiment. OFF by default (it calls a paid endpoint). SAMPLE first.
-# All LLM code is inlined here (and imports openai) so it only loads when RUN_LLM is True.
-
-RUN_LLM = False
-LLM_SAMPLE_N = 200       # cap the rules-missed set while validating the prompt; None = all
-LLM_WRITE_CSV = True
-LLM_MODEL = "databricks-gpt-oss-120b"      # same model NurseNav uses
-LLM_BASE_URL = "https://adb-2790612761746757.17.azuredatabricks.net/serving-endpoints"
-
-if RUN_LLM:
-    import json as _json
-    from openai import OpenAI
-
-    # --- LLM client and call (OpenAI SDK -> Databricks serving endpoint, NurseNav pattern) ---
-    _token = (
-        dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-        if "dbutils" in dir() else os.environ.get("DATABRICKS_TOKEN", "")
-    )
-    _client = OpenAI(api_key=_token, base_url=LLM_BASE_URL)
-
-    def llm_call(system_prompt, user_prompt, max_tokens=1500):
-        resp = _client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[{"role": "system", "content": system_prompt},
-                      {"role": "user",   "content": user_prompt}],
-            temperature=0.1, max_tokens=max_tokens,
-        )
-        content = resp.choices[0].message.content
-        if isinstance(content, list):
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    return item.get("text", "")
-            return _json.dumps(content)
-        return content
-
-    # --- Extraction prompt: the model pulls facts only; the rules below assign the label ---
-    MED_NEC_SYSTEM_PROMPT = """
-You are a clinical documentation information extraction assistant for non-emergent ground ambulance orders.
-Your ONLY task is to extract structured facts from the free-text transport reason recorded at order time.
-
-CRITICAL CONSTRAINTS
-- Do NOT provide medical advice, diagnose, or decide whether the transport was appropriate.
-- Do NOT guess. Only extract what is explicitly supported by the text.
-- Handle negations correctly (for example "no oxygen" is false).
-- For every boolean set to true you MUST provide a verbatim evidence quote from the text.
-- If no clinical reason is documented, set documentation.reason_documented = false.
-
-ABBREVIATIONS: BLS/ALS=basic/advanced life support, O2=oxygen, IV=intravenous, w/c=wheelchair,
-amb=ambulate/ambulatory, ETT=endotracheal tube, trach=tracheostomy.
-
-OUTPUT: valid JSON only, all keys present, booleans never null.
-
-SCHEMA:
-{
-  "order_id": string,
-  "text_summary": string,
-  "mobility": {
-    "bed_confined": boolean, "cannot_ambulate": boolean, "cannot_sit": boolean,
-    "bariatric_handling": boolean, "wound_or_ostomy_positioning": boolean,
-    "behavioral_or_altered_mental": boolean
-  },
-  "monitoring": {
-    "ventilator_or_airway": boolean, "airway_suctioning": boolean, "iv_medication": boolean,
-    "cardiac_monitoring": boolean, "oxygen": boolean, "isolation_precautions": boolean
-  },
-  "filler_only": {
-    "weakness_only": boolean, "fall_risk_only": boolean, "nonclinical_reason": boolean
-  },
-  "documentation": { "reason_documented": boolean, "note_is_operational_only": boolean },
-  "evidence": [ {"field": string, "value": boolean, "quote": string} ]
-}
-
-FIELD NOTES
-- mobility captures why the patient cannot travel by wheelchair van or car.
-- monitoring captures clinical care needed during transport (drives level of service).
-- filler_only captures vague terms that carry no necessity on their own.
-- Set reason_documented = false when the field is empty or contains only filler.
-
-Now extract from the following order text."""
-
-    def build_user_prompt(order_id, text):
-        return f"order_id: {order_id}\n\nOrder text:\n{text}"
-
-    # --- Validation: strict JSON, all sections present, every true flag carries evidence ---
-    BOOL_SECTIONS = {
-        "mobility": ["bed_confined", "cannot_ambulate", "cannot_sit", "bariatric_handling",
-                     "wound_or_ostomy_positioning", "behavioral_or_altered_mental"],
-        "monitoring": ["ventilator_or_airway", "airway_suctioning", "iv_medication",
-                       "cardiac_monitoring", "oxygen", "isolation_precautions"],
-        "filler_only": ["weakness_only", "fall_risk_only", "nonclinical_reason"],
-    }
-    REQUIRED_TOP_KEYS = {"order_id", "text_summary", "mobility", "monitoring",
-                         "filler_only", "documentation", "evidence"}
-    # Named concepts (explicit in CMS text) - only these can carry an order to necessary.
-    NAMED_FIELDS = {
-        "mobility.bed_confined", "mobility.cannot_ambulate", "mobility.cannot_sit",
-        "monitoring.ventilator_or_airway", "monitoring.airway_suctioning",
-        "monitoring.iv_medication", "monitoring.cardiac_monitoring",
-    }
-    LLM_WEIGHTS = {
-        "mobility.bed_confined": 3, "mobility.cannot_ambulate": 3, "mobility.cannot_sit": 3,
-        "mobility.bariatric_handling": 2, "mobility.wound_or_ostomy_positioning": 1,
-        "mobility.behavioral_or_altered_mental": 1,
-        "monitoring.ventilator_or_airway": 3, "monitoring.airway_suctioning": 3,
-        "monitoring.iv_medication": 3, "monitoring.cardiac_monitoring": 2,
-        "monitoring.oxygen": 1, "monitoring.isolation_precautions": 1,
-    }
-
-    def validate_extraction(raw):
-        try:
-            obj = _json.loads(raw)
-        except Exception as e:
-            return False, {}, f"invalid JSON: {e}"
-        missing = REQUIRED_TOP_KEYS - set(obj)
-        if missing:
-            return False, obj, f"missing keys: {sorted(missing)}"
-        for section, keys in BOOL_SECTIONS.items():
-            sec = obj.get(section, {})
-            if not isinstance(sec, dict):
-                return False, obj, f"{section} must be an object"
-            for k in keys:
-                if not isinstance(sec.get(k), bool):
-                    return False, obj, f"{section}.{k} must be boolean"
-        ev_fields = {e.get("field") for e in obj.get("evidence", []) if isinstance(e, dict)}
-        for section, keys in BOOL_SECTIONS.items():
-            for k in keys:
-                if obj[section][k] and f"{section}.{k}" not in ev_fields:
-                    return False, obj, f"true flag without evidence: {section}.{k}"
-        return True, obj, "OK"
-
-    # --- Rules engine: the SAME cutoffs as the scoring path, applied to extracted facts ---
-    def judge(obj):
-        mob = sum(LLM_WEIGHTS[f"mobility.{k}"] for k in BOOL_SECTIONS["mobility"] if obj["mobility"][k])
-        mon = sum(LLM_WEIGHTS[f"monitoring.{k}"] for k in BOOL_SECTIONS["monitoring"] if obj["monitoring"][k])
-        total = mob + mon
-        has_named = any(
-            obj[sec][k] for sec in ("mobility", "monitoring") for k in BOOL_SECTIONS[sec]
-            if f"{sec}.{k}" in NAMED_FIELDS
-        )
-        if total >= NECESSARY_CUTOFF and has_named:
-            cls = "necessary"
-        elif total == 0:
-            cls = "not_necessary"
-        else:
-            cls = "indeterminate"
-        return {"necessity_class_llm": cls, "mobility_score_llm": mob,
-                "monitoring_score_llm": mon, "total_score_llm": total,
-                "has_named_concept_llm": int(has_named)}
-
-    # --- Run on the rules-missed set ---
-    id_col = ORDER_ID_COL or "OrderId"
-    missed_pdf = (
-        df.filter(F.col("unmatched_text") == 1)
-          .select(F.col(id_col).alias("order_id"), F.col(FREE_TEXT_COL).alias("text"),
-                  F.col("necessity_class"))
-          .toPandas()
-    )
-    if LLM_SAMPLE_N:
-        missed_pdf = missed_pdf.head(LLM_SAMPLE_N)
-    print(f"LLM approach: extracting {len(missed_pdf):,} rules-missed orders via {LLM_MODEL}")
-
-    rows = []
-    for _, r in missed_pdf.iterrows():
-        prompt = build_user_prompt(str(r["order_id"]), r["text"] or "")
-        try:
-            raw = llm_call(MED_NEC_SYSTEM_PROMPT, prompt)
-            ok, obj, msg = validate_extraction(raw)
-        except Exception as e:
-            ok, obj, msg = False, {}, f"call failed: {e}"
-        rec = {"order_id": r["order_id"], "necessity_class": r["necessity_class"],
-               "extraction_valid": int(ok), "extraction_error": "" if ok else msg,
-               "clinical_text": r["text"]}
-        if ok:
-            rec.update(judge(obj))
-            rec["text_summary"] = obj.get("text_summary", "")
-            rec["evidence"] = "; ".join(
-                f'{e.get("field")}[{e.get("quote")}]' for e in obj.get("evidence", [])
-                if isinstance(e, dict)
-            )
-        rows.append(rec)
-
-    llm_pdf = pd.DataFrame(rows)
-    valid_rate = llm_pdf["extraction_valid"].mean() if len(llm_pdf) else 0.0
-    print(f"Valid extractions: {valid_rate:.1%}  (target >= 95% before scaling)")
-    if valid_rate < 0.95 and len(llm_pdf):
-        print("  Below target - review extraction_error before running the full set:")
-        print(llm_pdf.loc[llm_pdf.extraction_valid == 0, "extraction_error"].value_counts().head(10))
-
-    ok_pdf = llm_pdf[llm_pdf.extraction_valid == 1]
-    if len(ok_pdf):
-        print("Rule-based label vs LLM label on the rules-missed set:")
-        print(ok_pdf.groupby(["necessity_class", "necessity_class_llm"]).size()
-                    .reset_index(name="orders").sort_values("orders", ascending=False).to_string(index=False))
-
-    if LLM_WRITE_CSV and len(llm_pdf):
-        llm_csv = f"med_nec_llm_{RUN_TS}.csv"
-        local_llm = f"/tmp/{llm_csv}"
-        sanitize_df(llm_pdf).to_csv(local_llm, index=False)
-        llm_dest = f"{OUTPUT_DIR.rstrip('/')}/{llm_csv}"
-        try:
-            if OUTPUT_DIR.startswith("/Workspace/") or OUTPUT_DIR.startswith("/dbfs/") or OUTPUT_DIR.startswith("/Volumes/"):
-                shutil.copyfile(local_llm, llm_dest)
-            else:
-                dbutils.fs.cp(f"file:{local_llm}", llm_dest)
-            print("Saved LLM results to:", llm_dest)
-        except Exception as e:
-            print("Wrote local LLM CSV:", local_llm, "| copy failed:", e)
-
 # Notes / open items
 
 # - Weights and thresholds are provisional. They encode the CMS hierarchy (named [BPM10] 10.2.3
