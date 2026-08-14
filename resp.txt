@@ -1,0 +1,14 @@
+Hi Shelli,
+
+Thanks — the attachment is helpful. Here’s where AI and data analysis can support the assessment:
+
+**Market size** — Analyze historical 911 and Nurse Navigation encounters against the ten service options to estimate potential volume for each. AI can help identify qualifying encounters where the necessary information is captured in clinical narrative rather than structured fields.
+
+**Benchmarks** — Gather and structure publicly available pricing and market information into a consistent comparison, clearly distinguishing sourced data from estimates.
+
+**Pricing models** — Model the different service options based on their billing trigger, expected volume, and cost to understand which pricing structures may be most appropriate.
+
+**Value drivers** — Quantify measurable outcomes, including STARS and HEDIS gap closure, using available data to support the value and ROI discussion.
+
+Thanks,
+Josh
