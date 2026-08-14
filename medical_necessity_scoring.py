@@ -164,8 +164,16 @@ df = df.withColumn("mobility_score",   axis_score("mobility"))
 df = df.withColumn("monitoring_score", axis_score("monitoring"))
 
 SCORING_CONCEPTS = [(n, a, w) for n, a, w, *_ in CONCEPTS if a in ("mobility", "monitoring")]
+
+def weight_col(concept, axis):
+    return f"{axis}_w_{concept}"
+
+WEIGHT_COLS = {a: [weight_col(n, a) for n, ax, w in SCORING_CONCEPTS if ax == a]
+               for a in ("mobility", "monitoring")}
+ALL_WEIGHT_COLS = WEIGHT_COLS["mobility"] + WEIGHT_COLS["monitoring"]
+
 for _n, _a, _w in SCORING_CONCEPTS:
-    df = df.withColumn(f"w_{_n}",
+    df = df.withColumn(weight_col(_n, _a),
                        F.when(F.col(f"c_{_n}"), F.lit(_w)).otherwise(F.lit(0)).cast("int"))
 
 named_a = [n for n, a, w, g, b, *_ in CONCEPTS if g == "A" and b == "named"]
@@ -180,8 +188,8 @@ df = df.withColumn("total_score",
 df = df.withColumn("named_a_hits", sum([F.col(f"c_{n}").cast("int") for n in named_a]))
 df = df.withColumn("has_named_concept", (F.col("named_a_hits") > 0).cast("int"))
 
-_mob_w = [f"w_{n}" for n, a, w in SCORING_CONCEPTS if a == "mobility"]
-_mon_w = [f"w_{n}" for n, a, w in SCORING_CONCEPTS if a == "monitoring"]
+_mob_w = WEIGHT_COLS["mobility"]
+_mon_w = WEIGHT_COLS["monitoring"]
 _recon = (df
     .withColumn("_mob_sum", sum([F.col(c) for c in _mob_w]))
     .withColumn("_mon_sum", sum([F.col(c) for c in _mon_w]))
@@ -309,9 +317,9 @@ def sanitize_df(pdf):
 
 RUN_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-LLM_TARGET   = "unmatched"
-LLM_SAMPLE_N = 200
-LLM_WORKERS  = 8
+LLM_TARGET   = "with_text"
+LLM_SAMPLE_N = None
+LLM_WORKERS  = 32
 LLM_MODEL    = "databricks-gpt-oss-120b"
 LLM_BASE_URL = "https://adb-2790612761746757.17.azuredatabricks.net/serving-endpoints"
 
@@ -322,6 +330,7 @@ LLM_OUTPUT_COLS = ["necessity_class_llm", "mobility_score_llm", "monitoring_scor
 
 import json as _json
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 
@@ -485,10 +494,18 @@ target_pdf = (target
 target_total = len(target_pdf)
 if LLM_SAMPLE_N:
     target_pdf = target_pdf.head(LLM_SAMPLE_N)
-print(f"LLM determination: {len(target_pdf):,} of {target_total:,} orders in the "
+_n_calls = len(target_pdf)
+print(f"LLM determination: {_n_calls:,} of {target_total:,} orders in the "
       f"'{LLM_TARGET}' target set, via {LLM_MODEL}")
 if LLM_SAMPLE_N and target_total > LLM_SAMPLE_N:
     print(f"  SAMPLED - {target_total - LLM_SAMPLE_N:,} target orders carry llm_status='not_run'.")
+_est_hours = _n_calls * 3.0 / max(LLM_WORKERS, 1) / 3600
+print(f"  {_n_calls:,} endpoint calls at {LLM_WORKERS} workers: roughly {_est_hours:,.1f} hours "
+      f"at 3s per call, and {_n_calls:,} calls of billed inference.")
+if _est_hours > 2:
+    print("  This exceeds a practical notebook run. Either lower LLM_SAMPLE_N, or move this to "
+          "distributed batch inference (ai_query) instead of a driver-side thread pool.")
+_llm_t0 = time.time()
 
 def process_one(rec):
     oid, text = rec
@@ -516,6 +533,7 @@ with ThreadPoolExecutor(max_workers=LLM_WORKERS) as pool:
     rows = list(pool.map(process_one, records))
 
 llm_pdf = pd.DataFrame(rows)
+print(f"LLM pass finished in {(time.time() - _llm_t0) / 60:,.1f} minutes.")
 valid_rate = (llm_pdf["llm_status"] == "ok").mean() if len(llm_pdf) else 0.0
 print(f"Valid extractions: {valid_rate:.1%}  (target >= 95% before widening LLM_TARGET)")
 if valid_rate < 0.95 and len(llm_pdf):
@@ -624,7 +642,7 @@ if LOS_COL is not None:
 WRITE_FULL_DETAIL_CSV = True
 
 concept_names = [n for n, *_ in CONCEPTS]
-weight_col_names = [f"w_{n}" for n, a, w in SCORING_CONCEPTS]
+weight_col_names = ALL_WEIGHT_COLS
 context_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
 label_cols = [F.col(f"c_{n}").cast("int").alias(n) for n in concept_names]
 weight_cols = [F.col(c) for c in weight_col_names]
@@ -791,17 +809,16 @@ REVIEW_XLSX = f"med_nec_review_{RUN_TS}.xlsx"
 MAX_REVIEW_ROWS = 1_048_575
 
 if BUILD_REVIEW_WORKBOOK:
-    _mob_w_cols = [f"w_{n}" for n, a, w in SCORING_CONCEPTS if a == "mobility"]
-    _mon_w_cols = [f"w_{n}" for n, a, w in SCORING_CONCEPTS if a == "monitoring"]
+    _mob_w_cols = WEIGHT_COLS["mobility"]
+    _mon_w_cols = WEIGHT_COLS["monitoring"]
+    _additive_cols = _mob_w_cols + _mon_w_cols + ["named_score"]
     review_cols = [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None] + [
         FREE_TEXT_COL,
-        "necessity_class", "total_score",
-        "mobility_score"] + _mob_w_cols + [
-        "monitoring_score"] + _mon_w_cols + [
-        "named_score", "has_named_concept", "why_labeled", "gy_disposition",
+        "necessity_class", "total_score"] + _additive_cols + [
+        "has_named_concept", "why_labeled", "gy_disposition",
         "unmatched_text", "recommended_los",
-        "necessity_class_llm", "total_score_llm", "mobility_score_llm",
-        "monitoring_score_llm", "named_score_llm", "has_named_concept_llm",
+        "necessity_class_llm", "total_score_llm", "named_score_llm",
+        "has_named_concept_llm",
         "llm_rationale", "llm_evidence", "llm_summary", "llm_status",
         "determination_agreement",
     ]
@@ -823,11 +840,14 @@ if BUILD_REVIEW_WORKBOOK:
         ["", ""],
         ["SCORE DETERMINATION", "Weighted keyword concepts."],
         ["necessity_class", "Score label: necessary / indeterminate / not_necessary."],
-        ["total_score", "mobility_score + monitoring_score + named_score. 0 -> not_necessary; >= 3 with a named concept -> necessary; else indeterminate."],
-        ["mobility_score", "Sum of the w_ columns immediately to its right. Why the patient cannot travel by wheelchair van or car."],
-        ["monitoring_score", "Sum of the w_ columns immediately to its right. Why this level of service."],
-        ["w_<concept> columns", "What each matched concept contributed. A concept is worth 1, 2, or 3 points, so the 1/0 flags alone will not add up - these will. Each axis score is the sum of the w_ columns beside it."],
-        ["named_score", "Points from named CMS concepts - those CMS states explicitly. The third component of total_score, and required to be above zero for 'necessary'."],
+        ["total_score", "The sum of every column between it and has_named_concept, and nothing else. 0 -> not_necessary; >= 3 with a named concept -> necessary; else indeterminate."],
+        ["THE ADDITIVE BLOCK", "The 12 weight columns plus named_score. Select that whole block and the status bar sum equals total_score. No other column belongs in that sum."],
+        ["mobility_w_<concept>", "The six mobility weight columns. They sum to mobility_score. Why the patient cannot travel by wheelchair van or car."],
+        ["monitoring_w_<concept>", "The six monitoring weight columns. They sum to monitoring_score. Why this level of service."],
+        ["Reading the prefix", "The prefix names the subtotal the column belongs to: every mobility_w_ column rolls into mobility_score, every monitoring_w_ column into monitoring_score. A concept is worth 1, 2, or 3 points, so the 1/0 concept flags alone will not add up - these will."],
+        ["named_score", "Points from named CMS concepts - those CMS states explicitly. Part of the additive block, and required to be above zero for 'necessary'."],
+        ["mobility_score / monitoring_score", "Not shown here - they are the subtotals of the prefixed weight columns, so including them would double-count. They are in the Genie table and the detail CSV for querying by axis."],
+        ["has_named_concept", "A 1/0 flag, not a score. Do not include it in the sum."],
         ["why_labeled", "The concepts that matched and the exact words that triggered each. Empty = the rules found nothing."],
         ["unmatched_text", "1 = text present that no keyword rule read. Filter on this for the rules' blind spot."],
         ["gy_disposition", "GY process relation: no documented reason (GY candidate) / documented reason present / partial, review."],
@@ -876,7 +896,7 @@ if BUILD_REVIEW_WORKBOOK:
                     if col in (FREE_TEXT_COL, "why_labeled", "llm_rationale",
                                "llm_evidence", "llm_summary"):
                         ws.column_dimensions[L].width = 60
-                    elif str(col).startswith("w_"):
+                    elif "_w_" in str(col):
                         ws.column_dimensions[L].width = 9
                     else:
                         ws.column_dimensions[L].width = min(26, max(len(str(col)) + 2, 10))
@@ -919,7 +939,7 @@ if WRITE_GENIE_TABLE:
         raise
 
     concept_names_all = [n for n, *_ in CONCEPTS]
-    weight_names_all = [f"w_{n}" for n, a, w in SCORING_CONCEPTS]
+    weight_names_all = ALL_WEIGHT_COLS
     genie_cols = (
         [c for c in [ORDER_ID_COL, LOS_COL, CUSTOMER_COL] if c is not None]
         + ["necessity_class", "gy_disposition", "total_score", "mobility_score",
@@ -971,9 +991,9 @@ if WRITE_GENIE_TABLE:
     for n, a, w, g, b, ref, url, pat in CONCEPTS:
         col_comments[n] = f"1 if the order text matched the {n} concept ({a} axis, weight {w}, {b}). Basis: {ref}."
     for n, a, w in SCORING_CONCEPTS:
-        col_comments[f"w_{n}"] = (
-            f"Weighted contribution of {n} to the score: {w} when matched, 0 otherwise. "
-            f"Summing every w_ column on the {a} axis gives {a}_score."
+        col_comments[weight_col(n, a)] = (
+            f"Weighted contribution of {n}: {w} when matched, 0 otherwise. "
+            f"Belongs to {a}_score - summing every {a}_w_ column gives {a}_score."
         )
     for col, comment in col_comments.items():
         safe = comment.replace("'", "")
