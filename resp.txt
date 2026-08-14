@@ -1,46 +1,22 @@
-1. Access & Environment
-Which Snowflake account / environment (prod, UAT, etc.) contains the patient enrollment forms and related case data we need?
-What role(s) should I request to get read access to the full presentation layer, including PHI, for this project?
-Are there any row-level / column-level security policies I should be aware of that could affect what I see?
-Besides the presentation layer, are there any other schemas or databases I will likely need read access to for this form-processing work?
-2. Where the Enrollment Data Lives
-Which database.schema.table(s) contain:
-The enrollment form submissions?
-The case / patient support program records that correspond to those forms?
-Is there a canonical table that represents a “case” or “enrollment,” and how is it keyed (e.g., case_id, enrollment_id)?
-How do we link a specific enrollment form (PDF or processed record) to the human-entered data used today (e.g., shared case_id, patient_id)?
-3. Fields & Mapping (for Model Evaluation)
-For a typical enrollment form, what are the key fields humans enter or verify (e.g., patient demographics, HCP info, NPIs, drug/program identifiers, consent, etc.)?
-Which columns in Snowflake correspond to:
-Servicing NPI
-Facility NPI
-Any other NPI variants you care about?
-Are there standardized naming conventions for fields across drugs/programs, or does it vary heavily by brand?
-Is there an existing data dictionary or ERD for these tables that I can use?
-4. Program / Drug Identification
-How are drug / program identifiers represented in Snowflake (e.g., drug_code, program_id, brand_name, etc.)?
-How do the program inventory sheet fields (e.g., drug name, Case Assist, Hub = internal, status) map to columns in Snowflake?
-Is there a straightforward way in Snowflake to filter to “live” programs that we’re currently supporting?
-5. Forms, Versions, and File Locations
-Do you store any references to the actual forms (file paths, URLs, blob keys) in Snowflake?
-If yes: which columns/tables contain those references?
-How do you handle form versions (e.g., when a brand updates its enrollment form)?
-Is form version information stored in Snowflake, and if so, where?
-Are there specific blob storage containers / paths tied to the Snowflake data that I will also need access to?
-6. Ground Truth & Quality Checks
-Where can I find the “ground truth” data that humans entered from the forms, so we can compare against the model’s extracted JSON?
-Are there any known data quality issues or quirks (e.g., partial masking, redactions, legacy systems) I should know before relying on certain fields?
-Are there any existing reports or dashboards that already validate enrollment data quality that I can reuse as a reference?
-7. PHI / Governance Considerations
-Are there any additional approvals or controls (beyond Michelle’s approval and the PHI-vetted subscription) required for:
-Accessing PHI data in the presentation layer?
-Exporting model outputs back into Snowflake or other systems?
-Are there preferred de-identification / masking approaches you want us to use for dev/test work?
-8. Collaboration & Next Steps
-For ongoing work, who should be my primary Snowflake / data model contact for:
-Schema questions
-New fields/tables
-Access issues
-Is there any sample query you can share that:
-Pulls a representative set of enrollment cases
-Includes the key fields we’ll want the form-processing pipeline to output?
+Subject: RE: Pricing/ Market Assessment and payor data overview assistance
+
+Hi Shelli,
+
+Thanks — the attachment is helpful. Here's where AI fits against your bullets.
+
+**Market size** — I can classify historical 911 and Nurse Navigation encounters against the ten service options to estimate addressable volume for each. Eligibility for several of them sits in unstructured narrative rather than structured fields, so AI text extraction is what makes this possible at scale.
+
+**Benchmarks** — pricing information for services like these is spread across a lot of separate public material, and finding it manually is slow. I'd use AI to search that material, pull out anything pricing-relevant, and organize it into a single comparison table. Three things that make the output usable:
+
+- Every figure carries its source and the surrounding context it came from, so anything in the table can be traced back and verified.
+- Figures get normalized into common units — per member, per engagement, per case — so offerings priced differently can still be compared directly.
+- Each entry is labeled as sourced or estimated, so it's clear which numbers are solid enough to put in front of a customer.
+
+It's also repeatable. Once it's built, we can re-run it as new information surfaces rather than starting the research over.
+
+**Pricing models** — the options differ in what triggers them, event-based versus payer-supplied list, which sets a different billable unit for each. I can model them against volume and cost data on that basis.
+
+**Value drivers** — STARS and HEDIS gap closure are already measurable, so those can be sized directly from data.
+
+Thanks,
+Josh
