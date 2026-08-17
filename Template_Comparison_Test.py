@@ -36,8 +36,19 @@ RUN_DIRECT  = True
 PROD_LOGS_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs"
 RESULTS_DIR   = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
 
+LOG_FILES = [
+    "BHUB.csv",
+    "CRIS.csv",
+    "ELIS.csv",
+    "FIRST.csv",
+    "GLOBAL.csv",
+    "UIPATH.csv",
+]
+
 LOG_FILE_EXCLUDE = r"\s1\.csv$"
 LOG_FILE_INCLUDE = r"\.csv$"
+
+ONLY_CONSUMERS = []
 
 DIAGNOSE_MISSES = True
 
@@ -90,33 +101,52 @@ def parse_record(rec):
           "dob":(_g(r'"dateOfBirth":"?(\d{8})',result) or _g(r'"dob":"(\d{4}-\d{2}-\d{2})"',result).replace("-",""))}
     return {"consumer":consumer,"fields":fields,"prod":prod}
 def select_log_files(folder):
-    every=sorted(glob.glob(os.path.join(folder,"*.csv")))
-    used=[]; left_out=[]
-    for p in every:
-        name=os.path.basename(p)
-        if not re.search(LOG_FILE_INCLUDE, name):
-            left_out.append((name,"did not match the include pattern")); continue
-        if LOG_FILE_EXCLUDE and re.search(LOG_FILE_EXCLUDE, name):
-            left_out.append((name,"matched the exclude pattern")); continue
-        used.append(p)
-    return used, left_out
+    on_disk={os.path.basename(p):p for p in sorted(glob.glob(os.path.join(folder,"*.csv")))}
+    used=[]; left_out=[]; missing=[]
+    if LOG_FILES:
+        for name in LOG_FILES:
+            if name in on_disk: used.append(on_disk[name])
+            else: missing.append(name)
+        for name,p in on_disk.items():
+            if name not in LOG_FILES: left_out.append((name,"not in LOG_FILES"))
+    else:
+        for name,p in on_disk.items():
+            if not re.search(LOG_FILE_INCLUDE, name):
+                left_out.append((name,"did not match the include pattern")); continue
+            if LOG_FILE_EXCLUDE and re.search(LOG_FILE_EXCLUDE, name):
+                left_out.append((name,"matched the exclude pattern")); continue
+            used.append(p)
+    return used, left_out, missing
 
 def load_cases(folder):
-    files, left_out = select_log_files(folder)
+    files, left_out, missing = select_log_files(folder)
     print(f"Log files used ({len(files)}): {[os.path.basename(p) for p in files]}")
+    if missing:
+        print(f"NOT FOUND on disk, named in LOG_FILES but absent ({len(missing)}): {missing}")
     if left_out:
         print(f"Log files left out ({len(left_out)}): {[n for n,_ in left_out]}")
+    if not files:
+        raise ValueError(f"No log files selected from {folder}. Check LOG_FILES against the file names on disk.")
     cases=[]
+    per_file={}
     for path in files:
         txt=open(path,encoding="utf-8",errors="replace").read()
         starts=[m.start() for m in _START.finditer(txt)]
         recs=[txt[s:(starts[i+1] if i+1<len(starts) else len(txt))] for i,s in enumerate(starts)]
+        kept=0
         for r in recs:
             c=parse_record(r)
+            if ONLY_CONSUMERS and c["consumer"] not in ONLY_CONSUMERS: continue
             if c["prod"]["id"] or any(c["fields"][k] for k in ("FIRSTNAME","LASTNAME","ANUMBER","RECEIPT")):
                 c["source_file"]=os.path.basename(path)
-                cases.append(c)
-    return cases, [os.path.basename(p) for p in files], left_out
+                cases.append(c); kept+=1
+        per_file[os.path.basename(path)]={"rows_found":len(recs),"rows_usable":kept}
+        if kept==0:
+            print(f"WARNING {os.path.basename(path)} produced no usable rows out of {len(recs)} found. "
+                  f"Check that the file matches the expected audit log layout.")
+    if ONLY_CONSUMERS: print(f"Consumer filter active: {ONLY_CONSUMERS}")
+    file_stats=pd.DataFrame([{"file":k,**v} for k,v in per_file.items()])
+    return cases, [os.path.basename(p) for p in files], left_out, missing, file_stats
 
 def _person_from_source(src, hit=None):
     nm=(src.get("biographicInfo",{}) or {}).get("name",{}) or {}
@@ -580,7 +610,7 @@ else:
               f"Those runs are still executed and reported, but they are marked as running the default template, "
               f"not the one named. The direct path covers those templates in that environment.\n")
 
-    cases, files_used, files_left_out = load_cases(PROD_LOGS_DIR)
+    cases, files_used, files_left_out, files_missing, file_stats = load_cases(PROD_LOGS_DIR)
     seen={}; deduped=[]
     for c in cases:
         f=c["fields"]
@@ -717,6 +747,8 @@ else:
          {"field":"runs_skipped","value":"; ".join(f"{k} ({w})" for k,w in skipped) or "none"},
          {"field":"prod_logs_dir","value":PROD_LOGS_DIR},
          {"field":"log_files_used","value":", ".join(files_used)},
+         {"field":"log_files_missing","value":", ".join(files_missing) or "none"},
+         {"field":"consumer_filter","value":", ".join(ONLY_CONSUMERS) or "none"},
          {"field":"log_files_left_out","value":"; ".join(f"{n} ({w})" for n,w in files_left_out) or "none"},
          {"field":"distinct_searches","value":len(deduped)},
          {"field":"log_rows","value":total_log_rows},
@@ -750,6 +782,7 @@ else:
         if len(miss_reasons): miss_reasons.to_excel(xl, sheet_name="Miss reasons", index=False)
         if len(miss_diag): miss_diag.to_excel(xl, sheet_name="Miss diagnosis", index=False)
         errors.to_excel(xl, sheet_name="Errors", index=False)
+        file_stats.to_excel(xl, sheet_name="Log files", index=False)
         preflight.to_excel(xl, sheet_name="Preflight", index=False)
         pd.DataFrame(queries).to_excel(xl, sheet_name="Queries sent", index=False)
         runinfo.to_excel(xl, sheet_name="Run info", index=False)
