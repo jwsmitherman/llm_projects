@@ -36,6 +36,11 @@ RUN_DIRECT  = True
 PROD_LOGS_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs"
 RESULTS_DIR   = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
 
+LOG_FILE_EXCLUDE = r"\s1\.csv$"
+LOG_FILE_INCLUDE = r"\.csv$"
+
+DIAGNOSE_MISSES = True
+
 ID_FIELD      = "identityId"
 RESULT_SIZE   = 100
 NAME_THRESHOLD = 0.85
@@ -84,17 +89,34 @@ def parse_record(rec):
           "last":rnm.group(4) if rnm else "",
           "dob":(_g(r'"dateOfBirth":"?(\d{8})',result) or _g(r'"dob":"(\d{4}-\d{2}-\d{2})"',result).replace("-",""))}
     return {"consumer":consumer,"fields":fields,"prod":prod}
+def select_log_files(folder):
+    every=sorted(glob.glob(os.path.join(folder,"*.csv")))
+    used=[]; left_out=[]
+    for p in every:
+        name=os.path.basename(p)
+        if not re.search(LOG_FILE_INCLUDE, name):
+            left_out.append((name,"did not match the include pattern")); continue
+        if LOG_FILE_EXCLUDE and re.search(LOG_FILE_EXCLUDE, name):
+            left_out.append((name,"matched the exclude pattern")); continue
+        used.append(p)
+    return used, left_out
+
 def load_cases(folder):
+    files, left_out = select_log_files(folder)
+    print(f"Log files used ({len(files)}): {[os.path.basename(p) for p in files]}")
+    if left_out:
+        print(f"Log files left out ({len(left_out)}): {[n for n,_ in left_out]}")
     cases=[]
-    for path in sorted(glob.glob(os.path.join(folder,"*.csv"))):
+    for path in files:
         txt=open(path,encoding="utf-8",errors="replace").read()
         starts=[m.start() for m in _START.finditer(txt)]
         recs=[txt[s:(starts[i+1] if i+1<len(starts) else len(txt))] for i,s in enumerate(starts)]
         for r in recs:
             c=parse_record(r)
             if c["prod"]["id"] or any(c["fields"][k] for k in ("FIRSTNAME","LASTNAME","ANUMBER","RECEIPT")):
+                c["source_file"]=os.path.basename(path)
                 cases.append(c)
-    return cases
+    return cases, [os.path.basename(p) for p in files], left_out
 
 def _person_from_source(src, hit=None):
     nm=(src.get("biographicInfo",{}) or {}).get("name",{}) or {}
@@ -386,6 +408,70 @@ def call_direct(run, f, tpl, scalars):
     hits=[_person_from_source(h.get("_source",{}),h) for h in j.get("hits",{}).get("hits",[])]
     return hits,total,r.status_code,"",{"clauses":leaf_clause_count(body.get("query",{})),"took":j.get("took")},body
 
+def fetch_identity(env_url, headers, identity_id):
+    if not env_url or not identity_id: return None, "no lookup endpoint"
+    body={"size":1,"query":{"term":{ID_FIELD:{"value":identity_id}}},
+          "_source":{"includes":["identityId","biographicInfo.*","_search.*"]}}
+    try:
+        r=requests.post(env_url, headers=headers, json=body, verify=VERIFY_TLS, timeout=TIMEOUT_S)
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"[:200]
+    if r.status_code>=400: return None, f"status {r.status_code}: {(r.text or '')[:150]}"
+    hits=r.json().get("hits",{}).get("hits",[])
+    if not hits: return None, ""
+    return _person_from_source(hits[0].get("_source",{})), ""
+
+def classify_miss(f, indexed, lookup_error):
+    if lookup_error: return "could not check the index", ""
+    if indexed is None:
+        return "identity is not in this index", ("the record production returned does not exist here, so no template "
+                                                 "could have found it")
+    notes=[]
+    _,name_ok = name_match(f["FIRSTNAME"],f["MIDDLENAME"],f["LASTNAME"],
+                           indexed["first"],indexed["middle"],indexed["last"])
+    ds=dob_match(f["DOB"], indexed["dob"])
+    if not name_ok and (f["FIRSTNAME"] or f["LASTNAME"]):
+        notes.append(f"indexed name is '{' '.join(x for x in [indexed['first'],indexed['middle'],indexed['last']] if x)}'")
+    if ds=="no":
+        notes.append(f"indexed date of birth is '{indexed['dob']}'")
+    if notes:
+        return "identity is indexed differently from the search terms", "; ".join(notes)
+    return "identity is indexed and matches the search terms", ("the record is present and consistent with the "
+                                                                "input, so this is a query or ranking gap")
+
+def diagnose(deduped, long, runs, template_recs):
+    lookup={}
+    for r in runs:
+        if r["path"]=="direct" and r["env"] not in lookup:
+            lookup[r["env"]]={"url":r["url"],"headers":r["headers"]}
+    rows=[]
+    for c in deduped:
+        f=c["fields"]; pid=c["prod"]["id"]
+        key=(c["consumer"],f["FIRSTNAME"],f["MIDDLENAME"],f["LASTNAME"],f["ANUMBER"],f["RECEIPT"],f["DOB"])
+        sub=long[(long["consumer"]==c["consumer"]) & (long["input_name"]==
+                 " ".join(x for x in [f["FIRSTNAME"],f["MIDDLENAME"],f["LASTNAME"]] if x)) &
+                 (long["input_receipt"]==f["RECEIPT"]) & (long["input_anumber"]==f["ANUMBER"]) &
+                 (long["input_dob"]==f["DOB"])]
+        if not len(sub) or sub["found_log_identity"].any():
+            continue
+        best_rank=None
+        for env,cfg in lookup.items():
+            indexed,err=fetch_identity(cfg["url"],cfg["headers"],pid)
+            reason,detail=classify_miss(f,indexed,err)
+            rows.append({"consumer":c["consumer"],"source_file":c.get("source_file",""),
+                         "input_name":" ".join(x for x in [f["FIRSTNAME"],f["MIDDLENAME"],f["LASTNAME"]] if x),
+                         "input_dob":f["DOB"],"input_anumber":f["ANUMBER"],"input_receipt":f["RECEIPT"],
+                         "log_identity_id":pid,"log_returned":c["prod"]["first"]+" "+c["prod"]["last"],
+                         "environment":env,"reason":reason,"detail":detail,
+                         "indexed_name":(" ".join(x for x in [indexed["first"],indexed["middle"],indexed["last"]] if x)
+                                         if indexed else ""),
+                         "indexed_dob":indexed["dob"] if indexed else "",
+                         "lookup_error":err,
+                         "runs_attempted":int(len(sub)),
+                         "templates_returning_nothing":int((sub["returned_count"]==0).sum()),
+                         "what_was_returned_instead":sub["returned"].iloc[0]})
+    return pd.DataFrame(rows)
+
 def score_top(f, results, prod_id=None, error=""):
     if not results:
         return {"returned":("(call failed)" if error else "(no result / not supported)"),
@@ -494,7 +580,7 @@ else:
               f"Those runs are still executed and reported, but they are marked as running the default template, "
               f"not the one named. The direct path covers those templates in that environment.\n")
 
-    cases=load_cases(PROD_LOGS_DIR)
+    cases, files_used, files_left_out = load_cases(PROD_LOGS_DIR)
     seen={}; deduped=[]
     for c in cases:
         f=c["fields"]
@@ -593,6 +679,13 @@ else:
                          "all_returned_something":bool((sub["returned_count"]>0).all())})
     never_found=pd.DataFrame(hard)
 
+    miss_diag = diagnose(deduped, long, runs, template_recs) if DIAGNOSE_MISSES else pd.DataFrame()
+    if len(miss_diag):
+        miss_reasons = (miss_diag.groupby(["consumer","environment","reason"]).size()
+                        .reset_index(name="searches").sort_values(["consumer","searches"],ascending=[True,False]))
+    else:
+        miss_reasons = pd.DataFrame(columns=["consumer","environment","reason","searches"])
+
     errors=long[long["error"].fillna("")!=""][
         ["run","consumer","input_name","input_anumber","input_receipt","status","error"]]
 
@@ -606,6 +699,9 @@ else:
     if len(never_found):
         print(f"\n{len(never_found)} searches were not matched by ANY template in ANY environment")
         display(never_found)
+    if len(miss_reasons):
+        print("\nWHY THOSE SEARCHES WERE MISSED, by consumer")
+        display(miss_reasons)
     if len(errors):
         print(f"\n{len(errors)} calls failed")
         display(errors.head(25))
@@ -620,6 +716,8 @@ else:
          {"field":"paths","value":", ".join(sorted(set(r["path"] for r in runs)))},
          {"field":"runs_skipped","value":"; ".join(f"{k} ({w})" for k,w in skipped) or "none"},
          {"field":"prod_logs_dir","value":PROD_LOGS_DIR},
+         {"field":"log_files_used","value":", ".join(files_used)},
+         {"field":"log_files_left_out","value":"; ".join(f"{n} ({w})" for n,w in files_left_out) or "none"},
          {"field":"distinct_searches","value":len(deduped)},
          {"field":"log_rows","value":total_log_rows},
          {"field":"total_calls","value":len(long)},
@@ -649,6 +747,8 @@ else:
             sub.sort_values(["consumer","input_name","environment","path"])[detail_cols]\
                .to_excel(xl, sheet_name=name, index=False)
         if len(never_found): never_found.to_excel(xl, sheet_name="Never matched", index=False)
+        if len(miss_reasons): miss_reasons.to_excel(xl, sheet_name="Miss reasons", index=False)
+        if len(miss_diag): miss_diag.to_excel(xl, sheet_name="Miss diagnosis", index=False)
         errors.to_excel(xl, sheet_name="Errors", index=False)
         preflight.to_excel(xl, sheet_name="Preflight", index=False)
         pd.DataFrame(queries).to_excel(xl, sheet_name="Queries sent", index=False)
