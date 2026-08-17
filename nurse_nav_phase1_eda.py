@@ -40,52 +40,22 @@ print("workbook will be saved to ->", OUT_DIR)
 
 import glob
 
-READABLE_EXT = (".csv", ".xlsx", ".xls", ".parquet", ".tsv")
+SOURCE_FILE = "data_april2026-aug2026.xlsx"
 
-DATASET_PATTERNS = {
-    "logis_notes":      r"^logis[_ ]notes",
-    "ed_calls_prepped": r"^ed[_ ]calls[_ ]nmtara[_ ]6[_ ]removed[_ ]prepped",
-    "ed_calls_removed": r"^ed[_ ]calls[_ ]nmtara[_ ]6[_ ]removed(?![_ ]prepped)",
-    "ed_calls_sample":  r"^ed[_ ]calls[_ ]sample(?![_ ]100)",
-    "ed_calls_100":     r"^ed[_ ]calls[_ ]sample[_ ]100",
-    "gold":             r"^llm[_ ]validation[_ ]set[_ ]51",
-    "second_llm_set_1": r"^set[_ ]for[_ ]2nd[_ ]llm",
-    "second_llm_set_2": r"^second[_ ]set[_ ]for[_ ]2nd[_ ]llm",
-}
+PRIMARY_INPUT = os.path.join(DATA_DIR, SOURCE_FILE)
+PATHS = {"primary": PRIMARY_INPUT, "out_dir": OUT_DIR}
 
-EXT_PREFERENCE = [".parquet", ".csv", ".xlsx", ".xls", ".tsv"]
+GOLD_FILE = ""
+_gold_hits = [f for f in glob.glob(os.path.join(DATA_DIR, "*"))
+              if re.match(r"^llm[_ ]validation[_ ]set[_ ]51",
+                          os.path.splitext(os.path.basename(f))[0].lower())]
+if _gold_hits:
+    GOLD_FILE = sorted(_gold_hits, key=os.path.getmtime, reverse=True)[0]
+    PATHS["gold"] = GOLD_FILE
 
-
-def discover(data_dir: str) -> Dict[str, str]:
-    files = [f for f in glob.glob(os.path.join(data_dir, "*"))
-             if f.lower().endswith(READABLE_EXT)]
-
-    resolved = {}
-    for name, pattern in DATASET_PATTERNS.items():
-        hits = [
-            f for f in files
-            if re.match(pattern, os.path.splitext(os.path.basename(f))[0].lower())
-        ]
-        if not hits:
-            continue
-        hits.sort(key=lambda f: (
-            -os.path.getmtime(f),
-            EXT_PREFERENCE.index(os.path.splitext(f)[1].lower())
-            if os.path.splitext(f)[1].lower() in EXT_PREFERENCE else 99,
-        ))
-        resolved[name] = hits[0]
-
-    return resolved
-
-
-PATHS = discover(DATA_DIR)
-PATHS["out_dir"] = OUT_DIR
-
-PRIMARY_INPUT = PATHS.get("logis_notes") or PATHS.get("ed_calls_prepped")
-
-for k, v in PATHS.items():
-    print(f"{k:20s} -> {os.path.basename(v) if k != 'out_dir' else v}")
-print(f"\nPRIMARY_INPUT       -> {os.path.basename(PRIMARY_INPUT) if PRIMARY_INPUT else 'NOT FOUND'}")
+print("Source file       ->", SOURCE_FILE)
+print("Exists            ->", os.path.exists(PRIMARY_INPUT))
+print("Validation set    ->", os.path.basename(GOLD_FILE) if GOLD_FILE else "not found (Section 8 skipped)")
 
 # COMMAND ----------
 rows = []
@@ -135,7 +105,7 @@ def peek(path: str, n: int = 3):
     print()
 
 
-for key in ["logis_notes", "ed_calls_prepped", "gold"]:
+for key in ["primary", "gold"]:
     if key in PATHS:
         peek(PATHS[key])
 
@@ -191,9 +161,6 @@ def load_calls(path: str) -> pd.DataFrame:
     df = read_any(path)
     df.columns = [clean_col(x) for x in df.columns]
 
-    if "nmtara_notes" in df.columns:
-        df["protocol_trigger"] = df["nmtara_notes"].apply(parse_protocol_trigger)
-
     if "transaction_response_names" in df.columns:
         df["documented_disposition"] = df["transaction_response_names"]
 
@@ -212,10 +179,14 @@ calls.head(3)
 
 # COMMAND ----------
 def find_col(df: pd.DataFrame, exact: List[str], contains: List[str] = None):
-    """Resolve a logical column to a real one: exact match first, then substring."""
+    """Resolve a logical column to a real one: exact match first (underscore-insensitive), then substring."""
+    norm = lambda x: x.strip("_")
+    normalized = {norm(c): c for c in df.columns}
     for c in exact:
         if c in df.columns:
             return c
+        if norm(c) in normalized:
+            return normalized[norm(c)]
     for pat in (contains or []):
         hits = [c for c in df.columns if pat in c]
         if hits:
@@ -225,22 +196,24 @@ def find_col(df: pd.DataFrame, exact: List[str], contains: List[str] = None):
 
 COLS = {
     "notes": find_col(calls,
-        ["nurse_notes", "notes", "note_text", "call_notes", "nmtara_notes"],
-        ["note"]),
+        ["nurses_notes", "nurse_notes", "notes", "note_text", "call_notes",
+         "nmtara_notes", "transaction_notes", "comments"],
+        ["nurses_note", "note", "comment"]),
     "date": find_col(calls,
         ["transaction_create_date_time_eastern", "transaction_create_date_time",
-         "create_date_time", "call_date", "transaction_date"],
+         "start_of_hold_date_time", "create_date_time", "call_date", "transaction_date"],
         ["create_date", "date_time", "_date"]),
     "nmtara": find_col(calls,
-        ["nmtara_response", "nmtara", "nmtara_level", "natmara", "mtara"],
-        ["nmtara", "tara"]),
+        ["nmtara_response", "nmtara", "nmtara_level",
+         "transaction_breakout_including_bls_nmtara_breakout"],
+        ["nmtara", "breakout", "tara"]),
     "dispo": find_col(calls,
-        ["documented_disposition", "transaction_response_names", "disposition",
-         "final_disposition", "outcome"],
-        ["disposition", "response_name"]),
+        ["transaction_response_names", "documented_disposition", "response_macro",
+         "response", "disposition", "final_disposition", "outcome"],
+        ["response_name", "disposition", "response"]),
     "client": find_col(calls,
-        ["client_name", "client", "market", "agency", "customer"],
-        ["client", "market", "agency"]),
+        ["market_name", "client_name", "client", "market", "agency", "customer"],
+        ["market", "client", "agency"]),
     "episode": find_col(calls,
         ["external_reference_number", "incident_id", "incident_number",
          "patient_id", "encounter_id"],
@@ -249,8 +222,8 @@ COLS = {
         ["work_set_id", "workset_id", "worksetid"],
         ["work_set", "workset"]),
     "protocol": find_col(calls,
-        ["protocol_trigger", "protocol", "chief_complaint", "clinical_pathway"],
-        ["protocol", "complaint", "pathway"]),
+        ["cause", "protocol_trigger", "protocol", "chief_complaint", "clinical_pathway"],
+        ["cause", "protocol", "complaint", "pathway"]),
 }
 
 print(f"{'logical':10s} -> resolved")
@@ -370,7 +343,13 @@ print(f"Analysis rows   : {len(analysis):,}  ({len(analysis)/len(calls):.1%} ret
 
 # COMMAND ----------
 def nmtara_level(x):
-    m = re.search(r"(\d)", str(x))
+    t = str(x)
+    m = re.search(r"(?i)n[am]?tara[^0-9]{0,6}(\d)", t)
+    if m:
+        return int(m.group(1))
+    if re.search(r"(?i)self[- ]?care", t):
+        return np.nan
+    m = re.search(r"(?<![0-9])([0-6])(?![0-9])", t)
     return int(m.group(1)) if m else np.nan
 
 if NMTARA_COL:
@@ -1513,4 +1492,13 @@ with pd.ExcelWriter(xlsx_path, engine=engine) as writer:
 
 print(f"\nWorkbook written: {os.path.basename(xlsx_path)}  ({tabs_written + 1} tabs)")
 print("On disk:", os.path.exists(xlsx_path), "->", xlsx_path)
-print("This workbook is the only file this notebook writes; no CSVs are saved.")
+
+for _old in glob.glob(os.path.join(OUT_DIR, "Nurse_Nav_Phase1_Analysis_*.xlsx")):
+    if os.path.abspath(_old) != os.path.abspath(xlsx_path):
+        try:
+            os.remove(_old)
+            print("removed older workbook:", os.path.basename(_old))
+        except Exception as e:
+            print("could not remove", os.path.basename(_old), "-", e)
+
+print("Only one timestamped Excel is kept in the results folder; no CSVs are saved.")
