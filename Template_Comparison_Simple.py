@@ -1,5 +1,5 @@
 # Databricks notebook source
-import requests, json, re, os, glob, time
+import requests, json, re, os, glob, time, hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from requests.adapters import HTTPAdapter
@@ -76,8 +76,12 @@ def load_logs():
         txt = open(path, encoding="utf-8", errors="replace").read()
         st = [m.start() for m in START.finditer(txt)]
         recs = [txt[s:(st[i+1] if i+1 < len(st) else len(txt))] for i, s in enumerate(st)]
+        mentions = txt.count("CORE_SEARCH")
         print(f"{name}: {os.path.getsize(path):,} bytes, {txt.count(chr(10))+1:,} lines, "
-              f"{len(recs):,} records matched")
+              f"{len(recs):,} records matched, {os.path.getsize(path)//max(len(recs),1):,} bytes per record")
+        if mentions > len(recs):
+            print(f"  CHECK CORE_SEARCH appears {mentions:,} times but {len(recs):,} records were captured. "
+                  f"Extra mentions may be inside a payload, or records may not start at the beginning of a line.")
         if len(recs) < (txt.count(chr(10)) + 1) / 2:
             print(f"  WARNING {name} has {txt.count(chr(10))+1:,} lines but only {len(recs):,} records "
                   f"matched the CONSUMER,APP,CORE_SEARCH pattern. Most of this file is not being read.")
@@ -303,11 +307,12 @@ def call(run, f, tpl, scal):
             tot = sum((j.get(k) or {}).get("totalElements", 0) or 0 for k in ("exactMatches", "similarMatches"))
             return ppl, tot, r.status_code, "", j.get("clientId"), method
         body = build_dsl(tpl, f, scal)
+        qh = hashlib.md5(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
         r = SESSION.post(run["url"], headers=run["h"], json=body, timeout=TIMEOUT)
-        if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, ""
+        if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, qh
         j = r.json()
         return ([person(h.get("_source", {})) for h in j["hits"]["hits"]],
-                (j["hits"]["total"] or {}).get("value", 0), r.status_code, "", None, "")
+                (j["hits"]["total"] or {}).get("value", 0), r.status_code, "", None, qh)
     except Exception as e:
         return [], 0, None, f"{type(e).__name__}: {e}"[:300], None, ""
 
@@ -437,7 +442,9 @@ def do(task):
             "top_returned": f"{top['first']} {top['last']}".strip() if top else
             ("(call failed)" if err else "(no result)"),
             "returned_count": len(res), "total_hits": tot,
-            "status": st, "error": err}
+            "top_id": top["id"] if top else "",
+            "status": st, "error": err,
+            "query_id": method if run["path"] == "direct" else ""}
 
 with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
     rows = list(pool.map(do, tasks))
@@ -465,8 +472,10 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
                   "median_rank": float(r.median()) if len(r) else None,
                   "worst_rank": int(r.max()) if len(r) else None,
                   "max_results_returned": int(s["returned_count"].max()),
-                  "ran_requested_template": p == "direct" or
-                  set(s["template_used"].dropna()) <= {t}})
+                  "ran_requested_template": "yes" if p == "direct" else
+                  ("unknown, service did not echo clientId" if not set(s["template_used"].dropna())
+                   else ("yes" if set(s["template_used"].dropna()) == {t} else
+                         "no, service used " + ", ".join(sorted(set(s["template_used"].dropna())))))})
 if not score:
     raise SystemExit(
         "No search has an identity recorded in the production log, so there is nothing to match against. "
@@ -480,11 +489,13 @@ if len(capped):
               f"{r['max_results_returned']} results although {SIZE} were requested. If that number is the "
               f"same on every search, the endpoint is capping the result set and ranks beyond it cannot "
               f"be seen.")
-if not scorecard["ran_requested_template"].all():
-    bad = scorecard[~scorecard["ran_requested_template"]]
-    print(f"\n{len(bad)} rows did not run the template requested. The service did not recognise the clientId "
-          f"and used its default config, so those numbers describe the default, not the named template.")
-    print(bad[["environment", "template", "path"]].to_string(index=False))
+bad = scorecard[scorecard["ran_requested_template"] != "yes"]
+if len(bad):
+    print(f"\n{len(bad)} rows cannot be confirmed as running the template requested:")
+    print(bad[["environment", "template", "path", "ran_requested_template"]].to_string(index=False))
+    print("Where the service does not echo clientId back there is no way to tell from the response whether "
+          "the named config was applied or the default was used. Identical numbers across templates on that "
+          "path are expected if the default was used for all of them.")
 
 sr = long[long["searchable"]].copy()
 diff = []
@@ -501,10 +512,14 @@ by_file = (sr.groupby(["source_file", "environment", "template", "path"])
              .reset_index())
 by_file["match_rate_pct"] = (100 * by_file["matched"] / by_file["searches"]).round(1)
 by_file["not_matched"] = by_file["searches"] - by_file["matched"]
+by_file = by_file[["source_file", "environment", "template", "path",
+                   "searches", "matched", "not_matched", "match_rate_pct"]]
 
 sr["run"] = sr["environment"] + " | " + sr["template"] + " | " + sr["path"]
-by_consumer = sr.pivot_table(index="consumer", columns="run", values="matched",
+by_consumer = sr.pivot_table(index=["source_file", "consumer"], columns="run", values="matched",
                              aggfunc=lambda x: round(100 * sum(x) / len(x), 1)).reset_index()
+by_consumer.insert(2, "searches", sr.groupby(["source_file", "consumer"])["matched"].size().values //
+                   max(sr["run"].nunique(), 1))
 
 no_id = long[~long["searchable"]]["input_name"].nunique() if len(long) else 0
 if no_id:
@@ -512,6 +527,43 @@ if no_id:
     print(f"\n{no_id} of {tot_searches} searches have no identity recorded in the production log. "
           f"There is nothing to match against, so they are excluded from every match rate below. "
           f"Match rates are calculated over the {tot_searches - no_id} searches that can be checked.")
+
+tdiff = []
+for (env, path), g in sr.groupby(["environment", "path"]):
+    piv = g.pivot_table(index=["source_file", "input_name", "input_receipt", "input_anumber"],
+                        columns="template", values="top_id", aggfunc="first")
+    tmpls = list(piv.columns)
+    for i in range(len(tmpls)):
+        for j in range(i + 1, len(tmpls)):
+            a, b = tmpls[i], tmpls[j]
+            both = piv[[a, b]].dropna()
+            same_top = int((both[a] == both[b]).sum())
+            row = {"environment": env, "path": path, "template_a": a, "template_b": b,
+                   "searches_compared": len(both), "same_top_result": same_top,
+                   "different_top_result": len(both) - same_top,
+                   "same_top_pct": round(100 * same_top / len(both), 1) if len(both) else None}
+            if path == "direct" and "query_id" in g:
+                qp = g.pivot_table(index=["source_file", "input_name", "input_receipt", "input_anumber"],
+                                   columns="template", values="query_id", aggfunc="first")
+                if a in qp and b in qp:
+                    qb = qp[[a, b]].dropna()
+                    idq = int((qb[a] == qb[b]).sum())
+                    row["identical_query_built"] = idq
+                    row["identical_query_pct"] = round(100 * idq / len(qb), 1) if len(qb) else None
+            tdiff.append(row)
+template_diff = pd.DataFrame(tdiff)
+
+if len(template_diff):
+    ident = template_diff[template_diff.get("identical_query_pct", pd.Series(dtype=float)) == 100]
+    if len(ident):
+        print(f"\n{len(ident)} template pairs built a BYTE IDENTICAL query on every search. Those templates "
+              f"cannot produce different results, so equal match rates are the correct outcome, not a bug.")
+        print(ident[["environment", "path", "template_a", "template_b", "searches_compared"]].to_string(index=False))
+    diff_q = template_diff[template_diff.get("identical_query_pct", pd.Series(dtype=float)) < 100]
+    if len(diff_q):
+        print(f"\nTemplate pairs that built different queries but returned the same top result:")
+        print(diff_q[["environment", "path", "template_a", "template_b", "searches_compared",
+                      "same_top_pct", "identical_query_pct"]].to_string(index=False))
 
 print("\nSCORECARD"); display(scorecard)
 if len(env_diff): print("\nSTAGING MINUS PROD"); display(env_diff)
@@ -523,11 +575,12 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
     if len(env_diff): env_diff.to_excel(xl, sheet_name="Staging vs prod", index=False)
     by_consumer.to_excel(xl, sheet_name="By consumer", index=False)
     by_file.to_excel(xl, sheet_name="By file", index=False)
+    if len(template_diff): template_diff.to_excel(xl, sheet_name="Template differences", index=False)
     check.to_excel(xl, sheet_name="Template check", index=False)
     preflight.to_excel(xl, sheet_name="Health check", index=False)
     cols = ["source_file", "consumer", "input_name", "input_dob", "input_anumber", "input_receipt",
             "log_returned", "log_identity_id", "environment", "path", "template_used",
-            "matched", "rank", "top_returned", "returned_count", "total_hits", "status", "error"]
+            "matched", "rank", "top_returned", "top_id", "returned_count", "total_hits", "status", "error"]
     for label in tpls:
         s = long[long["template"] == label]
         if not len(s): continue
