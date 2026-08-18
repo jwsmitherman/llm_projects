@@ -56,6 +56,7 @@ CONCURRENCY = 16
 SAMPLE_PER_CONSUMER = 0
 PROGRESS_EVERY = 2000
 EXCEL_ROW_LIMIT = 200000
+STABILITY_SAMPLE = 25
 
 SESSION = requests.Session()
 SESSION.mount("https://", HTTPAdapter(pool_connections=CONCURRENCY, pool_maxsize=CONCURRENCY, max_retries=0))
@@ -531,6 +532,43 @@ if no_id:
           f"There is nothing to match against, so they are excluded from every match rate below. "
           f"Match rates are calculated over the {tot_searches - no_id} searches that can be checked.")
 
+if "query_id" in long:
+    qsum = (long[long["path"] == "direct"].groupby("template")["query_id"]
+            .agg(searches="size", distinct_queries="nunique").reset_index())
+    if len(qsum):
+        print("\nQUERIES BUILT PER TEMPLATE (direct path)")
+        print(qsum.to_string(index=False))
+        allq = long[long["path"] == "direct"].pivot(index="search_key", columns="template", values="query_id")
+        if len(allq.columns) > 1:
+            same_everywhere = int((allq.nunique(axis=1) == 1).sum())
+            print(f"{same_everywhere} of {len(allq)} searches produced the SAME query under every template. "
+                  f"For those searches the templates cannot differ, whatever their tier counts say.")
+
+stability = pd.DataFrame()
+if STABILITY_SAMPLE:
+    sample = [t for t in tasks[:STABILITY_SAMPLE * len(runs)]][:STABILITY_SAMPLE]
+    srows = []
+    for c, run in sample:
+        t = tpls[run["tpl"]]
+        r1 = call(run, c["f"], t["tpl"], t["scal"])
+        r2 = call(run, c["f"], t["tpl"], t["scal"])
+        top1 = r1[0][0]["id"] if r1[0] else ""
+        top2 = r2[0][0]["id"] if r2[0] else ""
+        srows.append({"run": run["key"], "environment": run["env"], "path": run["path"],
+                      "template": run["tpl"], "same_query_same_top": top1 == top2,
+                      "first_call_top_id": top1, "second_call_top_id": top2})
+    stability = pd.DataFrame(srows)
+    agree = stability["same_query_same_top"].mean() * 100
+    print(f"\nSTABILITY CHECK: the same query sent twice returned the same top result on "
+          f"{agree:.1f} percent of {len(stability)} repeats.")
+    if agree < 100:
+        print("The index does not return a stable top result for an identical query. Production is a live "
+              "index being updated while this runs, and a query with no deterministic tie break can order "
+              "equally scored records differently between calls. Template differences smaller than this "
+              "noise level cannot be trusted.")
+        print(stability[~stability["same_query_same_top"]]
+              [["run", "first_call_top_id", "second_call_top_id"]].head(10).to_string(index=False))
+
 tdiff = []
 for (env, path), g in sr.groupby(["environment", "path"]):
     dup = g.duplicated(subset=["search_key", "template"]).sum()
@@ -584,6 +622,7 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
     by_consumer.to_excel(xl, sheet_name="By consumer", index=False)
     by_file.to_excel(xl, sheet_name="By file", index=False)
     if len(template_diff): template_diff.to_excel(xl, sheet_name="Template differences", index=False)
+    if len(stability): stability.to_excel(xl, sheet_name="Stability check", index=False)
     check.to_excel(xl, sheet_name="Template check", index=False)
     preflight.to_excel(xl, sheet_name="Health check", index=False)
     cols = ["source_file", "consumer", "input_name", "input_dob", "input_anumber", "input_receipt",
