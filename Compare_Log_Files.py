@@ -21,6 +21,7 @@ def read(path):
     recs = [txt[s:(st[i+1] if i+1 < len(st) else len(txt))] for i, s in enumerate(st)]
     return {"path": path, "name": os.path.basename(path), "raw": raw, "txt": txt, "recs": recs,
             "bytes": len(raw), "lines": txt.count("\n") + 1,
+            "core_search_mentions": txt.count("CORE_SEARCH"),
             "md5": hashlib.md5(raw).hexdigest()}
 
 def parse(rec):
@@ -43,11 +44,23 @@ if A and B:
     print("FILE FACTS")
     facts = pd.DataFrame([
         {"file": A["name"], "bytes": A["bytes"], "lines": A["lines"],
-         "records_matched": len(A["recs"]), "md5": A["md5"]},
+         "records_matched": len(A["recs"]), "CORE_SEARCH_mentions": A["core_search_mentions"],
+         "bytes_per_record": A["bytes"] // max(len(A["recs"]), 1), "md5": A["md5"]},
         {"file": B["name"], "bytes": B["bytes"], "lines": B["lines"],
-         "records_matched": len(B["recs"]), "md5": B["md5"]},
+         "records_matched": len(B["recs"]), "CORE_SEARCH_mentions": B["core_search_mentions"],
+         "bytes_per_record": B["bytes"] // max(len(B["recs"]), 1), "md5": B["md5"]},
     ])
     print(facts.to_string(index=False))
+
+    for d in (A, B):
+        if d["core_search_mentions"] > len(d["recs"]):
+            print(f"\nCHECK {d['name']}: CORE_SEARCH appears {d['core_search_mentions']} times but only "
+                  f"{len(d['recs'])} records were captured. The extra mentions are either inside a record "
+                  f"payload or are records that do not begin at the start of a line. Inspect before trusting "
+                  f"the counts.")
+        else:
+            print(f"\nCHECK {d['name']}: every CORE_SEARCH occurrence was captured as a record "
+                  f"({len(d['recs'])} of {d['core_search_mentions']}). No records are being skipped.")
 
     if A["md5"] == B["md5"]:
         print("\nTHE TWO FILES ARE BYTE FOR BYTE IDENTICAL. Same export saved under two names.")

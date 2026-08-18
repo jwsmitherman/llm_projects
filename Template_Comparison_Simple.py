@@ -356,12 +356,16 @@ for env, c in ENVS.items():
                          "url": c["opensearch"], "h": os_h, "cid": None})
 print(f"{len(runs)} runs")
 
-PROBE = {"FIRSTNAME": "MARIA", "MIDDLENAME": "", "LASTNAME": "GARCIA", "ANUMBER": "", "RECEIPT": "",
-         "DOB": "19800101", "COB": "", "COC": ""}
+cases = load_logs()
+if not cases:
+    raise SystemExit("No searches were loaded from the log files. Nothing to run.")
+
+probe = cases[0]["f"]
+print(f"\nHealth check uses the first search from {cases[0]['source_file']}. No search terms are invented.")
 pf = []
 for r in runs:
     t = tpls[r["tpl"]]
-    res, tot, st, err, cid_back, _ = call(r, PROBE, t["tpl"], t["scal"])
+    res, tot, st, err, cid_back, _ = call(r, probe, t["tpl"], t["scal"])
     note = ""
     if err:
         note = "CALL FAILED"
@@ -386,8 +390,6 @@ if len(nd):
     print(f"\n{len(nd)} runs ask for a template that is not deployed in that environment. They still run, "
           f"but describe the default template, not the one named.")
 print(f"\n{len(runs)} runs passed the health check\n")
-
-cases = load_logs()
 key_files = {}
 for c in cases:
     k = (c["consumer"],) + tuple(c["f"].values())
