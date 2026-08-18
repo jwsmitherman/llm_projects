@@ -34,6 +34,41 @@ def save(df: pd.DataFrame, name: str, stamp: bool = True) -> str:
     return name
 
 
+def _sanitize(df: pd.DataFrame) -> pd.DataFrame:
+    """Make a frame safe for Databricks display and Excel: object columns to string,
+    None/NaN to empty, and columns flattened to plain strings. Avoids the Arrow
+    'object Series to Array' error on mixed-type or all-None columns."""
+    out = df.copy()
+    out.columns = [str(c) for c in out.columns]
+    for c in out.columns:
+        if out[c].dtype == object:
+            out[c] = out[c].apply(
+                lambda v: "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
+            )
+    return out
+
+
+# Route every display() through the sanitizer so a mixed-type/None column never
+# breaks the run. Falls back to a plain print if the Databricks display is unavailable.
+try:
+    _databricks_display = display
+except NameError:
+    _databricks_display = None
+
+
+def display(obj):  # noqa: F811 - intentionally shadowing the Databricks builtin
+    try:
+        safe = _sanitize(obj) if isinstance(obj, pd.DataFrame) else obj
+    except Exception:
+        safe = obj
+    if _databricks_display is not None:
+        try:
+            return _databricks_display(safe)
+        except Exception:
+            pass
+    print(safe if not isinstance(safe, pd.DataFrame) else safe.to_string(index=False))
+
+
 print("RUN_ID:", RUN_ID)
 print("workbook will be saved to ->", OUT_DIR)
 
@@ -1472,6 +1507,7 @@ with pd.ExcelWriter(xlsx_path, engine=engine) as writer:
             print(f"skip   {tab:22s} (empty)")
             continue
 
+        df = _sanitize(df)
         df.to_excel(writer, sheet_name=tab[:31], index=False,
                     startrow=1 if engine == "xlsxwriter" else 0)
 
