@@ -444,6 +444,7 @@ def do(task):
             "top_returned": f"{top['first']} {top['last']}".strip() if top else
             ("(call failed)" if err else "(no result)"),
             "returned_count": len(res), "total_hits": tot,
+            "search_key": "|".join([c["source_file"], c["consumer"]] + list(f.values())),
             "top_id": top["id"] if top else "",
             "status": st, "error": err,
             "query_id": method if run["path"] == "direct" else ""}
@@ -532,8 +533,10 @@ if no_id:
 
 tdiff = []
 for (env, path), g in sr.groupby(["environment", "path"]):
-    piv = g.pivot_table(index=["source_file", "input_name", "input_receipt", "input_anumber"],
-                        columns="template", values="top_id", aggfunc="first")
+    dup = g.duplicated(subset=["search_key", "template"]).sum()
+    if dup:
+        print(f"WARNING {env} {path}: {dup} duplicate search and template rows. Comparison may be wrong.")
+    piv = g.pivot(index="search_key", columns="template", values="top_id")
     tmpls = list(piv.columns)
     for i in range(len(tmpls)):
         for j in range(i + 1, len(tmpls)):
@@ -543,15 +546,18 @@ for (env, path), g in sr.groupby(["environment", "path"]):
             row = {"environment": env, "path": path, "template_a": a, "template_b": b,
                    "searches_compared": len(both), "same_top_result": same_top,
                    "different_top_result": len(both) - same_top,
-                   "same_top_pct": round(100 * same_top / len(both), 1) if len(both) else None}
+                   "same_top_pct": round(100 * same_top / len(both), 1) if len(both) else None,
+                   "consistent": ""}
             if path == "direct" and "query_id" in g:
-                qp = g.pivot_table(index=["source_file", "input_name", "input_receipt", "input_anumber"],
-                                   columns="template", values="query_id", aggfunc="first")
+                qp = g.pivot(index="search_key", columns="template", values="query_id")
                 if a in qp and b in qp:
                     qb = qp[[a, b]].dropna()
                     idq = int((qb[a] == qb[b]).sum())
                     row["identical_query_built"] = idq
                     row["identical_query_pct"] = round(100 * idq / len(qb), 1) if len(qb) else None
+                    if row["identical_query_pct"] == 100 and row["same_top_pct"] != 100:
+                        row["consistent"] = ("IMPOSSIBLE: identical queries cannot return different top "
+                                             "results. Investigate before using these numbers.")
             tdiff.append(row)
 template_diff = pd.DataFrame(tdiff)
 
