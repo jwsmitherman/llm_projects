@@ -1,7 +1,8 @@
 # Databricks notebook source
-import requests, json, re, os, glob
+import requests, json, re, os, glob, time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from difflib import SequenceMatcher
+from requests.adapters import HTTPAdapter
 import pandas as pd
 
 ENVS = {
@@ -24,33 +25,37 @@ ENVS = {
     },
 }
 
-TPL_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates"
-TEMPLATES = ["search-default.yaml", "search-first.yaml", "search-max-clause-test.yaml",
-             "search-reduced-tiers.yaml", "search-ui.yaml"]
-BASELINE = "default"
+TEMPLATE_FILES = [
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-default.yaml",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-first.yaml",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-max-clause-test.yaml",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-reduced-tiers.yaml",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-ui.yaml",
+]
+LOG_FILES = [
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/BHUB.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/CRIS.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/ELIS.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/FIRST.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/GLOBAL.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/UIPATH.csv",
+]
+RESULTS = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
 
-LOGS_DIR  = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs"
-LOG_FILES = ["BHUB.csv", "CRIS.csv", "ELIS.csv", "FIRST.csv", "GLOBAL.csv", "UIPATH.csv"]
-RESULTS   = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
+SIZE, TIMEOUT = 100, 120
+SERVICE_SIZE_FIELD = "size"
+DEDUPE = True
 
-SIZE, THRESH, TIMEOUT = 100, 0.85, 120
-DIAGNOSE_MISSES = True
+CONCURRENCY = 16
+SAMPLE_PER_CONSUMER = 0
+PROGRESS_EVERY = 2000
+EXCEL_ROW_LIMIT = 200000
+
+SESSION = requests.Session()
+SESSION.mount("https://", HTTPAdapter(pool_connections=CONCURRENCY, pool_maxsize=CONCURRENCY, max_retries=0))
 
 PH = re.compile(r"\{\{\s*([A-Z_0-9]+)\s*\}\}")
 NESTED = re.compile(r'("([^"\n]+)"\s*:\s*\{)(\s*)"\2"\s*:\s*\{')
-
-def ratio(a, b): return SequenceMatcher(None, (a or "").upper(), (b or "").upper()).ratio()
-def name_ok(f, p):
-    it = [t for t in (f["FIRSTNAME"] + " " + f["MIDDLENAME"] + " " + f["LASTNAME"]).split() if t]
-    rt = [t for t in (p["first"] + " " + p["middle"] + " " + p["last"]).split() if t]
-    if not it or not rt: return False
-    return all(max((ratio(t, r) for r in rt), default=0) >= THRESH for t in it)
-def dob_cmp(a, b):
-    a, b = (a or "").replace("-", ""), (b or "").replace("-", "")
-    if not a or not b: return "n/a"
-    if a == b: return "exact"
-    if len(a) == len(b) and sum(1 for x, y in zip(a, b) if x != y) == 1: return "digit-flip"
-    return "no"
 
 START = re.compile(r'(?m)^[A-Z0-9_]+,[A-Z0-9_]+,CORE_SEARCH,')
 def grab(pat, s, d=""):
@@ -58,10 +63,10 @@ def grab(pat, s, d=""):
 
 def load_logs():
     cases = []
-    for name in LOG_FILES:
-        path = os.path.join(LOGS_DIR, name)
+    for path in LOG_FILES:
+        name = os.path.basename(path)
         if not os.path.exists(path):
-            print(f"MISSING {name}"); continue
+            print(f"MISSING {path}"); continue
         txt = open(path, encoding="utf-8", errors="replace").read()
         st = [m.start() for m in START.finditer(txt)]
         recs = [txt[s:(st[i+1] if i+1 < len(st) else len(txt))] for i, s in enumerate(st)]
@@ -80,15 +85,26 @@ def load_logs():
             pid = grab(r'"identityId":"([0-9a-fA-F]{16,})"', result)
             nm = re.search(r'"name":\{[^}]*"first":"([^"]*)"[^}]*"last":"([^"]*)"', result)
             if not pid and not any(f[k] for k in ("FIRSTNAME", "LASTNAME", "ANUMBER", "RECEIPT")): continue
-            cases.append({"consumer": consumer, "f": f, "pid": pid,
+            cases.append({"source_file": name, "consumer": consumer, "f": f, "pid": pid,
                           "pname": f"{nm.group(1)} {nm.group(2)}" if nm else ""}); n += 1
-        print(f"{name}: {n} searches")
+        print(f"{name}: {len(recs)} records found, {n} usable")
+        if recs and n == 0:
+            print(f"  WARNING {name} parsed {len(recs)} records but none were usable. "
+                  f"Check the file layout.")
+        if not recs:
+            print(f"  WARNING {name} produced no records. The row pattern did not match anything. "
+                  f"Check that rows start with CONSUMER,APP,CORE_SEARCH,")
+    if not DEDUPE:
+        for c in cases: c["dup"] = 1
+        print(f"{len(cases)} rows, dedupe off, all rows kept")
+        return cases
     seen, out = {}, []
     for c in cases:
-        k = (c["consumer"],) + tuple(c["f"].values())
+        k = (c["source_file"], c["consumer"]) + tuple(c["f"].values())
         if k in seen: seen[k]["dup"] += 1
         else: c["dup"] = 1; seen[k] = c; out.append(c)
-    print(f"{len(cases)} rows -> {len(out)} distinct searches")
+    print(f"{len(cases)} rows -> {len(out)} distinct searches "
+          f"({len(cases) - len(out)} were repeats of a search already counted)")
     return out
 
 def probe(t): return PH.sub("X", quote_bare(t))
@@ -119,8 +135,8 @@ def depth(s):
         elif c == "}": d -= 1
     return d
 
-def load_template(name):
-    path = os.path.join(TPL_DIR, name)
+def load_template(path):
+    name = os.path.basename(path)
     if not os.path.exists(path): return None, {}, "file not found"
     txt = open(path).read()
     notes = []
@@ -214,7 +230,7 @@ def build_dsl(tpl, f, scal):
 def build_service(f, client_id):
     has_name = any(f[k] for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME"))
     method = "identifierSearch" if (f["ANUMBER"] or f["RECEIPT"]) and not has_name and not f["DOB"] else "advancedSearch"
-    b = {"page": 0, "clientId": client_id, "searchMethodType": method}
+    b = {"page": 0, SERVICE_SIZE_FIELD: SIZE, "clientId": client_id, "searchMethodType": method}
     nm = {k: f[v] for k, v in (("first", "FIRSTNAME"), ("middle", "MIDDLENAME"), ("last", "LASTNAME")) if f[v]}
     if nm: b["names"] = [nm]
     if len(f["DOB"]) == 8: b["dobs"] = [{"dob": f"{f['DOB'][:4]}-{f['DOB'][4:6]}-{f['DOB'][6:]}"}]
@@ -268,7 +284,7 @@ def call(run, f, tpl, scal):
     try:
         if run["path"] == "service":
             body, method = build_service(f, run["cid"])
-            r = requests.post(run["url"], headers=run["h"], json=body, timeout=TIMEOUT)
+            r = SESSION.post(run["url"], headers=run["h"], json=body, timeout=TIMEOUT)
             if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, method
             j = r.json()
             ppl = [api_person(x) for k in ("exactMatches", "similarMatches")
@@ -276,7 +292,7 @@ def call(run, f, tpl, scal):
             tot = sum((j.get(k) or {}).get("totalElements", 0) or 0 for k in ("exactMatches", "similarMatches"))
             return ppl, tot, r.status_code, "", j.get("clientId"), method
         body = build_dsl(tpl, f, scal)
-        r = requests.post(run["url"], headers=run["h"], json=body, timeout=TIMEOUT)
+        r = SESSION.post(run["url"], headers=run["h"], json=body, timeout=TIMEOUT)
         if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, ""
         j = r.json()
         return ([person(h.get("_source", {})) for h in j["hits"]["hits"]],
@@ -284,20 +300,12 @@ def call(run, f, tpl, scal):
     except Exception as e:
         return [], 0, None, f"{type(e).__name__}: {e}"[:300], None, ""
 
-def lookup(url, h, pid):
-    try:
-        r = requests.post(url, headers=h, json={"size": 1, "query": {"term": {"identityId": {"value": pid}}}},
-                          timeout=TIMEOUT)
-        hits = r.json().get("hits", {}).get("hits", [])
-        return person(hits[0]["_source"]) if hits else None
-    except Exception:
-        return None
-
 tpls = {}
 chk = []
-for name in TEMPLATES:
+for path in TEMPLATE_FILES:
+    name = os.path.basename(path)
     label = re.sub(r"^search-|\.(yaml|yml|txt)$", "", name)
-    tpl, scal, note = load_template(name)
+    tpl, scal, note = load_template(path)
     tpls[label] = {"tpl": tpl, "scal": scal,
                    "cid": label if name.lower().endswith((".yaml", ".yml")) else None}
     chk.append({"template": label, "file": name, "loaded": tpl is not None,
@@ -311,127 +319,199 @@ for env, c in ENVS.items():
         (c.get("service_auth") == "oauth" and not str(c.get("oauth_secret", "")).startswith("PASTE"))
         or (c.get("service_auth") != "oauth" and c.get("service_token") and not str(c["service_token"]).startswith("PASTE")))
     os_ready = c.get("opensearch") and not str(c.get("opensearch_token", "")).startswith("PASTE")
+    svc_h = os_h = None
+    if svc_ready:
+        try:
+            svc_h = headers_for(env, c, "service")
+        except Exception as e:
+            print(f"{env} service auth FAILED: {e}")
+            svc_ready = False
+    if os_ready:
+        os_h = headers_for(env, c, "direct")
     print(f"{env}: service={'yes' if svc_ready else 'no'} opensearch={'yes' if os_ready else 'no'}")
     if svc_ready and not os_ready:
-        print(f"  {env} is service only. A template that is not deployed there cannot be tested, "
-              f"and a missed search cannot be checked against the {env} index.")
+        print(f"  {env} is service only. A template that is not deployed there cannot be tested.")
     for label, t in tpls.items():
         if svc_ready and t["cid"]:
             runs.append({"key": f"{label}|{env}|service", "tpl": label, "env": env, "path": "service",
-                         "url": c["service"], "h": headers_for(env, c, "service"), "cid": t["cid"]})
+                         "url": c["service"], "h": svc_h, "cid": t["cid"]})
         if os_ready and t["tpl"]:
             runs.append({"key": f"{label}|{env}|direct", "tpl": label, "env": env, "path": "direct",
-                         "url": c["opensearch"], "h": headers_for(env, c, "direct"), "cid": None})
+                         "url": c["opensearch"], "h": os_h, "cid": None})
 print(f"{len(runs)} runs")
 
+PROBE = {"FIRSTNAME": "MARIA", "MIDDLENAME": "", "LASTNAME": "GARCIA", "ANUMBER": "", "RECEIPT": "",
+         "DOB": "19800101", "COB": "", "COC": ""}
+pf = []
+for r in runs:
+    t = tpls[r["tpl"]]
+    res, tot, st, err, cid_back, _ = call(r, PROBE, t["tpl"], t["scal"])
+    note = ""
+    if err:
+        note = "CALL FAILED"
+    elif r["path"] == "service" and cid_back and cid_back != r["cid"]:
+        note = f"template not deployed, service used '{cid_back}'"
+    pf.append({"run": r["key"], "template": r["tpl"], "environment": r["env"], "path": r["path"],
+               "url": r["url"], "status": st, "results": len(res), "error": err[:200], "note": note})
+preflight = pd.DataFrame(pf)
+print("\nHEALTH CHECK")
+print(preflight[["run", "status", "results", "error", "note"]].to_string(index=False))
+
+failed = preflight[preflight["error"] != ""]
+if len(failed) == len(preflight):
+    raise SystemExit("Every endpoint failed the health check. Nothing was run. Fix the errors above.")
+if len(failed):
+    print(f"\n{len(failed)} of {len(preflight)} runs failed the health check and are dropped.")
+    runs = [r for r in runs if r["key"] not in set(failed["run"])]
+if not runs:
+    raise SystemExit("No healthy runs remain.")
+nd = preflight[preflight["note"].str.startswith("template not deployed")]
+if len(nd):
+    print(f"\n{len(nd)} runs ask for a template that is not deployed in that environment. They still run, "
+          f"but describe the default template, not the one named.")
+print(f"\n{len(runs)} runs passed the health check\n")
+
 cases = load_logs()
-rows = []
-for c in cases:
+if SAMPLE_PER_CONSUMER:
+    by_c = {}
+    for c in cases: by_c.setdefault(c["consumer"], []).append(c)
+    cases = [x for v in by_c.values() for x in v[:SAMPLE_PER_CONSUMER]]
+    print(f"Sampling {SAMPLE_PER_CONSUMER} per consumer -> {len(cases)} searches")
+
+tasks = [(c, run) for c in cases for run in runs]
+total = len(tasks)
+print(f"{len(cases)} searches x {len(runs)} runs = {total} calls, {CONCURRENCY} at a time")
+
+done = [0]
+t0 = time.time()
+
+def do(task):
+    c, run = task
     f, pid = c["f"], c["pid"]
-    for run in runs:
-        t = tpls[run["tpl"]]
-        res, tot, st, err, cid_back, method = call(run, f, t["tpl"], t["scal"])
-        top = res[0] if res else None
-        ids = [r["id"] for r in res]
-        rank = ids.index(pid) + 1 if pid and pid in ids else None
-        rows.append({"consumer": c["consumer"], "dup": c["dup"],
-                     "input_name": f"{f['FIRSTNAME']} {f['MIDDLENAME']} {f['LASTNAME']}".strip(),
-                     "input_dob": f["DOB"], "input_anumber": f["ANUMBER"], "input_receipt": f["RECEIPT"],
-                     "log_returned": c["pname"], "log_identity_id": pid,
-                     "template": run["tpl"], "environment": run["env"], "path": run["path"],
-                     "template_used": cid_back if run["path"] == "service" else run["tpl"],
-                     "status": st, "returned": f"{top['first']} {top['last']}".strip() if top else
-                     ("(call failed)" if err else "(no result)"),
-                     "dob": dob_cmp(f["DOB"], top["dob"]) if top else "n/a",
-                     "good": ((name_ok(f, top) and dob_cmp(f["DOB"], top["dob"]) in ("exact", "digit-flip", "n/a"))
-                              if any(f[k] for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME")) else None)
-                     if top else None,
-                     "returned_count": len(res), "total_hits": tot, "log_rank": rank,
-                     "found": rank is not None, "top_id": top["id"] if top else "",
-                     "method": method, "error": err})
+    t = tpls[run["tpl"]]
+    res, tot, st, err, cid_back, method = call(run, f, t["tpl"], t["scal"])
+    top = res[0] if res else None
+    ids = [r["id"] for r in res]
+    rank = ids.index(pid) + 1 if pid and pid in ids else None
+    done[0] += 1
+    if PROGRESS_EVERY and done[0] % PROGRESS_EVERY == 0:
+        el = time.time() - t0
+        rate = done[0] / el if el else 0
+        left = (total - done[0]) / rate if rate else 0
+        print(f"  {done[0]}/{total} calls, {rate:.0f}/sec, about {left/60:.0f} min left")
+    return {"source_file": c["source_file"], "consumer": c["consumer"], "dup": c["dup"],
+            "input_name": f"{f['FIRSTNAME']} {f['MIDDLENAME']} {f['LASTNAME']}".strip(),
+            "input_dob": f["DOB"], "input_anumber": f["ANUMBER"], "input_receipt": f["RECEIPT"],
+            "log_returned": c["pname"], "log_identity_id": pid,
+            "template": run["tpl"], "environment": run["env"], "path": run["path"],
+            "template_used": cid_back if run["path"] == "service" else run["tpl"],
+            "searchable": bool(pid),
+            "matched": rank is not None, "rank": rank,
+            "top_returned": f"{top['first']} {top['last']}".strip() if top else
+            ("(call failed)" if err else "(no result)"),
+            "returned_count": len(res), "total_hits": tot,
+            "status": st, "error": err}
+
+with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+    rows = list(pool.map(do, tasks))
+el = time.time() - t0
+print(f"{total} calls in {el/60:.1f} min ({total/el if el else 0:.0f}/sec)")
 long = pd.DataFrame(rows)
 
 score = []
-for (t, e, p), s in long.groupby(["template", "environment", "path"]):
-    n, r = len(s), s["dup"].sum()
-    score.append({"template": t, "environment": e, "path": p,
-                  "template_used": ", ".join(str(x) for x in s["template_used"].dropna().unique()),
-                  "searches": n, "log_rows": int(r), "found": int(s["found"].sum()),
-                  "pct_of_searches": round(100 * s["found"].sum() / n, 1),
-                  "pct_of_log_rows": round(100 * s.loc[s["found"], "dup"].sum() / r, 1) if r else None,
-                  "ranked_first": int((s["log_rank"] == 1).sum()),
-                  "pct_ranked_first": round(100 * (s["log_rank"] == 1).sum() / n, 1),
-                  "errors": int((s["error"] != "").sum())})
-scorecard = pd.DataFrame(score).sort_values(["path", "environment", "pct_of_searches"], ascending=[1, 1, 0])
-scorecard["ran_requested_template"] = [
-    r["path"] == "direct" or r["template_used"] == r["template"] for _, r in scorecard.iterrows()]
-base = {(r["environment"], r["path"]): r["pct_of_searches"]
-        for _, r in scorecard.iterrows() if r["template"] == BASELINE and r["ran_requested_template"]}
-scorecard["vs_" + BASELINE] = [
-    None if r["template"] == BASELINE or not r["ran_requested_template"]
-    or (r["environment"], r["path"]) not in base
-    else round(r["pct_of_searches"] - base[(r["environment"], r["path"])], 1)
-    for _, r in scorecard.iterrows()]
+for (e, t, p), s in long.groupby(["environment", "template", "path"]):
+    s = s[s["searchable"]]
+    n = len(s)
+    if not n: continue
+    m = s[s["matched"]]
+    r = m["rank"].dropna()
+    pct = lambda x: round(100 * x / n, 1)
+    score.append({"environment": e, "template": t, "path": p,
+                  "searches": n, "matched": len(m), "not_matched": n - len(m),
+                  "match_rate_pct": pct(len(m)),
+                  "rank_1": int((r == 1).sum()), "rank_1_pct": pct((r == 1).sum()),
+                  "rank_2_10": int(((r >= 2) & (r <= 10)).sum()),
+                  "rank_2_10_pct": pct(((r >= 2) & (r <= 10)).sum()),
+                  "top_10_pct": pct((r <= 10).sum()),
+                  "rank_11_plus": int((r > 10).sum()), "rank_11_plus_pct": pct((r > 10).sum()),
+                  "not_matched_pct": pct(n - len(m)),
+                  "median_rank": float(r.median()) if len(r) else None,
+                  "worst_rank": int(r.max()) if len(r) else None,
+                  "max_results_returned": int(s["returned_count"].max()),
+                  "ran_requested_template": p == "direct" or
+                  set(s["template_used"].dropna()) <= {t}})
+if not score:
+    raise SystemExit(
+        "No search has an identity recorded in the production log, so there is nothing to match against. "
+        "Check that the log rows contain a result block with an identityId.")
+scorecard = pd.DataFrame(score).sort_values(["environment", "path", "match_rate_pct"], ascending=[1, 1, 0])
+
+capped = scorecard[scorecard["max_results_returned"] < SIZE]
+if len(capped):
+    for _, r in capped.iterrows():
+        print(f"NOTE {r['environment']} {r['template']} {r['path']}: never returned more than "
+              f"{r['max_results_returned']} results although {SIZE} were requested. If that number is the "
+              f"same on every search, the endpoint is capping the result set and ranks beyond it cannot "
+              f"be seen.")
 if not scorecard["ran_requested_template"].all():
     bad = scorecard[~scorecard["ran_requested_template"]]
     print(f"\n{len(bad)} rows did not run the template requested. The service did not recognise the clientId "
-          f"and used its default config, so those numbers describe the default, not the named template. "
-          f"They are excluded from the {BASELINE} comparison.")
-    print(bad[["template", "environment", "path", "template_used"]].to_string(index=False))
+          f"and used its default config, so those numbers describe the default, not the named template.")
+    print(bad[["environment", "template", "path"]].to_string(index=False))
 
+sr = long[long["searchable"]].copy()
 diff = []
-for (t, p), s in long.groupby(["template", "path"]):
-    d = {e: round(100 * g["found"].sum() / len(g), 1) for e, g in s.groupby("environment")}
+for (t, p), s in sr.groupby(["template", "path"]):
+    d = {e: round(100 * g["matched"].sum() / len(g), 1) for e, g in s.groupby("environment")}
     if "staging" in d and "prod" in d:
-        diff.append({"template": t, "path": p, "staging_pct": d["staging"], "prod_pct": d["prod"],
+        diff.append({"template": t, "path": p, "staging_match_rate_pct": d["staging"],
+                     "prod_match_rate_pct": d["prod"],
                      "staging_minus_prod": round(d["staging"] - d["prod"], 1)})
 env_diff = pd.DataFrame(diff)
 
-long["run"] = long["template"] + " | " + long["environment"] + " | " + long["path"]
-by_consumer = long.pivot_table(index="consumer", columns="run", values="found",
-                               aggfunc=lambda x: round(100 * sum(x) / len(x), 1)).reset_index()
+by_file = (sr.groupby(["source_file", "environment", "template", "path"])
+             .agg(searches=("matched", "size"), matched=("matched", "sum"))
+             .reset_index())
+by_file["match_rate_pct"] = (100 * by_file["matched"] / by_file["searches"]).round(1)
+by_file["not_matched"] = by_file["searches"] - by_file["matched"]
 
-miss = pd.DataFrame()
-if DIAGNOSE_MISSES:
-    look = {r["env"]: r for r in runs if r["path"] == "direct"}
-    mrows = []
-    for c in cases:
-        s = long[(long["consumer"] == c["consumer"]) & (long["log_identity_id"] == c["pid"])]
-        if not len(s) or s["found"].any() or not c["pid"]: continue
-        for env, r in look.items():
-            ix = lookup(r["url"], r["h"], c["pid"])
-            if ix is None:
-                reason, detail = "identity not in this index", "no template could have found it"
-            elif not name_ok(c["f"], ix) or dob_cmp(c["f"]["DOB"], ix["dob"]) == "no":
-                reason = "indexed differently from the search terms"
-                detail = f"indexed as '{ix['first']} {ix['last']}' dob '{ix['dob']}'"
-            else:
-                reason, detail = "indexed and matches the search terms", "query or ranking gap"
-            mrows.append({"consumer": c["consumer"], "environment": env,
-                          "input_name": f"{c['f']['FIRSTNAME']} {c['f']['LASTNAME']}".strip(),
-                          "input_receipt": c["f"]["RECEIPT"], "input_anumber": c["f"]["ANUMBER"],
-                          "log_identity_id": c["pid"], "log_returned": c["pname"],
-                          "reason": reason, "detail": detail})
-    miss = pd.DataFrame(mrows)
+sr["run"] = sr["environment"] + " | " + sr["template"] + " | " + sr["path"]
+by_consumer = sr.pivot_table(index="consumer", columns="run", values="matched",
+                             aggfunc=lambda x: round(100 * sum(x) / len(x), 1)).reset_index()
+
+no_id = long[~long["searchable"]]["input_name"].nunique() if len(long) else 0
+if no_id:
+    tot_searches = long.groupby(["environment", "template", "path"]).size().max()
+    print(f"\n{no_id} of {tot_searches} searches have no identity recorded in the production log. "
+          f"There is nothing to match against, so they are excluded from every match rate below. "
+          f"Match rates are calculated over the {tot_searches - no_id} searches that can be checked.")
 
 print("\nSCORECARD"); display(scorecard)
 if len(env_diff): print("\nSTAGING MINUS PROD"); display(env_diff)
 print("\nBY CONSUMER"); display(by_consumer)
-if len(miss):
-    print("\nWHY SEARCHES WERE MISSED")
-    display(miss.groupby(["consumer", "environment", "reason"]).size().reset_index(name="searches"))
-
 os.makedirs(RESULTS, exist_ok=True)
 out = os.path.join(RESULTS, f"Template_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 with pd.ExcelWriter(out, engine="openpyxl") as xl:
     scorecard.to_excel(xl, sheet_name="Scorecard", index=False)
     if len(env_diff): env_diff.to_excel(xl, sheet_name="Staging vs prod", index=False)
     by_consumer.to_excel(xl, sheet_name="By consumer", index=False)
+    by_file.to_excel(xl, sheet_name="By file", index=False)
     check.to_excel(xl, sheet_name="Template check", index=False)
+    preflight.to_excel(xl, sheet_name="Health check", index=False)
+    cols = ["source_file", "consumer", "input_name", "input_dob", "input_anumber", "input_receipt",
+            "log_returned", "log_identity_id", "environment", "path", "template_used",
+            "matched", "rank", "top_returned", "returned_count", "total_hits", "status", "error"]
     for label in tpls:
         s = long[long["template"] == label]
-        if len(s): s.to_excel(xl, sheet_name=label[:31], index=False)
-    if len(miss): miss.to_excel(xl, sheet_name="Miss diagnosis", index=False)
+        if not len(s): continue
+        s = s.sort_values(["environment", "source_file", "rank"], na_position="last")[cols]
+        if len(s) > EXCEL_ROW_LIMIT:
+            csv_path = os.path.join(RESULTS, f"detail_{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+            s.to_csv(csv_path, index=False)
+            print(f"{label}: {len(s)} rows, too many for a sheet, written to {csv_path}")
+            s.head(EXCEL_ROW_LIMIT).to_excel(xl, sheet_name=label[:31], index=False)
+        else:
+            s.to_excel(xl, sheet_name=label[:31], index=False)
     e = long[long["error"] != ""]
     if len(e): e.to_excel(xl, sheet_name="Errors", index=False)
 print(f"\nSaved: {out}")
