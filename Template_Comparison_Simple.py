@@ -39,6 +39,12 @@ LOG_FILES = [
     "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/FIRST.csv",
     "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/GLOBAL.csv",
     "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/UIPATH.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/BHUB 1.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/CRIS 1.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/ELIS 1.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/FIRST 1.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/GLOBAL 1.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/UIPATH 1.csv",
 ]
 RESULTS = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
 
@@ -70,6 +76,11 @@ def load_logs():
         txt = open(path, encoding="utf-8", errors="replace").read()
         st = [m.start() for m in START.finditer(txt)]
         recs = [txt[s:(st[i+1] if i+1 < len(st) else len(txt))] for i, s in enumerate(st)]
+        print(f"{name}: {os.path.getsize(path):,} bytes, {txt.count(chr(10))+1:,} lines, "
+              f"{len(recs):,} records matched")
+        if len(recs) < (txt.count(chr(10)) + 1) / 2:
+            print(f"  WARNING {name} has {txt.count(chr(10))+1:,} lines but only {len(recs):,} records "
+                  f"matched the CONSUMER,APP,CORE_SEARCH pattern. Most of this file is not being read.")
         n = 0
         for rec in recs:
             consumer = grab(r'^([A-Z0-9_]+),', rec); rec = rec.replace('""', '"')
@@ -87,7 +98,7 @@ def load_logs():
             if not pid and not any(f[k] for k in ("FIRSTNAME", "LASTNAME", "ANUMBER", "RECEIPT")): continue
             cases.append({"source_file": name, "consumer": consumer, "f": f, "pid": pid,
                           "pname": f"{nm.group(1)} {nm.group(2)}" if nm else ""}); n += 1
-        print(f"{name}: {len(recs)} records found, {n} usable")
+        print(f"  {n:,} usable from {name}")
         if recs and n == 0:
             print(f"  WARNING {name} parsed {len(recs)} records but none were usable. "
                   f"Check the file layout.")
@@ -372,6 +383,22 @@ if len(nd):
 print(f"\n{len(runs)} runs passed the health check\n")
 
 cases = load_logs()
+key_files = {}
+for c in cases:
+    k = (c["consumer"],) + tuple(c["f"].values())
+    key_files.setdefault(k, set()).add(c["source_file"])
+shared = {k: v for k, v in key_files.items() if len(v) > 1}
+print(f"\n{len(key_files):,} distinct searches across all files. "
+      f"{len(shared):,} of them appear in more than one file.")
+if shared:
+    pairs = {}
+    for v in shared.values():
+        pairs[" + ".join(sorted(v))] = pairs.get(" + ".join(sorted(v)), 0) + 1
+    for combo, cnt in sorted(pairs.items(), key=lambda x: -x[1])[:10]:
+        print(f"  {cnt:,} searches appear in: {combo}")
+    print("Searches appearing in two files are run once per file, so both sets can be compared "
+          "side by side on the By file tab.")
+
 if SAMPLE_PER_CONSUMER:
     by_c = {}
     for c in cases: by_c.setdefault(c["consumer"], []).append(c)
