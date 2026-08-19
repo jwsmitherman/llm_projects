@@ -531,8 +531,9 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
     m = s[s["id_matched"]]
     r = m["id_rank"].dropna()
     nd = s[s["name_dob_matched"].notna()]
-    nd_ok = int(nd["name_dob_matched"].sum())
-    near = int(s["near_miss_same_person_different_record"].sum())
+    nd_ok = int(pd.to_numeric(nd["name_dob_matched"], errors="coerce").fillna(0).sum())
+    near = int(pd.to_numeric(s["near_miss_same_person_different_record"],
+                             errors="coerce").fillna(0).sum())
     pct = lambda x: round(100 * x / n, 1)
     score.append({"environment": e, "template": t, "path": p,
                   "searches": n, "failed_calls_excluded": failed,
@@ -585,6 +586,11 @@ if len(bad):
           "path are expected if the default was used for all of them.")
 
 sr = long[long["searchable"] & (long["error"] == "")].copy()
+for c in ("id_matched", "name_dob_matched", "near_miss_same_person_different_record",
+          "returned_count", "total_hits", "id_rank", "exact_matches", "similar_matches"):
+    if c in sr: sr[c] = pd.to_numeric(sr[c], errors="coerce")
+def pct_col(num, den): return (100 * pd.to_numeric(num, errors="coerce") /
+                               pd.to_numeric(den, errors="coerce")).round(1)
 sr["matched"] = sr["id_matched"]
 diff = []
 for (t, p), s in sr.groupby(["template", "path"]):
@@ -600,9 +606,9 @@ by_file = (sr.groupby(["source_file", "environment", "template", "path"])
                   name_dob_matched=("name_dob_matched", "sum"),
                   same_person_different_record=("near_miss_same_person_different_record", "sum"))
              .reset_index())
-by_file["match_rate_pct"] = (100 * by_file["matched"] / by_file["searches"]).round(1)
+by_file["match_rate_pct"] = pct_col(by_file["matched"], by_file["searches"])
 by_file["not_matched"] = by_file["searches"] - by_file["matched"]
-by_file["name_dob_match_rate_pct"] = (100 * by_file["name_dob_matched"] / by_file["searches"]).round(1)
+by_file["name_dob_match_rate_pct"] = pct_col(by_file["name_dob_matched"], by_file["searches"])
 by_file = by_file[["source_file", "environment", "template", "path", "searches",
                    "matched", "not_matched", "match_rate_pct",
                    "name_dob_matched", "name_dob_match_rate_pct", "same_person_different_record"]]
@@ -729,15 +735,14 @@ criteria_mix = (sr.drop_duplicates("search_key")
                   .agg(searches=("search_key", "size"),
                        identifiers=("identifier_count", "max"))
                   .reset_index().sort_values("searches", ascending=False))
-criteria_mix["share_of_searches_pct"] = (100 * criteria_mix["searches"] /
-                                         criteria_mix["searches"].sum()).round(1)
+criteria_mix["share_of_searches_pct"] = pct_col(criteria_mix["searches"], criteria_mix["searches"].sum())
 
 by_criteria = (sr.groupby(["search_criteria", "environment", "template"])
                  .agg(searches=("id_matched", "size"),
                       matched=("id_matched", "sum"),
                       median_results=("returned_count", "median"))
                  .reset_index())
-by_criteria["match_rate_pct"] = (100 * by_criteria["matched"] / by_criteria["searches"]).round(1)
+by_criteria["match_rate_pct"] = pct_col(by_criteria["matched"], by_criteria["searches"])
 criteria_grid = by_criteria.pivot_table(index=["search_criteria", "environment"],
                                         columns="template", values="match_rate_pct").reset_index()
 
