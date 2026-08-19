@@ -1,5 +1,6 @@
 # Databricks notebook source
 import requests, json, re, os, glob, time, hashlib
+from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from requests.adapters import HTTPAdapter
@@ -27,32 +28,30 @@ ENVS = {
 
 TEMPLATE_FILES = [
     "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-default.yaml",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-first.yaml",
     "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-max-clause-test.yaml",
     "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-reduced-tiers.yaml",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-ui.yaml",
 ]
 LOG_FILES = [
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/BHUB.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/CRIS.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/ELIS.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/FIRST.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/GLOBAL.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/UIPATH.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/BHUB 1.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/CRIS 1.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/ELIS 1.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/FIRST 1.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/GLOBAL 1.csv",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/UIPATH 1.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/bhub-a.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/bhub-b.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/bhub-c.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/cris.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/first-a.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/first-b.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/global.csv",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/uipath.csv",
 ]
 RESULTS = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
 
 SIZE, TIMEOUT = 100, 120
+NAME_THRESHOLD = 0.85
 SERVICE_SIZE_FIELD = "size"
 DEDUPE = True
 
 CONCURRENCY = 16
+RETRY_STATUSES = (429, 502, 503, 504)
+MAX_RETRIES = 3
+RETRY_BACKOFF_S = 1
 SAMPLE_PER_CONSUMER = 0
 PROGRESS_EVERY = 2000
 EXCEL_ROW_LIMIT = 200000
@@ -119,6 +118,11 @@ def load_logs():
         k = (c["source_file"], c["consumer"]) + tuple(c["f"].values())
         if k in seen: seen[k]["dup"] += 1
         else: c["dup"] = 1; seen[k] = c; out.append(c)
+    seen_consumers = sorted({c["consumer"] for c in cases})
+    print(f"Consumers present: {seen_consumers}")
+    missing = [x for x in ("BHUB", "CRIS", "ELIS", "FIRST", "GLOBAL", "UIPATH") if x not in seen_consumers]
+    if missing:
+        print(f"NOTE no searches loaded for {missing}. Those consumers cannot be assessed in this run.")
     print(f"{len(cases)} rows -> {len(out)} distinct searches "
           f"({len(cases) - len(out)} were repeats of a search already counted)")
     return out
@@ -284,6 +288,28 @@ def headers_for(env, c, path):
         h["Authorization"] = basic(c.get("opensearch_token", ""))
     return h
 
+CRITERIA_FIELDS = [("FIRSTNAME", "first"), ("MIDDLENAME", "middle"), ("LASTNAME", "last"),
+                   ("DOB", "dob"), ("ANUMBER", "alien_nbr"), ("RECEIPT", "receipt_nbr"),
+                   ("COB", "country_of_birth"), ("COC", "country_of_citizenship")]
+
+def describe_criteria(f):
+    return ", ".join(label for key, label in CRITERIA_FIELDS if (f.get(key) or "").strip())
+
+def ratio(a, b): return SequenceMatcher(None, (a or "").upper(), (b or "").upper()).ratio()
+
+def name_matches(f, p):
+    it = [t for t in (f["FIRSTNAME"] + " " + f["MIDDLENAME"] + " " + f["LASTNAME"]).split() if t]
+    rt = [t for t in (p["first"] + " " + p["middle"] + " " + p["last"]).split() if t]
+    if not it or not rt: return None
+    return all(max((ratio(t, r) for r in rt), default=0) >= NAME_THRESHOLD for t in it)
+
+def dob_compare(a, b):
+    a, b = (a or "").replace("-", ""), (b or "").replace("-", "")
+    if not a or not b: return "n/a"
+    if a == b: return "exact"
+    if len(a) == len(b) and sum(1 for x, y in zip(a, b) if x != y) == 1: return "digit-flip"
+    return "no"
+
 def person(src):
     nm = (src.get("biographicInfo", {}) or {}).get("name", {}) or {}
     sd = src.get("_search", {})
@@ -296,26 +322,45 @@ def api_person(x):
             "middle": nm.get("middle", ""), "last": nm.get("last", ""),
             "dob": str(x.get("dateOfBirth", "") or "").replace("-", "")}
 
+retries_used = [0]
+
+def post_with_retry(url, headers, body):
+    """OpenSearch answers 429 when it is saturated and the search service turns
+       that into a 500. Retrying with a pause fulfils the request instead of
+       recording a false miss, and backing off reduces the load this test adds."""
+    last = None
+    for attempt in range(MAX_RETRIES + 1):
+        r = SESSION.post(url, headers=headers, json=body, timeout=TIMEOUT)
+        if r.status_code not in RETRY_STATUSES:
+            return r, attempt
+        last = r
+        if attempt < MAX_RETRIES:
+            retries_used[0] += 1
+            time.sleep(RETRY_BACKOFF_S * (2 ** attempt))
+    return last, MAX_RETRIES
+
 def call(run, f, tpl, scal):
     try:
         if run["path"] == "service":
             body, method = build_service(f, run["cid"])
-            r = SESSION.post(run["url"], headers=run["h"], json=body, timeout=TIMEOUT)
-            if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, method
+            r, _ = post_with_retry(run["url"], run["h"], body)
+            if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, method, (0, 0)
             j = r.json()
-            ppl = [api_person(x) for k in ("exactMatches", "similarMatches")
-                   for x in ((j.get(k) or {}).get("content") or [])]
+            ex = (j.get("exactMatches") or {}).get("content") or []
+            sim = (j.get("similarMatches") or {}).get("content") or []
+            ppl = [api_person(x) for x in list(ex) + list(sim)]
+            counts = (len(ex), len(sim))
             tot = sum((j.get(k) or {}).get("totalElements", 0) or 0 for k in ("exactMatches", "similarMatches"))
-            return ppl, tot, r.status_code, "", j.get("clientId"), method
+            return ppl, tot, r.status_code, "", j.get("clientId"), method, counts
         body = build_dsl(tpl, f, scal)
         qh = hashlib.md5(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
-        r = SESSION.post(run["url"], headers=run["h"], json=body, timeout=TIMEOUT)
-        if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, qh
+        r, _ = post_with_retry(run["url"], run["h"], body)
+        if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, qh, (0, 0)
         j = r.json()
         return ([person(h.get("_source", {})) for h in j["hits"]["hits"]],
-                (j["hits"]["total"] or {}).get("value", 0), r.status_code, "", None, qh)
+                (j["hits"]["total"] or {}).get("value", 0), r.status_code, "", None, qh, (0, 0))
     except Exception as e:
-        return [], 0, None, f"{type(e).__name__}: {e}"[:300], None, ""
+        return [], 0, None, f"{type(e).__name__}: {e}"[:300], None, "", (0, 0)
 
 tpls = {}
 chk = []
@@ -366,7 +411,7 @@ print(f"\nHealth check uses the first search from {cases[0]['source_file']}. No 
 pf = []
 for r in runs:
     t = tpls[r["tpl"]]
-    res, tot, st, err, cid_back, _ = call(r, probe, t["tpl"], t["scal"])
+    res, tot, st, err, cid_back, _, _ = call(r, probe, t["tpl"], t["scal"])
     note = ""
     if err:
         note = "CALL FAILED"
@@ -424,10 +469,13 @@ def do(task):
     c, run = task
     f, pid = c["f"], c["pid"]
     t = tpls[run["tpl"]]
-    res, tot, st, err, cid_back, method = call(run, f, t["tpl"], t["scal"])
+    res, tot, st, err, cid_back, method, counts = call(run, f, t["tpl"], t["scal"])
     top = res[0] if res else None
     ids = [r["id"] for r in res]
     rank = ids.index(pid) + 1 if pid and pid in ids else None
+    nm_ok = name_matches(f, top) if top else None
+    dob_cmp_val = dob_compare(f["DOB"], top["dob"]) if top else "n/a"
+    nd_ok = None if nm_ok is None else (nm_ok and dob_cmp_val in ("exact", "digit-flip", "n/a"))
     done[0] += 1
     if PROGRESS_EVERY and done[0] % PROGRESS_EVERY == 0:
         el = time.time() - t0
@@ -437,14 +485,23 @@ def do(task):
     return {"source_file": c["source_file"], "consumer": c["consumer"], "dup": c["dup"],
             "input_name": f"{f['FIRSTNAME']} {f['MIDDLENAME']} {f['LASTNAME']}".strip(),
             "input_dob": f["DOB"], "input_anumber": f["ANUMBER"], "input_receipt": f["RECEIPT"],
+            "input_cob": f["COB"], "input_coc": f["COC"],
+            "search_criteria": describe_criteria(f),
+            "criteria_count": sum(1 for k, _ in CRITERIA_FIELDS if (f.get(k) or "").strip()),
+            "identifier_count": sum(1 for k in ("ANUMBER", "RECEIPT") if (f.get(k) or "").strip()),
+            "search_method": method if run["path"] == "service" else "direct query",
             "log_returned": c["pname"], "log_identity_id": pid,
             "template": run["tpl"], "environment": run["env"], "path": run["path"],
             "template_used": cid_back if run["path"] == "service" else run["tpl"],
             "searchable": bool(pid),
-            "matched": rank is not None, "rank": rank,
+            "id_matched": rank is not None, "id_rank": rank,
+            "name_matched": nm_ok, "dob_compare": dob_cmp_val,
+            "name_dob_matched": nd_ok,
+            "near_miss_same_person_different_record": bool(nd_ok) and rank is None,
             "top_returned": f"{top['first']} {top['last']}".strip() if top else
             ("(call failed)" if err else "(no result)"),
             "returned_count": len(res), "total_hits": tot,
+            "exact_matches": counts[0], "similar_matches": counts[1],
             "search_key": "|".join([c["source_file"], c["consumer"]] + list(f.values())),
             "top_id": top["id"] if top else "",
             "status": st, "error": err,
@@ -454,19 +511,32 @@ with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
     rows = list(pool.map(do, tasks))
 el = time.time() - t0
 print(f"{total} calls in {el/60:.1f} min ({total/el if el else 0:.0f}/sec)")
+if retries_used[0]:
+    print(f"{retries_used[0]} calls were retried after an overload response ({RETRY_STATUSES}). "
+          f"The endpoint was saturated at this request rate. Lower CONCURRENCY if this is large.")
 long = pd.DataFrame(rows)
 
 score = []
 for (e, t, p), s in long.groupby(["environment", "template", "path"]):
     s = s[s["searchable"]]
+    failed = int((s["error"] != "").sum())
+    s = s[s["error"] == ""]
     n = len(s)
     if not n: continue
-    m = s[s["matched"]]
-    r = m["rank"].dropna()
+    m = s[s["id_matched"]]
+    r = m["id_rank"].dropna()
+    nd = s[s["name_dob_matched"].notna()]
+    nd_ok = int(nd["name_dob_matched"].sum())
+    near = int(s["near_miss_same_person_different_record"].sum())
     pct = lambda x: round(100 * x / n, 1)
     score.append({"environment": e, "template": t, "path": p,
-                  "searches": n, "matched": len(m), "not_matched": n - len(m),
-                  "match_rate_pct": pct(len(m)),
+                  "searches": n, "failed_calls_excluded": failed,
+                  "id_matched": len(m), "id_not_matched": n - len(m),
+                  "id_match_rate_pct": pct(len(m)),
+                  "name_dob_scoreable": len(nd), "name_dob_matched": nd_ok,
+                  "name_dob_match_rate_pct": round(100 * nd_ok / len(nd), 1) if len(nd) else None,
+                  "same_person_different_record": near,
+                  "same_person_different_record_pct": pct(near),
                   "rank_1": int((r == 1).sum()), "rank_1_pct": pct((r == 1).sum()),
                   "rank_2_10": int(((r >= 2) & (r <= 10)).sum()),
                   "rank_2_10_pct": pct(((r >= 2) & (r <= 10)).sum()),
@@ -475,7 +545,15 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
                   "not_matched_pct": pct(n - len(m)),
                   "median_rank": float(r.median()) if len(r) else None,
                   "worst_rank": int(r.max()) if len(r) else None,
+                  "median_results_returned": float(s["returned_count"].median()),
+                  "min_results_returned": int(s["returned_count"].min()),
                   "max_results_returned": int(s["returned_count"].max()),
+                  "searches_returning_0": int((s["returned_count"] == 0).sum()),
+                  "searches_returning_under_10": int((s["returned_count"] < 10).sum()),
+                  "searches_returning_under_10_pct": pct((s["returned_count"] < 10).sum()),
+                  "median_total_hits": float(s["total_hits"].median()),
+                  "median_exact_matches": float(s["exact_matches"].median()),
+                  "median_similar_matches": float(s["similar_matches"].median()),
                   "ran_requested_template": "yes" if p == "direct" else
                   ("unknown, service did not echo clientId" if not set(s["template_used"].dropna())
                    else ("yes" if set(s["template_used"].dropna()) == {t} else
@@ -484,7 +562,7 @@ if not score:
     raise SystemExit(
         "No search has an identity recorded in the production log, so there is nothing to match against. "
         "Check that the log rows contain a result block with an identityId.")
-scorecard = pd.DataFrame(score).sort_values(["environment", "path", "match_rate_pct"], ascending=[1, 1, 0])
+scorecard = pd.DataFrame(score).sort_values(["environment", "path", "id_match_rate_pct"], ascending=[1, 1, 0])
 
 capped = scorecard[scorecard["max_results_returned"] < SIZE]
 if len(capped):
@@ -501,10 +579,11 @@ if len(bad):
           "the named config was applied or the default was used. Identical numbers across templates on that "
           "path are expected if the default was used for all of them.")
 
-sr = long[long["searchable"]].copy()
+sr = long[long["searchable"] & (long["error"] == "")].copy()
+sr["matched"] = sr["id_matched"]
 diff = []
 for (t, p), s in sr.groupby(["template", "path"]):
-    d = {e: round(100 * g["matched"].sum() / len(g), 1) for e, g in s.groupby("environment")}
+    d = {e: round(100 * g["id_matched"].sum() / len(g), 1) for e, g in s.groupby("environment")}
     if "staging" in d and "prod" in d:
         diff.append({"template": t, "path": p, "staging_match_rate_pct": d["staging"],
                      "prod_match_rate_pct": d["prod"],
@@ -512,12 +591,27 @@ for (t, p), s in sr.groupby(["template", "path"]):
 env_diff = pd.DataFrame(diff)
 
 by_file = (sr.groupby(["source_file", "environment", "template", "path"])
-             .agg(searches=("matched", "size"), matched=("matched", "sum"))
+             .agg(searches=("id_matched", "size"), matched=("id_matched", "sum"),
+                  name_dob_matched=("name_dob_matched", "sum"),
+                  same_person_different_record=("near_miss_same_person_different_record", "sum"))
              .reset_index())
 by_file["match_rate_pct"] = (100 * by_file["matched"] / by_file["searches"]).round(1)
 by_file["not_matched"] = by_file["searches"] - by_file["matched"]
-by_file = by_file[["source_file", "environment", "template", "path",
-                   "searches", "matched", "not_matched", "match_rate_pct"]]
+by_file["name_dob_match_rate_pct"] = (100 * by_file["name_dob_matched"] / by_file["searches"]).round(1)
+by_file = by_file[["source_file", "environment", "template", "path", "searches",
+                   "matched", "not_matched", "match_rate_pct",
+                   "name_dob_matched", "name_dob_match_rate_pct", "same_person_different_record"]]
+
+file_grid = by_file.pivot_table(index=["source_file", "environment", "searches"],
+                                columns="template", values="match_rate_pct").reset_index()
+file_volume = (sr.groupby(["source_file", "environment", "template"])["returned_count"].median()
+                 .reset_index()
+                 .pivot_table(index=["source_file", "environment"], columns="template",
+                              values="returned_count").reset_index())
+print("\nMATCH RATE BY FILE AND TEMPLATE")
+display(file_grid)
+print("\nMEDIAN RESULTS RETURNED BY FILE AND TEMPLATE")
+display(file_volume)
 
 sr["run"] = sr["environment"] + " | " + sr["template"] + " | " + sr["path"]
 by_consumer = sr.pivot_table(index=["source_file", "consumer"], columns="run", values="matched",
@@ -611,6 +705,42 @@ if len(template_diff):
         print(diff_q[["environment", "path", "template_a", "template_b", "searches_compared",
                       "same_top_pct", "identical_query_pct"]].to_string(index=False))
 
+volume = scorecard[["environment", "template", "path", "searches",
+                    "median_results_returned", "min_results_returned", "max_results_returned",
+                    "searches_returning_0", "searches_returning_under_10",
+                    "searches_returning_under_10_pct", "median_total_hits",
+                    "median_exact_matches", "median_similar_matches"]].copy()
+print("\nRESULT VOLUME, how many results each template gives an operator to work with")
+display(volume)
+
+codes = long[long["error"] != ""]
+if len(codes):
+    print(f"\n{len(codes)} calls failed and are excluded from every match rate below. "
+          f"A failed call is not a search that found nobody.")
+    print(codes.groupby(["environment", "path", "status"]).size().reset_index(name="calls").to_string(index=False))
+
+criteria_mix = (sr.drop_duplicates("search_key")
+                  .groupby("search_criteria")
+                  .agg(searches=("search_key", "size"),
+                       identifiers=("identifier_count", "max"))
+                  .reset_index().sort_values("searches", ascending=False))
+criteria_mix["share_of_searches_pct"] = (100 * criteria_mix["searches"] /
+                                         criteria_mix["searches"].sum()).round(1)
+
+by_criteria = (sr.groupby(["search_criteria", "environment", "template"])
+                 .agg(searches=("id_matched", "size"),
+                      matched=("id_matched", "sum"),
+                      median_results=("returned_count", "median"))
+                 .reset_index())
+by_criteria["match_rate_pct"] = (100 * by_criteria["matched"] / by_criteria["searches"]).round(1)
+criteria_grid = by_criteria.pivot_table(index=["search_criteria", "environment"],
+                                        columns="template", values="match_rate_pct").reset_index()
+
+print("\nWHAT WAS ACTUALLY SEARCHED FOR")
+display(criteria_mix)
+print("\nMATCH RATE BY SEARCH CRITERIA AND TEMPLATE")
+display(criteria_grid)
+
 print("\nSCORECARD"); display(scorecard)
 if len(env_diff): print("\nSTAGING MINUS PROD"); display(env_diff)
 print("\nBY CONSUMER"); display(by_consumer)
@@ -621,17 +751,25 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
     if len(env_diff): env_diff.to_excel(xl, sheet_name="Staging vs prod", index=False)
     by_consumer.to_excel(xl, sheet_name="By consumer", index=False)
     by_file.to_excel(xl, sheet_name="By file", index=False)
+    file_grid.to_excel(xl, sheet_name="File x template", index=False)
+    file_volume.to_excel(xl, sheet_name="File x template volume", index=False)
+    volume.to_excel(xl, sheet_name="Result volume", index=False)
+    criteria_mix.to_excel(xl, sheet_name="Search criteria mix", index=False)
+    criteria_grid.to_excel(xl, sheet_name="By search criteria", index=False)
+    by_criteria.to_excel(xl, sheet_name="By criteria detail", index=False)
     if len(template_diff): template_diff.to_excel(xl, sheet_name="Template differences", index=False)
     if len(stability): stability.to_excel(xl, sheet_name="Stability check", index=False)
     check.to_excel(xl, sheet_name="Template check", index=False)
     preflight.to_excel(xl, sheet_name="Health check", index=False)
     cols = ["source_file", "consumer", "input_name", "input_dob", "input_anumber", "input_receipt",
             "log_returned", "log_identity_id", "environment", "path", "template_used",
-            "matched", "rank", "top_returned", "top_id", "returned_count", "total_hits", "status", "error"]
+            "id_matched", "id_rank", "name_matched", "dob_compare", "name_dob_matched",
+            "near_miss_same_person_different_record",
+            "top_returned", "top_id", "returned_count", "total_hits", "status", "error"]
     for label in tpls:
         s = long[long["template"] == label]
         if not len(s): continue
-        s = s.sort_values(["environment", "source_file", "rank"], na_position="last")[cols]
+        s = s.sort_values(["environment", "source_file", "id_rank"], na_position="last")[cols]
         if len(s) > EXCEL_ROW_LIMIT:
             csv_path = os.path.join(RESULTS, f"detail_{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
             s.to_csv(csv_path, index=False)
