@@ -63,8 +63,8 @@ def dob_compare(a, b):
     return "no"
 
 def name_matches(f, p):
-    it = [t for t in (f["FIRSTNAME"] + " " + f["MIDDLENAME"] + " " + f["LASTNAME"]).split() if t]
-    rt = [t for t in (p["first"] + " " + p["middle"] + " " + p["last"]).split() if t]
+    it = [t for t in " ".join(str(f.get(k) or "") for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME")).split() if t]
+    rt = [t for t in " ".join(str(p.get(k) or "") for k in ("first", "middle", "last")).split() if t]
     if not it or not rt: return None
     return all(max((ratio(t, r) for r in rt), default=0) >= NAME_THRESHOLD for t in it)
 
@@ -265,9 +265,9 @@ def build_service(f):
 def person(src, hit=None):
     nm = (src.get("biographicInfo", {}) or {}).get("name", {}) or {}
     sd = src.get("_search", {})
-    p = {"id": str(src.get("identityId", "")), "first": nm.get("first", ""), "middle": nm.get("middle", ""),
-         "last": nm.get("last", ""),
-         "dob": str((sd.get("dateOfBirth", "") if isinstance(sd, dict) else "") or "")}
+    p = {"id": str(src.get("identityId") or ""), "first": nm.get("first") or "",
+         "middle": nm.get("middle") or "", "last": nm.get("last") or "",
+         "dob": str((sd.get("dateOfBirth") if isinstance(sd, dict) else "") or "")}
     if hit:
         p["score"] = hit.get("_score")
         mq = hit.get("matched_queries")
@@ -313,9 +313,9 @@ def search_service(url, headers, f):
     def api_person(x):
         if "biographicInfo" in x or "_search" in x: return person(x)
         nm = x.get("name") if isinstance(x.get("name"), dict) else {}
-        return {"id": str(x.get("identityId", "") or x.get("id", "")), "first": nm.get("first", ""),
-                "middle": nm.get("middle", ""), "last": nm.get("last", ""),
-                "dob": str(x.get("dateOfBirth", "") or "").replace("-", ""),
+        return {"id": str(x.get("identityId") or x.get("id") or ""), "first": nm.get("first") or "",
+                "middle": nm.get("middle") or "", "last": nm.get("last") or "",
+                "dob": str(x.get("dateOfBirth") or "").replace("-", ""),
                 "score": x.get("score"), "tiers": ""}
     tot = sum((j.get(k) or {}).get("totalElements", 0) or 0 for k in ("exactMatches", "similarMatches"))
     return [api_person(x) for x in list(ex) + list(sim)], tot, r.status_code, "", method

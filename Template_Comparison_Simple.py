@@ -298,8 +298,8 @@ def describe_criteria(f):
 def ratio(a, b): return SequenceMatcher(None, (a or "").upper(), (b or "").upper()).ratio()
 
 def name_matches(f, p):
-    it = [t for t in (f["FIRSTNAME"] + " " + f["MIDDLENAME"] + " " + f["LASTNAME"]).split() if t]
-    rt = [t for t in (p["first"] + " " + p["middle"] + " " + p["last"]).split() if t]
+    it = [t for t in " ".join(str(f.get(k) or "") for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME")).split() if t]
+    rt = [t for t in " ".join(str(p.get(k) or "") for k in ("first", "middle", "last")).split() if t]
     if not it or not rt: return None
     return all(max((ratio(t, r) for r in rt), default=0) >= NAME_THRESHOLD for t in it)
 
@@ -313,14 +313,15 @@ def dob_compare(a, b):
 def person(src):
     nm = (src.get("biographicInfo", {}) or {}).get("name", {}) or {}
     sd = src.get("_search", {})
-    return {"id": str(src.get("identityId", "")), "first": nm.get("first", ""), "middle": nm.get("middle", ""),
-            "last": nm.get("last", ""), "dob": str((sd.get("dateOfBirth", "") if isinstance(sd, dict) else "") or "")}
+    return {"id": str(src.get("identityId") or ""), "first": nm.get("first") or "",
+            "middle": nm.get("middle") or "", "last": nm.get("last") or "",
+            "dob": str((sd.get("dateOfBirth") if isinstance(sd, dict) else "") or "")}
 def api_person(x):
     if "biographicInfo" in x or "_search" in x: return person(x)
     nm = x.get("name") if isinstance(x.get("name"), dict) else {}
-    return {"id": str(x.get("identityId", "") or x.get("id", "")), "first": nm.get("first", ""),
-            "middle": nm.get("middle", ""), "last": nm.get("last", ""),
-            "dob": str(x.get("dateOfBirth", "") or "").replace("-", "")}
+    return {"id": str(x.get("identityId") or x.get("id") or ""), "first": nm.get("first") or "",
+            "middle": nm.get("middle") or "", "last": nm.get("last") or "",
+            "dob": str(x.get("dateOfBirth") or "").replace("-", "")}
 
 retries_used = [0]
 
@@ -515,6 +516,10 @@ if retries_used[0]:
     print(f"{retries_used[0]} calls were retried after an overload response ({RETRY_STATUSES}). "
           f"The endpoint was saturated at this request rate. Lower CONCURRENCY if this is large.")
 long = pd.DataFrame(rows)
+os.makedirs(RESULTS, exist_ok=True)
+raw_path = os.path.join(RESULTS, f"raw_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+long.to_csv(raw_path, index=False)
+print(f"Raw results saved to {raw_path} before any analysis, so a failure below does not lose the run.")
 
 score = []
 for (e, t, p), s in long.groupby(["environment", "template", "path"]):
