@@ -319,8 +319,27 @@ def name_matches(f, p, detail=False):
     result = first_ok and last_ok and middle_ok
     return (result, why) if detail else result
 
+def norm_dob(v):
+    if v is None: return ""
+    if isinstance(v, dict):
+        y = str(v.get("year") or v.get("yyyy") or "").strip()
+        m = str(v.get("month") or v.get("mm") or "").strip()
+        d = str(v.get("day") or v.get("dd") or "").strip()
+        if y and m and d: return f"{y.zfill(4)}{m.zfill(2)}{d.zfill(2)}"
+        return ""
+    s = str(v).strip()
+    if not s: return ""
+    digits = re.sub(r"\D", "", s)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s): return digits
+    if re.fullmatch(r"\d{8}", s): return s
+    m = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", s)
+    if m: return f"{m.group(3)}{m.group(1).zfill(2)}{m.group(2).zfill(2)}"
+    m = re.fullmatch(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", s)
+    if m: return f"{m.group(1)}{m.group(2).zfill(2)}{m.group(3).zfill(2)}"
+    return digits if len(digits) == 8 else ""
+
 def dob_compare(a, b):
-    a, b = (a or "").replace("-", ""), (b or "").replace("-", "")
+    a, b = norm_dob(a), norm_dob(b)
     if not a or not b: return "n/a"
     if a == b: return "exact"
     if len(a) == len(b) and sum(1 for x, y in zip(a, b) if x != y) == 1: return "digit-flip"
@@ -331,13 +350,13 @@ def person(src):
     sd = src.get("_search", {})
     return {"id": str(src.get("identityId") or ""), "first": nm.get("first") or "",
             "middle": nm.get("middle") or "", "last": nm.get("last") or "",
-            "dob": str((sd.get("dateOfBirth") if isinstance(sd, dict) else "") or "")}
+            "dob": norm_dob(sd.get("dateOfBirth") if isinstance(sd, dict) else sd)}
 def api_person(x):
     if "biographicInfo" in x or "_search" in x: return person(x)
     nm = x.get("name") if isinstance(x.get("name"), dict) else {}
     return {"id": str(x.get("identityId") or x.get("id") or ""), "first": nm.get("first") or "",
             "middle": nm.get("middle") or "", "last": nm.get("last") or "",
-            "dob": str(x.get("dateOfBirth") or "").replace("-", "")}
+            "dob": norm_dob(x.get("dateOfBirth"))}
 
 retries_used = [0]
 
