@@ -369,25 +369,36 @@ def analyse(case, path):
     top = res[0] if res else None
     target = next((r for r in res if r["id"] == pid), None)
 
+    same_person = [(i + 1, r) for i, r in enumerate(res)
+                   if name_matches(f, r) and dob_compare(f["DOB"], r["dob"]) in ("exact", "digit-flip", "n/a")]
+    same_person_rank = same_person[0][0] if same_person else None
+    same_person_id = same_person[0][1]["id"] if same_person else ""
+    same_person_name = (" ".join(x for x in [same_person[0][1]["first"], same_person[0][1]["middle"],
+                                             same_person[0][1]["last"]] if x) if same_person else "")
+
     indexed = None
     if lookup_path and pid and rank is None:
         indexed = lookup_identity(lookup_path["url"], lookup_path["h"], pid)
 
-    if rank is None and indexed is None and pid:
+    if rank == 1:
+        reason = "returned first"
+    elif rank:
+        reason = f"returned at position {rank}"
+    elif not pid:
+        reason = "no identity recorded in the log"
+    elif same_person_rank == 1:
+        reason = "same person returned first under a different record id"
+    elif same_person_rank:
+        reason = f"same person returned at position {same_person_rank} under a different record id"
+    elif indexed is None:
         reason = "identity not present in this index"
-    elif rank is None and indexed is not None:
+    else:
         nm_ok = name_matches(f, indexed)
         dc = dob_compare(f["DOB"], indexed["dob"])
         if nm_ok is False and dc == "no": reason = "indexed name and date of birth both differ"
         elif nm_ok is False: reason = "indexed name differs from the search terms"
         elif dc == "no": reason = "indexed date of birth differs from the search terms"
         else: reason = "record present and consistent, query did not surface it"
-    elif rank == 1:
-        reason = "returned first"
-    elif rank:
-        reason = f"returned at position {rank}"
-    else:
-        reason = "no identity recorded in the log"
 
     row = {"source_file": case["source_file"], "consumer": case["consumer"],
            "input_first": f["FIRSTNAME"], "input_middle": f["MIDDLENAME"], "input_last": f["LASTNAME"],
@@ -405,6 +416,11 @@ def analyse(case, path):
            "prod_total_identities": case["prod_total_identities"],
            "prod_top_score": case["prod_top_score"],
            "id_matched": rank is not None, "rank": rank,
+           "same_person_found": same_person_rank is not None,
+           "same_person_rank": same_person_rank,
+           "same_person_id": same_person_id,
+           "same_person_name": same_person_name,
+           "found_either_way": rank is not None or same_person_rank is not None,
            "outcome": reason,
            "top_returned": f"{top['first']} {top['last']}".strip() if top else
                            ("(call failed)" if err else "(no result)"),
@@ -437,13 +453,20 @@ outcomes["share_pct"] = (100 * outcomes["searches"] /
                          outcomes.groupby("path")["searches"].transform("sum")).round(1)
 
 summary = (ok.groupby("path")
-             .agg(searches=("id_matched", "size"), matched=("id_matched", "sum"),
+             .agg(searches=("id_matched", "size"),
+                  exact_record_matched=("id_matched", "sum"),
+                  same_person_different_record=("same_person_found", "sum"),
+                  found_either_way=("found_either_way", "sum"),
                   ranked_first=("rank", lambda x: int((x == 1).sum())),
                   median_results=("returned_count", "median"),
                   median_total_hits=("total_hits", "median"))
              .reset_index())
-summary["match_rate_pct"] = (100 * summary["matched"] / summary["searches"]).round(1)
-summary["ranked_first_pct"] = (100 * summary["ranked_first"] / summary["searches"]).round(1)
+def _pct(a, b): return (100 * pd.to_numeric(a, errors="coerce") /
+                        pd.to_numeric(b, errors="coerce")).round(1)
+summary["exact_record_pct"] = _pct(summary["exact_record_matched"], summary["searches"])
+summary["same_person_pct"] = _pct(summary["same_person_different_record"], summary["searches"])
+summary["found_either_way_pct"] = _pct(summary["found_either_way"], summary["searches"])
+summary["ranked_first_pct"] = _pct(summary["ranked_first"], summary["searches"])
 
 profile_cols = ["two_or_more_first_names", "two_or_more_last_names", "compound_name",
                 "has_hyphen", "has_apostrophe", "has_accent_or_nonascii"]
@@ -490,10 +513,11 @@ if others:
                       pct_with_dob=("has_dob", lambda x: round(100*x.mean(), 1)))
                  .reset_index())
 
-misses = ok[~ok["id_matched"]][
+misses = ok[~ok["found_either_way"]][
     ["source_file", "input_first", "input_middle", "input_last", "input_dob",
      "input_anumber", "input_receipt", "search_criteria", "path", "outcome",
-     "log_returned", "log_identity_id", "indexed_name", "indexed_dob",
+     "log_returned", "log_identity_id", "same_person_name", "same_person_id", "same_person_rank",
+     "indexed_name", "indexed_dob",
      "top_returned", "top_id", "top_score", "returned_count", "total_hits",
      "total_name_tokens", "two_or_more_first_names", "two_or_more_last_names"]]
 

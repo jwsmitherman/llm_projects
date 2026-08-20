@@ -477,6 +477,12 @@ def do(task):
     nm_ok = name_matches(f, top) if top else None
     dob_cmp_val = dob_compare(f["DOB"], top["dob"]) if top else "n/a"
     nd_ok = None if nm_ok is None else (nm_ok and dob_cmp_val in ("exact", "digit-flip", "n/a"))
+    same_person = [(i + 1, r) for i, r in enumerate(res)
+                   if name_matches(f, r) and dob_compare(f["DOB"], r["dob"]) in ("exact", "digit-flip", "n/a")]
+    sp_rank = same_person[0][0] if same_person else None
+    sp_id = same_person[0][1]["id"] if same_person else ""
+    sp_name = (" ".join(x for x in [same_person[0][1]["first"], same_person[0][1]["middle"],
+                                    same_person[0][1]["last"]] if x) if same_person else "")
     done[0] += 1
     if PROGRESS_EVERY and done[0] % PROGRESS_EVERY == 0:
         el = time.time() - t0
@@ -498,7 +504,18 @@ def do(task):
             "id_matched": rank is not None, "id_rank": rank,
             "name_matched": nm_ok, "dob_compare": dob_cmp_val,
             "name_dob_matched": nd_ok,
-            "near_miss_same_person_different_record": bool(nd_ok) and rank is None,
+            "same_person_found": sp_rank is not None,
+            "same_person_rank": sp_rank,
+            "same_person_id": sp_id,
+            "same_person_name": sp_name,
+            "same_person_different_record": sp_rank is not None and rank is None,
+            "found_either_way": rank is not None or sp_rank is not None,
+            "outcome": ("returned first" if rank == 1 else
+                        f"returned at position {rank}" if rank else
+                        "no identity recorded in the log" if not pid else
+                        "same person returned first under a different record id" if sp_rank == 1 else
+                        f"same person returned at position {sp_rank} under a different record id" if sp_rank
+                        else "not returned"),
             "top_returned": f"{top['first']} {top['last']}".strip() if top else
             ("(call failed)" if err else "(no result)"),
             "returned_count": len(res), "total_hits": tot,
@@ -532,8 +549,8 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
     r = m["id_rank"].dropna()
     nd = s[s["name_dob_matched"].notna()]
     nd_ok = int(pd.to_numeric(nd["name_dob_matched"], errors="coerce").fillna(0).sum())
-    near = int(pd.to_numeric(s["near_miss_same_person_different_record"],
-                             errors="coerce").fillna(0).sum())
+    near = int(pd.to_numeric(s["same_person_different_record"], errors="coerce").fillna(0).sum())
+    either = int(pd.to_numeric(s["found_either_way"], errors="coerce").fillna(0).sum())
     pct = lambda x: round(100 * x / n, 1)
     score.append({"environment": e, "template": t, "path": p,
                   "searches": n, "failed_calls_excluded": failed,
@@ -543,6 +560,7 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
                   "name_dob_match_rate_pct": round(100 * nd_ok / len(nd), 1) if len(nd) else None,
                   "same_person_different_record": near,
                   "same_person_different_record_pct": pct(near),
+                  "found_either_way": either, "found_either_way_pct": pct(either),
                   "rank_1": int((r == 1).sum()), "rank_1_pct": pct((r == 1).sum()),
                   "rank_2_10": int(((r >= 2) & (r <= 10)).sum()),
                   "rank_2_10_pct": pct(((r >= 2) & (r <= 10)).sum()),
@@ -586,7 +604,7 @@ if len(bad):
           "path are expected if the default was used for all of them.")
 
 sr = long[long["searchable"] & (long["error"] == "")].copy()
-for c in ("id_matched", "name_dob_matched", "near_miss_same_person_different_record",
+for c in ("id_matched", "name_dob_matched", "same_person_different_record", "found_either_way",
           "returned_count", "total_hits", "id_rank", "exact_matches", "similar_matches"):
     if c in sr: sr[c] = pd.to_numeric(sr[c], errors="coerce")
 def pct_col(num, den): return (100 * pd.to_numeric(num, errors="coerce") /
@@ -604,14 +622,17 @@ env_diff = pd.DataFrame(diff)
 by_file = (sr.groupby(["source_file", "environment", "template", "path"])
              .agg(searches=("id_matched", "size"), matched=("id_matched", "sum"),
                   name_dob_matched=("name_dob_matched", "sum"),
-                  same_person_different_record=("near_miss_same_person_different_record", "sum"))
+                  same_person_different_record=("same_person_different_record", "sum"),
+                  found_either_way=("found_either_way", "sum"))
              .reset_index())
 by_file["match_rate_pct"] = pct_col(by_file["matched"], by_file["searches"])
 by_file["not_matched"] = by_file["searches"] - by_file["matched"]
 by_file["name_dob_match_rate_pct"] = pct_col(by_file["name_dob_matched"], by_file["searches"])
+by_file["found_either_way_pct"] = pct_col(by_file["found_either_way"], by_file["searches"])
 by_file = by_file[["source_file", "environment", "template", "path", "searches",
                    "matched", "not_matched", "match_rate_pct",
-                   "name_dob_matched", "name_dob_match_rate_pct", "same_person_different_record"]]
+                   "name_dob_matched", "name_dob_match_rate_pct",
+                   "same_person_different_record", "found_either_way", "found_either_way_pct"]]
 
 file_grid = by_file.pivot_table(index=["source_file", "environment", "searches"],
                                 columns="template", values="match_rate_pct").reset_index()
@@ -724,6 +745,13 @@ volume = scorecard[["environment", "template", "path", "searches",
 print("\nRESULT VOLUME, how many results each template gives an operator to work with")
 display(volume)
 
+outcome_mix = (sr.groupby(["environment", "template", "outcome"]).size()
+                 .reset_index(name="searches"))
+outcome_mix["share_pct"] = pct_col(outcome_mix["searches"],
+                                   outcome_mix.groupby(["environment", "template"])["searches"].transform("sum"))
+print("\nWHY EACH SEARCH ENDED THE WAY IT DID")
+display(outcome_mix)
+
 codes = long[long["error"] != ""]
 if len(codes):
     print(f"\n{len(codes)} calls failed and are excluded from every match rate below. "
@@ -764,6 +792,7 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
     file_grid.to_excel(xl, sheet_name="File x template", index=False)
     file_volume.to_excel(xl, sheet_name="File x template volume", index=False)
     volume.to_excel(xl, sheet_name="Result volume", index=False)
+    outcome_mix.to_excel(xl, sheet_name="Outcomes", index=False)
     criteria_mix.to_excel(xl, sheet_name="Search criteria mix", index=False)
     criteria_grid.to_excel(xl, sheet_name="By search criteria", index=False)
     by_criteria.to_excel(xl, sheet_name="By criteria detail", index=False)
@@ -773,8 +802,10 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
     preflight.to_excel(xl, sheet_name="Health check", index=False)
     cols = ["source_file", "consumer", "input_name", "input_dob", "input_anumber", "input_receipt",
             "log_returned", "log_identity_id", "environment", "path", "template_used",
-            "id_matched", "id_rank", "name_matched", "dob_compare", "name_dob_matched",
-            "near_miss_same_person_different_record",
+            "id_matched", "id_rank", "outcome",
+            "same_person_found", "same_person_rank", "same_person_id", "same_person_name",
+            "same_person_different_record", "found_either_way",
+            "name_matched", "dob_compare", "name_dob_matched",
             "top_returned", "top_id", "returned_count", "total_hits", "status", "error"]
     for label in tpls:
         s = long[long["template"] == label]
