@@ -297,11 +297,27 @@ def describe_criteria(f):
 
 def ratio(a, b): return SequenceMatcher(None, (a or "").upper(), (b or "").upper()).ratio()
 
-def name_matches(f, p):
-    it = [t for t in " ".join(str(f.get(k) or "") for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME")).split() if t]
-    rt = [t for t in " ".join(str(p.get(k) or "") for k in ("first", "middle", "last")).split() if t]
-    if not it or not rt: return None
-    return all(max((ratio(t, r) for r in rt), default=0) >= NAME_THRESHOLD for t in it)
+def _toks(*vals):
+    return [t for t in " ".join(str(v or "") for v in vals).split() if t]
+
+def name_matches(f, p, detail=False):
+    fi, mi, la = _toks(f.get("FIRSTNAME")), _toks(f.get("MIDDLENAME")), _toks(f.get("LASTNAME"))
+    pf, pm, pl = _toks(p.get("first")), _toks(p.get("middle")), _toks(p.get("last"))
+    if not (fi + mi + la) or not (pf + pm + pl):
+        return (None, "one side has no name") if detail else None
+    def ok(tokens, pool):
+        pool = pool or []
+        return all(max((ratio(t, r) for r in pool), default=0) >= NAME_THRESHOLD for t in tokens)
+    first_ok = ok(fi, pf + pm) if fi else True
+    last_ok = ok(la, pl + pm) if la else True
+    middle_ok = True if not mi or not pm else ok(mi, pm + pf)
+    why = ""
+    if not first_ok: why = "first name differs"
+    elif not last_ok: why = "last name differs"
+    elif not middle_ok: why = "middle name differs"
+    elif mi and not pm: why = "matched, record has no middle name to compare"
+    result = first_ok and last_ok and middle_ok
+    return (result, why) if detail else result
 
 def dob_compare(a, b):
     a, b = (a or "").replace("-", ""), (b or "").replace("-", "")
@@ -516,7 +532,7 @@ def do(task):
                         "same person returned first under a different record id" if sp_rank == 1 else
                         f"same person returned at position {sp_rank} under a different record id" if sp_rank
                         else "not returned"),
-            "top_returned": f"{top['first']} {top['last']}".strip() if top else
+            "top_returned": " ".join(x for x in [top["first"], top["middle"], top["last"]] if x) if top else
             ("(call failed)" if err else "(no result)"),
             "returned_count": len(res), "total_hits": tot,
             "exact_matches": counts[0], "similar_matches": counts[1],

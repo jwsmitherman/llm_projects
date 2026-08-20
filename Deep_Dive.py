@@ -62,11 +62,27 @@ def dob_compare(a, b):
     if len(a) == len(b) and sum(1 for x, y in zip(a, b) if x != y) == 1: return "digit-flip"
     return "no"
 
-def name_matches(f, p):
-    it = [t for t in " ".join(str(f.get(k) or "") for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME")).split() if t]
-    rt = [t for t in " ".join(str(p.get(k) or "") for k in ("first", "middle", "last")).split() if t]
-    if not it or not rt: return None
-    return all(max((ratio(t, r) for r in rt), default=0) >= NAME_THRESHOLD for t in it)
+def _toks(*vals):
+    return [t for t in " ".join(str(v or "") for v in vals).split() if t]
+
+def name_matches(f, p, detail=False):
+    fi, mi, la = _toks(f.get("FIRSTNAME")), _toks(f.get("MIDDLENAME")), _toks(f.get("LASTNAME"))
+    pf, pm, pl = _toks(p.get("first")), _toks(p.get("middle")), _toks(p.get("last"))
+    if not (fi + mi + la) or not (pf + pm + pl):
+        return (None, "one side has no name") if detail else None
+    def ok(tokens, pool):
+        pool = pool or []
+        return all(max((ratio(t, r) for r in pool), default=0) >= NAME_THRESHOLD for t in tokens)
+    first_ok = ok(fi, pf + pm) if fi else True
+    last_ok = ok(la, pl + pm) if la else True
+    middle_ok = True if not mi or not pm else ok(mi, pm + pf)
+    why = ""
+    if not first_ok: why = "first name differs"
+    elif not last_ok: why = "last name differs"
+    elif not middle_ok: why = "middle name differs"
+    elif mi and not pm: why = "matched, record has no middle name to compare"
+    result = first_ok and last_ok and middle_ok
+    return (result, why) if detail else result
 
 def has_nonascii(s):
     return any(ord(ch) > 127 for ch in s or "")
@@ -369,6 +385,12 @@ def analyse(case, path):
     top = res[0] if res else None
     target = next((r for r in res if r["id"] == pid), None)
 
+    def best_name_ratio(r):
+        it = [t for t in " ".join(str(f.get(k) or "") for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME")).split() if t]
+        rt = [t for t in " ".join(str(r.get(k) or "") for k in ("first", "middle", "last")).split() if t]
+        if not it or not rt: return None
+        return round(min(max(ratio(t, x) for x in rt) for t in it), 2)
+
     same_person = [(i + 1, r) for i, r in enumerate(res)
                    if name_matches(f, r) and dob_compare(f["DOB"], r["dob"]) in ("exact", "digit-flip", "n/a")]
     same_person_rank = same_person[0][0] if same_person else None
@@ -422,7 +444,18 @@ def analyse(case, path):
            "same_person_name": same_person_name,
            "found_either_way": rank is not None or same_person_rank is not None,
            "outcome": reason,
-           "top_returned": f"{top['first']} {top['last']}".strip() if top else
+           "top_dob": top["dob"] if top else "",
+           "top_name_match": name_matches(f, top) if top else None,
+           "top_dob_compare": dob_compare(f["DOB"], top["dob"]) if top else "n/a",
+           "top_weakest_name_token_score": best_name_ratio(top) if top else None,
+           "name_match_detail": (name_matches(f, top, detail=True)[1] if top else "no results"),
+           "why_not_same_person": ("" if (top and name_matches(f, top) and
+                                          dob_compare(f["DOB"], top["dob"]) in ("exact", "digit-flip", "n/a"))
+                                   else "no results" if not top
+                                   else "top result has no name in the response" if best_name_ratio(top) is None
+                                   else "name differs" if not name_matches(f, top)
+                                   else f"date of birth differs, searched {f['DOB']} and record has {top['dob'] or 'none'}"),
+           "top_returned": " ".join(x for x in [top["first"], top["middle"], top["last"]] if x) if top else
                            ("(call failed)" if err else "(no result)"),
            "top_id": top["id"] if top else "",
            "top_score": top.get("score") if top else None,
@@ -518,7 +551,9 @@ misses = ok[~ok["found_either_way"]][
      "input_anumber", "input_receipt", "search_criteria", "path", "outcome",
      "log_returned", "log_identity_id", "same_person_name", "same_person_id", "same_person_rank",
      "indexed_name", "indexed_dob",
-     "top_returned", "top_id", "top_score", "returned_count", "total_hits",
+     "top_returned", "top_id", "top_dob", "top_name_match", "top_dob_compare",
+     "top_weakest_name_token_score", "name_match_detail", "why_not_same_person",
+     "top_score", "returned_count", "total_hits",
      "total_name_tokens", "two_or_more_first_names", "two_or_more_last_names"]]
 
 print("\nSUMMARY"); display(summary)
