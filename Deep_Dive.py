@@ -504,21 +504,42 @@ outcomes = (ok.groupby(["path", "outcome"]).size().reset_index(name="searches")
 outcomes["share_pct"] = (100 * outcomes["searches"] /
                          outcomes.groupby("path")["searches"].transform("sum")).round(1)
 
-summary = (ok.groupby("path")
-             .agg(searches=("id_matched", "size"),
-                  exact_record_matched=("id_matched", "sum"),
-                  same_person_different_record=("same_person_found", "sum"),
-                  found_either_way=("found_either_way", "sum"),
-                  ranked_first=("rank", lambda x: int((x == 1).sum())),
-                  median_results=("returned_count", "median"),
-                  median_total_hits=("total_hits", "median"))
-             .reset_index())
 def _pct(a, b): return (100 * pd.to_numeric(a, errors="coerce") /
                         pd.to_numeric(b, errors="coerce")).round(1)
-summary["exact_record_pct"] = _pct(summary["exact_record_matched"], summary["searches"])
-summary["same_person_pct"] = _pct(summary["same_person_different_record"], summary["searches"])
-summary["found_either_way_pct"] = _pct(summary["found_either_way"], summary["searches"])
-summary["ranked_first_pct"] = _pct(summary["ranked_first"], summary["searches"])
+
+rows = []
+for path, g in ok.groupby("path"):
+    for crit, sub in list(g.groupby("search_criteria")) + [("ALL CRITERIA", g)]:
+        n = len(sub)
+        m = sub[sub["id_matched"]]
+        r = m["rank"].dropna()
+        rows.append({"path": path, "search_criteria": crit, "searches": n,
+                     "id_matched": len(m), "id_not_matched": n - len(m),
+                     "id_match_rate_pct": round(100 * len(m) / n, 1),
+                     "returned_first": int((r == 1).sum()),
+                     "returned_first_pct": round(100 * (r == 1).sum() / n, 1),
+                     "returned_in_top_10": int((r <= 10).sum()),
+                     "returned_in_top_10_pct": round(100 * (r <= 10).sum() / n, 1),
+                     "returned_position_11_plus": int((r > 10).sum()),
+                     "not_returned": n - len(m),
+                     "median_rank_when_found": float(r.median()) if len(r) else None,
+                     "worst_rank_when_found": int(r.max()) if len(r) else None,
+                     "median_results_returned": float(sub["returned_count"].median()),
+                     "median_total_hits": float(sub["total_hits"].median())})
+summary = pd.DataFrame(rows)
+summary["is_total"] = summary["search_criteria"] == "ALL CRITERIA"
+summary = summary.sort_values(["path", "is_total", "searches"],
+                              ascending=[True, False, False]).drop(columns=["is_total"])
+
+review = (ok.groupby("path")
+            .agg(searches=("id_matched", "size"),
+                 same_person_different_record=("same_person_found", "sum"),
+                 found_either_way=("found_either_way", "sum"))
+            .reset_index())
+review["same_person_pct"] = _pct(review["same_person_different_record"], review["searches"])
+review["found_either_way_pct"] = _pct(review["found_either_way"], review["searches"])
+review["basis"] = ("name and date of birth compared in this notebook at a 0.85 similarity threshold. "
+                   "This is a review aid, not the matching rule the template applies.")
 
 profile_cols = ["two_or_more_first_names", "two_or_more_last_names", "compound_name",
                 "has_hyphen", "has_apostrophe", "has_accent_or_nonascii"]
@@ -575,9 +596,20 @@ misses = ok[~ok["found_either_way"]][
      "top_score", "returned_count", "total_hits",
      "total_name_tokens", "two_or_more_first_names", "two_or_more_last_names"]]
 
-print("\nSUMMARY"); display(summary)
-print("\nWHY EACH SEARCH ENDED THE WAY IT DID"); display(outcomes)
-print("\nDOES NAME SHAPE AFFECT THE RESULT"); display(name_effect)
+print("\nID MATCH RATE BY SEARCH CRITERIA")
+print("Match means the identity record production returned came back. Nothing else is assumed.")
+display(summary)
+print("\nREVIEW AID, NOT A MATCH RATE")
+print("The columns below use a name and date of birth comparison written in this notebook, not the "
+      "matching rules inside the template. Use them to investigate individual searches, not to report on.")
+display(review)
+print("\nWHY EACH SEARCH ENDED THE WAY IT DID")
+print("Outcomes that mention the same person use this notebook's name and date of birth comparison, "
+      "not the template's matching rules.")
+display(outcomes)
+print("\nDOES NAME SHAPE AFFECT THE RESULT")
+print("Scored on the identity record match, so this one does not depend on any assumed rule.")
+display(name_effect)
 print("\nMATCH RATE BY NUMBER OF NAME TOKENS"); display(by_tokens)
 print("\nMATCH RATE BY SEARCH CRITERIA"); display(by_criteria)
 if len(compare):
@@ -588,12 +620,13 @@ if len(misses):
 os.makedirs(RESULTS, exist_ok=True)
 out = os.path.join(RESULTS, f"ELIS_deep_dive_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 with pd.ExcelWriter(out, engine="openpyxl") as xl:
-    summary.to_excel(xl, sheet_name="Summary", index=False)
-    outcomes.to_excel(xl, sheet_name="Outcomes", index=False)
+    summary.to_excel(xl, sheet_name="ID match by criteria", index=False)
+    review.to_excel(xl, sheet_name="Review aid", index=False)
+    outcomes.to_excel(xl, sheet_name="Outcomes (review aid)", index=False)
     name_effect.to_excel(xl, sheet_name="Name shape effect", index=False)
     by_tokens.to_excel(xl, sheet_name="By name tokens", index=False)
     by_criteria.to_excel(xl, sheet_name="By search criteria", index=False)
     if len(compare): compare.to_excel(xl, sheet_name="ELIS vs other consumers", index=False)
-    if len(misses): misses.to_excel(xl, sheet_name="Misses", index=False)
+    if len(misses): misses.to_excel(xl, sheet_name="Misses (review aid)", index=False)
     detail.to_excel(xl, sheet_name="Per search detail", index=False)
 print(f"\nSaved: {out}")

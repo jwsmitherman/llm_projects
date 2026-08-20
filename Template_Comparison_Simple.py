@@ -99,9 +99,20 @@ def load_logs():
                  "COB": grab(r'"cobs":\["([^"]*)"\]', terms), "COC": grab(r'"cocs":\["([^"]*)"\]', terms)}
             pid = grab(r'"identityId":"([0-9a-fA-F]{16,})"', result)
             nm = re.search(r'"name":\{[^}]*"first":"([^"]*)"[^}]*"last":"([^"]*)"', result)
+            log_ids = re.findall(r'"identityId":"([0-9a-fA-F]{16,})"', result)
+            log_scores = [float(x) for x in re.findall(r'"score"\s*:\s*([0-9.]+)', result)]
+            log_total = grab(r'"totalIdentities"\s*:\s*(\d+)', result)
+            log_dob = grab(r'"dateOfBirth"\s*:\s*"?(\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}|\d{8})', result)
             if not pid and not any(f[k] for k in ("FIRSTNAME", "LASTNAME", "ANUMBER", "RECEIPT")): continue
             cases.append({"source_file": name, "consumer": consumer, "f": f, "pid": pid,
-                          "pname": f"{nm.group(1)} {nm.group(2)}" if nm else ""}); n += 1
+                          "pname": f"{nm.group(1)} {nm.group(2)}" if nm else "",
+                          "log_dob": log_dob,
+                          "log_total_identities": int(log_total) if log_total else None,
+                          "log_top_score": log_scores[0] if log_scores else None,
+                          "log_results_listed": len(log_ids),
+                          "log_client_id": grab(r'"clientId"\s*:\s*"?([^",}]*)', terms),
+                          "log_suppress_phantom": grab(r'"suppressPhantomIdentities"\s*:\s*(true|false)', terms),
+                          "log_search_method": grab(r'"searchMethodType"\s*:\s*"([^"]*)"', terms)}); n += 1
         print(f"  {n:,} usable from {name}")
         if recs and n == 0:
             print(f"  WARNING {name} parsed {len(recs)} records but none were usable. "
@@ -533,18 +544,27 @@ def do(task):
             "identifier_count": sum(1 for k in ("ANUMBER", "RECEIPT") if (f.get(k) or "").strip()),
             "search_method": method if run["path"] == "service" else "direct query",
             "log_returned": c["pname"], "log_identity_id": pid,
+            "log_dob": norm_dob(c.get("log_dob")),
+            "log_total_identities": c.get("log_total_identities"),
+            "log_top_score": c.get("log_top_score"),
+            "log_results_listed": c.get("log_results_listed"),
+            "log_client_id": c.get("log_client_id"),
+            "log_search_method": c.get("log_search_method"),
+            "log_suppress_phantom": c.get("log_suppress_phantom"),
             "template": run["tpl"], "environment": run["env"], "path": run["path"],
             "template_used": cid_back if run["path"] == "service" else run["tpl"],
             "searchable": bool(pid),
             "id_matched": rank is not None, "id_rank": rank,
-            "name_matched": nm_ok, "dob_compare": dob_cmp_val,
-            "name_dob_matched": nd_ok,
+            "top_name_matched": nm_ok, "top_dob_compare": dob_cmp_val,
+            "top_name_dob_matched": nd_ok,
             "same_person_found": sp_rank is not None,
             "same_person_rank": sp_rank,
             "same_person_id": sp_id,
             "same_person_name": sp_name,
             "same_person_different_record": sp_rank is not None and rank is None,
             "found_either_way": rank is not None or sp_rank is not None,
+            "dob_digit_flip": (dob_cmp_val == "digit-flip") or
+                              (bool(same_person) and dob_compare(f["DOB"], same_person[0][1]["dob"]) == "digit-flip"),
             "outcome": ("returned first" if rank == 1 else
                         f"returned at position {rank}" if rank else
                         "no identity recorded in the log" if not pid else
@@ -557,6 +577,19 @@ def do(task):
             "exact_matches": counts[0], "similar_matches": counts[1],
             "search_key": "|".join([c["source_file"], c["consumer"]] + list(f.values())),
             "top_id": top["id"] if top else "",
+            "top_dob": top["dob"] if top else "",
+            "top_score": top.get("score") if top else None,
+            "top_tiers_matched": top.get("tiers", "") if top else "",
+            "second_returned": (" ".join(x for x in [res[1]["first"], res[1]["middle"], res[1]["last"]] if x)
+                                if len(res) > 1 else ""),
+            "second_id": res[1]["id"] if len(res) > 1 else "",
+            "second_score": res[1].get("score") if len(res) > 1 else None,
+            "third_returned": (" ".join(x for x in [res[2]["first"], res[2]["middle"], res[2]["last"]] if x)
+                               if len(res) > 2 else ""),
+            "target_score": (next((r.get("score") for r in res if r["id"] == pid), None) if pid else None),
+            "same_person_dob": same_person[0][1]["dob"] if same_person else "",
+            "same_person_name_matched": (name_matches(f, same_person[0][1]) if same_person else None),
+            "same_person_dob_compare": (dob_compare(f["DOB"], same_person[0][1]["dob"]) if same_person else "n/a"),
             "status": st, "error": err,
             "query_id": method if run["path"] == "direct" else ""}
 
@@ -578,68 +611,52 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
     s = s[s["searchable"]]
     failed = int((s["error"] != "").sum())
     s = s[s["error"] == ""]
-    n = len(s)
-    if not n: continue
-    m = s[s["id_matched"]]
-    r = m["id_rank"].dropna()
-    nd = s[s["name_dob_matched"].notna()]
-    nd_ok = int(pd.to_numeric(nd["name_dob_matched"], errors="coerce").fillna(0).sum())
-    near = int(pd.to_numeric(s["same_person_different_record"], errors="coerce").fillna(0).sum())
-    either = int(pd.to_numeric(s["found_either_way"], errors="coerce").fillna(0).sum())
-    pct = lambda x: round(100 * x / n, 1)
-    score.append({"environment": e, "template": t, "path": p,
-                  "searches": n, "failed_calls_excluded": failed,
-                  "id_matched": len(m), "id_not_matched": n - len(m),
-                  "id_match_rate_pct": pct(len(m)),
-                  "name_dob_scoreable": len(nd), "name_dob_matched": nd_ok,
-                  "name_dob_match_rate_pct": round(100 * nd_ok / len(nd), 1) if len(nd) else None,
-                  "same_person_different_record": near,
-                  "same_person_different_record_pct": pct(near),
-                  "found_either_way": either, "found_either_way_pct": pct(either),
-                  "rank_1": int((r == 1).sum()), "rank_1_pct": pct((r == 1).sum()),
-                  "rank_2_10": int(((r >= 2) & (r <= 10)).sum()),
-                  "rank_2_10_pct": pct(((r >= 2) & (r <= 10)).sum()),
-                  "top_10_pct": pct((r <= 10).sum()),
-                  "rank_11_plus": int((r > 10).sum()), "rank_11_plus_pct": pct((r > 10).sum()),
-                  "not_matched_pct": pct(n - len(m)),
-                  "median_rank": float(r.median()) if len(r) else None,
-                  "worst_rank": int(r.max()) if len(r) else None,
-                  "median_results_returned": float(s["returned_count"].median()),
-                  "min_results_returned": int(s["returned_count"].min()),
-                  "max_results_returned": int(s["returned_count"].max()),
-                  "searches_returning_0": int((s["returned_count"] == 0).sum()),
-                  "searches_returning_under_10": int((s["returned_count"] < 10).sum()),
-                  "searches_returning_under_10_pct": pct((s["returned_count"] < 10).sum()),
-                  "median_total_hits": float(s["total_hits"].median()),
-                  "median_exact_matches": float(s["exact_matches"].median()),
-                  "median_similar_matches": float(s["similar_matches"].median()),
-                  "ran_requested_template": "yes" if p == "direct" else
-                  ("unknown, service did not echo clientId" if not set(s["template_used"].dropna())
-                   else ("yes" if set(s["template_used"].dropna()) == {t} else
-                         "no, service used " + ", ".join(sorted(set(s["template_used"].dropna())))))})
-if not score:
-    raise SystemExit(
-        "No search has an identity recorded in the production log, so there is nothing to match against. "
-        "Check that the log rows contain a result block with an identityId.")
-scorecard = pd.DataFrame(score).sort_values(["environment", "path", "id_match_rate_pct"], ascending=[1, 1, 0])
+    if not len(s): continue
+    for crit, g in list(s.groupby("search_criteria")) + [("ALL CRITERIA", s)]:
+        n = len(g)
+        m = g[g["id_matched"]]
+        r = m["id_rank"].dropna()
+        score.append({"environment": e, "template": t, "path": p,
+                      "search_criteria": crit,
+                      "searches": n,
+                      "id_matched": len(m),
+                      "id_not_matched": n - len(m),
+                      "id_match_rate_pct": round(100 * len(m) / n, 1),
+                      "returned_first": int((r == 1).sum()),
+                      "returned_first_pct": round(100 * (r == 1).sum() / n, 1),
+                      "returned_in_top_10": int((r <= 10).sum()),
+                      "returned_in_top_10_pct": round(100 * (r <= 10).sum() / n, 1),
+                      "returned_position_11_plus": int((r > 10).sum()),
+                      "not_returned": n - len(m),
+                      "median_rank_when_found": float(r.median()) if len(r) else None,
+                      "worst_rank_when_found": int(r.max()) if len(r) else None,
+                      "median_results_returned": float(g["returned_count"].median()),
+                      "failed_calls_excluded": failed if crit == "ALL CRITERIA" else None})
 
-capped = scorecard[scorecard["max_results_returned"] < SIZE]
-if len(capped):
-    for _, r in capped.iterrows():
-        print(f"NOTE {r['environment']} {r['template']} {r['path']}: never returned more than "
-              f"{r['max_results_returned']} results although {SIZE} were requested. If that number is the "
-              f"same on every search, the endpoint is capping the result set and ranks beyond it cannot "
-              f"be seen.")
-bad = scorecard[scorecard["ran_requested_template"] != "yes"]
-if len(bad):
-    print(f"\n{len(bad)} rows cannot be confirmed as running the template requested:")
-    print(bad[["environment", "template", "path", "ran_requested_template"]].to_string(index=False))
-    print("Where the service does not echo clientId back there is no way to tell from the response whether "
-          "the named config was applied or the default was used. Identical numbers across templates on that "
-          "path are expected if the default was used for all of them.")
+scorecard = pd.DataFrame(score)
+scorecard["is_total"] = scorecard["search_criteria"] == "ALL CRITERIA"
+scorecard = scorecard.sort_values(["environment", "template", "is_total", "searches"],
+                                  ascending=[True, True, False, False]).drop(columns=["is_total"])
+
+for (e, t, p), g in long[long["error"] == ""].groupby(["environment", "template", "path"]):
+    mx = int(g["returned_count"].max()) if len(g) else 0
+    if mx < SIZE:
+        print(f"NOTE {e} {t} {p}: never returned more than {mx} results although {SIZE} were requested. "
+              f"The endpoint is capping the result set and ranks beyond it cannot be seen.")
+svc = long[(long["path"] == "service") & (long["error"] == "")]
+if len(svc):
+    for (e, t), g in svc.groupby(["environment", "template"]):
+        used = set(g["template_used"].dropna())
+        if not used:
+            print(f"\nNOTE {e} {t}: the service did not echo clientId back, so there is no way to confirm "
+                  f"the requested template was applied.")
+        elif used != {t}:
+            print(f"\nNOTE {e} {t}: the service reported using {sorted(used)}. The requested template was "
+                  f"not applied and these numbers describe the default config.")
+
 
 sr = long[long["searchable"] & (long["error"] == "")].copy()
-for c in ("id_matched", "name_dob_matched", "same_person_different_record", "found_either_way",
+for c in ("id_matched", "top_name_dob_matched", "same_person_different_record", "found_either_way",
           "returned_count", "total_hits", "id_rank", "exact_matches", "similar_matches"):
     if c in sr: sr[c] = pd.to_numeric(sr[c], errors="coerce")
 def pct_col(num, den): return (100 * pd.to_numeric(num, errors="coerce") /
@@ -656,7 +673,7 @@ env_diff = pd.DataFrame(diff)
 
 by_file = (sr.groupby(["source_file", "environment", "template", "path"])
              .agg(searches=("id_matched", "size"), matched=("id_matched", "sum"),
-                  name_dob_matched=("name_dob_matched", "sum"),
+                  name_dob_matched=("top_name_dob_matched", "sum"),
                   same_person_different_record=("same_person_different_record", "sum"),
                   found_either_way=("found_either_way", "sum"))
              .reset_index())
@@ -772,11 +789,19 @@ if len(template_diff):
         print(diff_q[["environment", "path", "template_a", "template_b", "searches_compared",
                       "same_top_pct", "identical_query_pct"]].to_string(index=False))
 
-volume = scorecard[["environment", "template", "path", "searches",
-                    "median_results_returned", "min_results_returned", "max_results_returned",
-                    "searches_returning_0", "searches_returning_under_10",
-                    "searches_returning_under_10_pct", "median_total_hits",
-                    "median_exact_matches", "median_similar_matches"]].copy()
+ok_rows = long[(long["searchable"]) & (long["error"] == "")]
+volume = (ok_rows.groupby(["environment", "template", "path"])
+          .agg(searches=("returned_count", "size"),
+               median_results_returned=("returned_count", "median"),
+               min_results_returned=("returned_count", "min"),
+               max_results_returned=("returned_count", "max"),
+               searches_returning_0=("returned_count", lambda x: int((x == 0).sum())),
+               searches_returning_under_10=("returned_count", lambda x: int((x < 10).sum())),
+               median_total_hits=("total_hits", "median"),
+               median_exact_matches=("exact_matches", "median"),
+               median_similar_matches=("similar_matches", "median"))
+          .reset_index())
+volume["searches_returning_under_10_pct"] = pct_col(volume["searches_returning_under_10"], volume["searches"])
 print("\nRESULT VOLUME, how many results each template gives an operator to work with")
 display(volume)
 
@@ -821,27 +846,27 @@ os.makedirs(RESULTS, exist_ok=True)
 out = os.path.join(RESULTS, f"Template_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 with pd.ExcelWriter(out, engine="openpyxl") as xl:
     scorecard.to_excel(xl, sheet_name="Scorecard", index=False)
-    if len(env_diff): env_diff.to_excel(xl, sheet_name="Staging vs prod", index=False)
-    by_consumer.to_excel(xl, sheet_name="By consumer", index=False)
-    by_file.to_excel(xl, sheet_name="By file", index=False)
     file_grid.to_excel(xl, sheet_name="File x template", index=False)
-    file_volume.to_excel(xl, sheet_name="File x template volume", index=False)
+    by_file.to_excel(xl, sheet_name="By file", index=False)
+    criteria_grid.to_excel(xl, sheet_name="By search criteria", index=False)
     volume.to_excel(xl, sheet_name="Result volume", index=False)
     outcome_mix.to_excel(xl, sheet_name="Outcomes", index=False)
-    criteria_mix.to_excel(xl, sheet_name="Search criteria mix", index=False)
-    criteria_grid.to_excel(xl, sheet_name="By search criteria", index=False)
-    by_criteria.to_excel(xl, sheet_name="By criteria detail", index=False)
-    if len(template_diff): template_diff.to_excel(xl, sheet_name="Template differences", index=False)
-    if len(stability): stability.to_excel(xl, sheet_name="Stability check", index=False)
-    check.to_excel(xl, sheet_name="Template check", index=False)
-    preflight.to_excel(xl, sheet_name="Health check", index=False)
-    cols = ["source_file", "consumer", "input_name", "input_dob", "input_anumber", "input_receipt",
-            "log_returned", "log_identity_id", "environment", "path", "template_used",
+    cols = ["source_file", "consumer",
+            "input_name", "input_dob", "input_anumber", "input_receipt", "input_cob", "input_coc",
+            "search_criteria", "criteria_count", "identifier_count", "search_method",
+            "log_returned", "log_identity_id", "log_dob", "log_search_method", "log_client_id",
+            "log_suppress_phantom", "log_total_identities", "log_top_score", "log_results_listed",
+            "environment", "path", "template_used",
             "id_matched", "id_rank", "outcome",
+            "top_returned", "top_id", "top_dob", "top_score", "top_tiers_matched",
+            "top_name_matched", "top_dob_compare", "top_name_dob_matched", "dob_digit_flip",
             "same_person_found", "same_person_rank", "same_person_id", "same_person_name",
+            "same_person_dob", "same_person_name_matched", "same_person_dob_compare",
             "same_person_different_record", "found_either_way",
-            "name_matched", "dob_compare", "name_dob_matched",
-            "top_returned", "top_id", "returned_count", "total_hits", "status", "error"]
+            "second_returned", "second_id", "second_score", "third_returned",
+            "target_score", "returned_count", "total_hits", "exact_matches", "similar_matches",
+            "status", "error"]
+    cols = [c for c in cols if c in long.columns]
     for label in tpls:
         s = long[long["template"] == label]
         if not len(s): continue
