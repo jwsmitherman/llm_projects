@@ -333,18 +333,39 @@ def dob_compare(a, b):
     if len(a) == len(b) and sum(1 for x, y in zip(a, b) if x != y) == 1: return "digit-flip"
     return "no"
 
+def identifiers_of(src):
+    out = {"ALIEN_NBR": set(), "RECEIPT_NBR": set()}
+    sd = src.get("_search") if isinstance(src.get("_search"), dict) else {}
+    raw = sd.get("identifiers")
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if k in out:
+                out[k].update([str(x) for x in v] if isinstance(v, list) else [str(v)])
+    for lst in (src.get("identifiers"), (src.get("_search") or {}).get("identifierList")):
+        if isinstance(lst, list):
+            for it in lst:
+                if not isinstance(it, dict): continue
+                t = it.get("identifierType") or it.get("type")
+                v = it.get("identifierValue") or it.get("value")
+                if t in out and v: out[t].add(str(v))
+    return out
+
 def person(src):
     nm = (src.get("biographicInfo", {}) or {}).get("name", {}) or {}
     sd = src.get("_search", {})
+    ids = identifiers_of(src)
     return {"id": str(src.get("identityId") or ""), "first": nm.get("first") or "",
             "middle": nm.get("middle") or "", "last": nm.get("last") or "",
-            "dob": norm_dob(sd.get("dateOfBirth") if isinstance(sd, dict) else sd)}
+            "dob": norm_dob(sd.get("dateOfBirth") if isinstance(sd, dict) else sd),
+            "anum": sorted(ids["ALIEN_NBR"]), "receipt": sorted(ids["RECEIPT_NBR"])}
 def api_person(x):
     if "biographicInfo" in x or "_search" in x: return person(x)
     nm = x.get("name") if isinstance(x.get("name"), dict) else {}
+    ids = identifiers_of(x)
     return {"id": str(x.get("identityId") or x.get("id") or ""), "first": nm.get("first") or "",
             "middle": nm.get("middle") or "", "last": nm.get("last") or "",
-            "dob": norm_dob(x.get("dateOfBirth"))}
+            "dob": norm_dob(x.get("dateOfBirth")),
+            "anum": sorted(ids["ALIEN_NBR"]), "receipt": sorted(ids["RECEIPT_NBR"])}
 
 retries_used = [0]
 
@@ -364,27 +385,29 @@ def post_with_retry(url, headers, body):
     return last, MAX_RETRIES
 
 def call(run, f, tpl, scal):
+    t_start = time.time()
     try:
         if run["path"] == "service":
             body, method = build_service(f, run["cid"])
             r, _ = post_with_retry(run["url"], run["h"], body)
-            if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, method, (0, 0)
+            if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, method, (0, 0), round((time.time()-t_start)*1000)
             j = r.json()
             ex = (j.get("exactMatches") or {}).get("content") or []
             sim = (j.get("similarMatches") or {}).get("content") or []
             ppl = [api_person(x) for x in list(ex) + list(sim)]
             counts = (len(ex), len(sim))
             tot = sum((j.get(k) or {}).get("totalElements", 0) or 0 for k in ("exactMatches", "similarMatches"))
-            return ppl, tot, r.status_code, "", j.get("clientId"), method, counts
+            return ppl, tot, r.status_code, "", j.get("clientId"), method, counts, round((time.time()-t_start)*1000)
         body = build_dsl(tpl, f, scal)
         qh = hashlib.md5(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
         r, _ = post_with_retry(run["url"], run["h"], body)
-        if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, qh, (0, 0)
+        if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, qh, (0, 0), round((time.time()-t_start)*1000)
         j = r.json()
         return ([person(h.get("_source", {})) for h in j["hits"]["hits"]],
-                (j["hits"]["total"] or {}).get("value", 0), r.status_code, "", None, qh, (0, 0))
+                (j["hits"]["total"] or {}).get("value", 0), r.status_code, "", None, qh, (0, 0),
+                round((time.time()-t_start)*1000))
     except Exception as e:
-        return [], 0, None, f"{type(e).__name__}: {e}"[:300], None, "", (0, 0)
+        return [], 0, None, f"{type(e).__name__}: {e}"[:300], None, "", (0, 0), round((time.time()-t_start)*1000)
 
 if not REUSE_RAW_CSV:
     tpls = {}
@@ -436,7 +459,7 @@ if not REUSE_RAW_CSV:
     pf = []
     for r in runs:
         t = tpls[r["tpl"]]
-        res, tot, st, err, cid_back, _, _ = call(r, probe, t["tpl"], t["scal"])
+        res, tot, st, err, cid_back, _, _, _ = call(r, probe, t["tpl"], t["scal"])
         note = ""
         if err:
             note = "CALL FAILED"
@@ -494,7 +517,7 @@ if not REUSE_RAW_CSV:
         c, run = task
         f, pid = c["f"], c["pid"]
         t = tpls[run["tpl"]]
-        res, tot, st, err, cid_back, method, counts = call(run, f, t["tpl"], t["scal"])
+        res, tot, st, err, cid_back, method, counts, ms = call(run, f, t["tpl"], t["scal"])
         top = res[0] if res else None
         ids = [r["id"] for r in res if r["id"]]
         unique_ids = sorted(set(ids))
@@ -523,6 +546,9 @@ if not REUSE_RAW_CSV:
                 "identities_returned": len(ids),
                 "unique_identities_returned": len(unique_ids),
                 "duplicate_ids_in_result": len(ids) - len(unique_ids),
+                "distinct_alien_numbers_returned": len({a for r in res for a in r.get("anum", [])}),
+                "distinct_receipt_numbers_returned": len({x for r in res for x in r.get("receipt", [])}),
+                "response_ms": ms,
                 "returned_one_only": len(unique_ids) == 1,
                 "returned_none": len(unique_ids) == 0,
                 "total_hits": tot,
@@ -607,18 +633,23 @@ scorecard = scorecard.sort_values(["environment", "template", "is_total", "searc
 
 pairs = []
 for (env, path), g in ok_rows.groupby(["environment", "path"]):
-    sets = {}
+    sets, tops = {}, {}
     for _, r in g.iterrows():
         sets.setdefault(r["search_key"], {})[r["template"]] = set(
             x for x in str(r["returned_ids"] or "").split(",") if x)
+        tops.setdefault(r["search_key"], {})[r["template"]] = str(r["top_id"] or "")
     tmpls = sorted(g["template"].unique())
     for i in range(len(tmpls)):
         for j in range(i + 1, len(tmpls)):
             a, b = tmpls[i], tmpls[j]
             na = nb = shared = only_a = only_b = fewer_a = fewer_b = same = n = 0
-            for d in sets.values():
+            same_top = both_empty = 0
+            for k, d in sets.items():
                 if a not in d or b not in d: continue
                 n += 1
+                ta, tb = tops.get(k, {}).get(a, ""), tops.get(k, {}).get(b, "")
+                if ta and tb and ta == tb: same_top += 1
+                elif not ta and not tb: both_empty += 1
                 sa, sb = d[a], d[b]
                 na += len(sa); nb += len(sb)
                 shared += len(sa & sb); only_a += len(sa - sb); only_b += len(sb - sa)
@@ -635,7 +666,11 @@ for (env, path), g in ok_rows.groupby(["environment", "path"]):
                           "overlap_pct": round(100 * shared / max(shared + only_a + only_b, 1), 1),
                           "searches_where_a_returned_fewer": fewer_a,
                           "searches_where_b_returned_fewer": fewer_b,
-                          "searches_returning_the_same_count": same})
+                          "searches_returning_the_same_count": same,
+                          "same_top_hit": same_top,
+                          "same_top_hit_pct": round(100 * same_top / n, 1),
+                          "different_top_hit": n - same_top - both_empty,
+                          "neither_returned_anything": both_empty})
 template_overlap = pd.DataFrame(pairs)
 
 by_file = (ok_rows.groupby(["source_file", "consumer", "environment", "template", "path"])
@@ -666,7 +701,26 @@ print("\nIDENTITIES RETURNED, BY SEARCH CRITERIA")
 print("Counts unique identities returned per search. No comparison is made against the identity in the log.")
 display(scorecard)
 print("\nSAME SEARCH, DIFFERENT TEMPLATE")
+print("The top hit is the acceptance test: a template that changes the first result is not a candidate.")
 display(template_overlap)
+
+if len(template_overlap):
+    broke = template_overlap[template_overlap["different_top_hit"] > 0]
+    if len(broke):
+        print("\nTEMPLATE PAIRS THAT DISAGREE ON THE TOP HIT")
+        print(broke[["environment", "path", "template_a", "template_b", "searches_compared",
+                     "same_top_hit_pct", "different_top_hit"]].to_string(index=False))
+    else:
+        print("\nEvery template pair returned the same top hit on every search compared.")
+
+if "response_ms" in ok_rows:
+    timing = (ok_rows.groupby(["environment", "template", "path"])["response_ms"]
+              .agg(calls="size", median_ms="median",
+                   p95_ms=lambda x: float(x.quantile(0.95)), max_ms="max").reset_index())
+    print("\nRESPONSE TIME")
+    display(timing)
+else:
+    timing = pd.DataFrame()
 print("\nMEDIAN IDENTITIES BY FILE AND TEMPLATE")
 display(file_grid)
 print("\nMEDIAN IDENTITIES BY SEARCH CRITERIA AND TEMPLATE")
@@ -693,6 +747,7 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
     by_file.to_excel(xl, sheet_name="By file", index=False)
     criteria_grid.to_excel(xl, sheet_name="By search criteria", index=False)
     criteria_mix.to_excel(xl, sheet_name="Search criteria mix", index=False)
+    if len(timing): timing.to_excel(xl, sheet_name="Response time", index=False)
     cols = ["source_file", "consumer",
             "input_name", "input_dob", "input_anumber", "input_receipt", "input_cob", "input_coc",
             "search_criteria", "criteria_count", "identifier_count", "search_method",
@@ -700,6 +755,7 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
             "log_total_identities", "log_results_listed",
             "environment", "path", "template_used",
             "identities_returned", "unique_identities_returned", "duplicate_ids_in_result",
+            "distinct_alien_numbers_returned", "distinct_receipt_numbers_returned", "response_ms",
             "returned_one_only", "returned_none", "total_hits", "exact_matches", "similar_matches",
             "top_returned", "top_id", "top_dob", "top_score", "top_tiers_matched",
             "returned_ids", "status", "error"]
