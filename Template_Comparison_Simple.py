@@ -692,6 +692,44 @@ criteria_grid = (ok_rows.groupby(["search_criteria", "environment", "template"])
                    .pivot_table(index=["search_criteria", "environment"], columns="template",
                                 values="unique_identities_returned").reset_index())
 
+uniq = ok_rows.drop_duplicates("search_key").copy()
+uniq["identifier_count"] = pd.to_numeric(uniq["identifier_count"], errors="coerce").fillna(0).astype(int)
+uniq["has_alien_nbr"] = uniq["search_criteria"].str.contains("alien_nbr")
+uniq["has_receipt_nbr"] = uniq["search_criteria"].str.contains("receipt_nbr")
+uniq["identifier_mix"] = uniq.apply(
+    lambda r: "alien_nbr and receipt_nbr" if r["has_alien_nbr"] and r["has_receipt_nbr"]
+    else "alien_nbr only" if r["has_alien_nbr"]
+    else "receipt_nbr only" if r["has_receipt_nbr"]
+    else "no identifier", axis=1)
+
+identifiers_by_consumer = (uniq.groupby(["consumer", "source_file", "identifier_mix"])
+                             .size().reset_index(name="searches"))
+identifiers_by_consumer["share_of_consumer_pct"] = (
+    100 * identifiers_by_consumer["searches"] /
+    identifiers_by_consumer.groupby("consumer")["searches"].transform("sum")).round(1)
+
+multi_id = (uniq[uniq["identifier_count"] > 1]
+              .groupby(["consumer", "source_file", "search_criteria"])
+              .size().reset_index(name="searches")
+              .sort_values("searches", ascending=False))
+
+multi_by_consumer = (uniq.assign(multiple=uniq["identifier_count"] > 1)
+                       .groupby("consumer")
+                       .agg(searches=("multiple", "size"),
+                            searches_with_multiple_identifiers=("multiple", "sum"))
+                       .reset_index())
+multi_by_consumer["pct_with_multiple_identifiers"] = (
+    100 * multi_by_consumer["searches_with_multiple_identifiers"] /
+    multi_by_consumer["searches"]).round(1)
+
+print("\nSEARCHES CARRYING MORE THAN ONE IDENTIFIER, BY CLIENT")
+display(multi_by_consumer)
+print("\nWHICH IDENTIFIERS EACH CLIENT SENDS")
+display(identifiers_by_consumer)
+if len(multi_id):
+    print("\nTHE MULTIPLE IDENTIFIER SEARCHES IN DETAIL")
+    display(multi_id)
+
 criteria_mix = (ok_rows.drop_duplicates("search_key").groupby("search_criteria")
                   .agg(searches=("search_key", "size")).reset_index()
                   .sort_values("searches", ascending=False))
@@ -747,6 +785,9 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
     by_file.to_excel(xl, sheet_name="By file", index=False)
     criteria_grid.to_excel(xl, sheet_name="By search criteria", index=False)
     criteria_mix.to_excel(xl, sheet_name="Search criteria mix", index=False)
+    multi_by_consumer.to_excel(xl, sheet_name="Multiple identifiers by client", index=False)
+    identifiers_by_consumer.to_excel(xl, sheet_name="Identifier mix by client", index=False)
+    if len(multi_id): multi_id.to_excel(xl, sheet_name="Multiple identifier searches", index=False)
     if len(timing): timing.to_excel(xl, sheet_name="Response time", index=False)
     cols = ["source_file", "consumer",
             "input_name", "input_dob", "input_anumber", "input_receipt", "input_cob", "input_coc",
