@@ -1,0 +1,271 @@
+Speaker 1  0:13  
+Like the image of the document, and says, "I want these fields extracted from it. It just finds them in the image. Like maybe that gets you good enough. Maybe you also need to have another version of the PDF that's like filled out with dummy data and also has the JSON format. Well, that'd be like a few-shot prompt. I mean, that's what I've already kind of built anyway.
+
+Speaker 2  0:36  
+Okay.
+
+Speaker 3  0:36  
+I mean, that's what that that's so in the prompt, it shows the system prompt, and then it shows the few shot example. Like here's the example, here's the JSON example here's the JSON output. I've already got that sort of built, but and and again, Claude did that very quickly. So it wouldn't be again. We don't know. We don't know. We don't know how different these forms are. So, I don't think there's that. I I don't know. I don't actually know what'd be kind of cool. Is well, I don't know if that would be cool because we would already have access to the forms in the fields. Never mind. Because I was thinking of a way, could we store based on just the drug name? Clog could go make an internet call, find the form, get the metadata, store it, and it knows exactly what fields are in that form. And so, anytime it encounters that form, it knows exactly how to. It just says, "Oh, I know it's this form because it's in my context of knowledge.
+
+Speaker 1  1:45  
+I mean, I think the form live you you should you should have the forms and stuff in the context of knowledge. I don't you like you might need to go to the internet to get a blank one for it, but I don't think the clod needs to grab like every single like form that exists. No, that's not what
+
+Speaker 3  2:07  
+I was saying. I was saying just based on the the drug name, like it it would know. Like say for example, I guess
+
+Speaker 1  2:13  
+what I'm saying, time it runs, it shouldn't go find the form again. Yeah, that's what I'm saying. Like that's why I was kind
+
+Speaker 3  2:20  
+of like hesitating as I was thinking about that. I was like, "Well, we already have all the forms already filled out, so it doesn't matter.
+
+Speaker 1  2:26  
+Okay, and it's it's also doing the signature, like identifying whether it was signed.
+
+Speaker 3  2:38  
+That's a good question. I don't. I did not annotate any signatures.
+
+Speaker 4  2:45  
+Okay,
+
+Speaker 3  2:46  
+that would need to be explored. Yeah.
+
+Speaker 1  2:54  
+Okay, so I guess see if you can run all this stuff in parallel. Get Claude making metrics for you, like have Claude like help get you the con like do the things help you do the things like get the the context out that it needs to do its job better and then we'll see and then we can have different versions we can have the versioning just you have right now we can have the version where it processes the image we can compare the accuracy of those two Claude also can. I mean, it's not the quad. The actual processing of the forms. Those are right. Those are being run through Azure. The Azure services, yeah. The Azure services. I mean, that could still use a quad model through Azure, but that's like what you have to do because it's PHIS to go through Azure, so That's fine, and then, but if we run multiple different versions, because because what I kind of want to do is like, I know that data is going to get worse that you get, and compared to what you're using right now, when we get like real forms and there's handwriting and stuff, so you probably need to have like Claude also starting to build validations, like MPI should be validated against the CMS database. You know,
+
+Speaker 3  4:15  
+having Claude validated against the CMS database. What would be what would we look for though, because I mean, again, these are enrollment forms.
+
+Speaker 1  4:23  
+Can I put on the form or not? Maybe I'm wrong.
+
+Speaker 3  4:26  
+I'm sorry.
+
+Speaker 1  4:27  
+Our NPI is one of the fields on the form.
+
+Speaker 3  4:32  
+Yeah, they are. So you're one. Oh, so like any kind of like provider information? Yeah, we look at this one right here. Patient.
+
+Speaker 1  4:50  
+Yeah, like this stuff here. Yeah, there
+
+Speaker 3  4:51  
+is an MPI.
+
+Speaker 1  4:54  
+So like the NPI, there's an MPI database.
+
+Speaker 3  4:58  
+Yeah, yeah. So validate.
+
+Speaker 1  5:01  
+And then you could validate their name against that too. Does the MPI in the database does it match the name? Like, there's all sorts of validations we can build in.
+
+Speaker 3  5:08  
+But wouldn't that be? I get what you're saying, but doesn't that kind of exceed the scope of form processing? Like, that's because that's after the fact we've already scraped it and stored it. Now we want to go through field by field and perform some validation on it, right? That's the way I'm thinking about it. It's like because we have one process that's its goal is to extract the information as accurately as possible. What you're saying is then after the extraction happens, then do a then do a validation call. Is that what you're saying? Because I kind of see those as two different processes. Yeah,
+
+Speaker 1  5:44  
+you know they they are different steps. I think we'll probably end up needing each of them. The the thing I was think at first I was thinking the way to validate would be like you do your two different processes right, like your one where it just uses the image and the one where it's using document intelligence, right, and then you compare the results and see where there's a mismatch. And I don't know if those are getting marked flagged differently in because we're eventually just needs to get passed on to a process that's either going to say it's all good or it needs human review.
+
+Speaker 3  6:18  
+No, yeah, I get that. So here's what I'm thinking: is we have an a you're you because what you're talking about is not necessarily a form OCR validation. You're talking about a contextual validation, right? So that's after because I'm thinking of these as products and services. So the service that we're building now is a form AI extraction process that accurately extracts information and runs validation against that to ensure that the information is extracted most accurately as possible.
+
+Speaker 1  6:56  
+You're right. You're right. It should be a different service than what you're doing than what I was
+
+Speaker 3  7:00  
+saying. Right. Then we can add another service to that. Said once that's extracted, and we are confident in that extraction, then we can validate areas of that form for if it needs human review.
+
+Speaker 1  7:19  
+Yep. Okay.
+
+Speaker 3  7:22  
+Which I'm not. I'm not disagreeing with you. I'm just saying that those are.
+
+Speaker 1  7:26  
+No, you're right. They're separate services.
+
+Speaker 3  7:27  
+Yeah.
+
+Speaker 1  7:27  
+And we can actually validate the accuracy of this first service against what the humans did, anyways. So, and then we can be like, oh, we're 98.5% accurate. Okay. Now let's see if we can do some of those other things to know when we're less likely to be accurate, so that we know when it needs human review. Because then it'll be about separating the like 1.5% inaccuracy from the accuracy to be like this 5% need human review. Yeah,
+
+Speaker 3  7:57  
+yeah, I think that whole human review process could be a really benefit because we would need that. I think that should be part of the bundled process. But if we do like the sub process that we're kind of talking about, I think it definitely should be part of the product. But within this product, we have the form validation, the confidence. Hey, we trust this thing to extract the information to the best of its ability, and then we have these other things to say. Hey, look how cool we can write other processes to go out and validate. And oh, by the way, the MPI that was listed on this, we checked it against the CMS database, and this is not the right provider. Can you do something with this? You know, human in the loop kind of thing.
+
+Speaker 1  8:42  
+Yep. Okay. Keep working on this. Oh, do you have the platform classifier as well in here, or if not, no, no.
+
+Speaker 3  8:54  
+That's what I was trying to tell you. Is like I didn't want to do too much work on the synthetic stuff, and go down a hole, and then have to change a bunch of stuff when the real stuff comes. Because the synthetic stuff, I mean, it doesn't. I mean,
+
+Speaker 1  9:12  
+form classifier. You can build that out, and then it can be. We'll just put different forms in in there that it uses to classify. Like the form classifier could like have a library of forms that it's class that it's identifying and what they're called, so that it can on, and so then we can reuse that classifier for any new forms we get. Right.
+
+Speaker 3  9:32  
+We could. Yep. Yep. Yep. Yep. Yep.
+
+Speaker 1  9:38  
+And
+
+Speaker 3  9:41  
+hey, whenever we're finished, though, I off topic. Phone and I had a. I don't know if phones talked. I don't know if you've talked with phone today, but we had a very bizarre interview today that I want to share.
+
+Speaker 1  9:53  
+Okay.
+
+Speaker 3  9:55  
+So whenever we wrap this up, I just didn't want to forget.
+
+Speaker 1  10:01  
+Um. Okay, so why don't you kind of push forward on this, like maybe Monday, Tuesday next week? Like, do you think you could have like this kind of end-to-end process? Now, if we have the real forms, that's great. If not, like, I still think you could build out all these components. Yeah, and it would be it would
+
+Speaker 3  10:22  
+be all local to local still as well. So I'm not doing anything in Azure at this point, other than making the API calls. Well, one I can't really do much because I don't have access to the blob storage. So there's that problem.
+
+Speaker 1  10:38  
+Well, okay, what doing it local is fine because I don't think it's going to be that hard to have like quad translate.
+
+Speaker 3  10:44  
+No, I think local development in this case is totally fine. We can do we can build all this locally and then have claude flip it over pretty quickly. I'm not I'm not worried about that.
+
+Speaker 1  10:56  
+Okay, cool. All right, so that sounds good, And I guess we can review Monday, Tuesday, and you may or may not have access to the actual forms. But like, you should still put together the thing with all the metrics, so that's calculating all the right metric you want to calculate and everything. Yeah,
+
+Speaker 5  11:18  
+accuracy.
+
+Speaker 3  11:19  
+So by Monday, or by at least next week, at least on the synthetic data, I'll have a validation process where we can have a golden set validation process in place, and
+
+Speaker 1  11:35  
+yeah, and like and then
+
+Speaker 3  11:36  
+the Snowflake schema query built where we have patient information. I'm a little hesitant to use that inform. Well, you know what we could do. You know what we could do. We could go and download. I'm not saying every form in the Snowflake tables. Maybe we pick like four or five of them. We download them and we use Snowflake patient information that's in there and and and and populate it via through not through Claw because it has PHI, but we just write a script that annotates it.
+
+Speaker 3  12:18  
+Thoughts?
+
+Speaker 1  12:20  
+And why do you want to do that? What's the next step? It
+
+Speaker 3  12:25  
+would be a real form that we actually use that has information in it that we can then test and query back to to see. So so picture this. We have the patient information in Snowflake. We have a blank form, right? That we know. Oh, this is the form that they used. Now we went to that website. It's a blank form. We have all the patient information that they filled out over here. We write a program that takes that information, populates this form, and saves it as a PDF, right?
+
+Speaker 6  12:58  
+Then
+
+Speaker 3  12:59  
+we run it through the AI process, unbeknownst to it, what we already know about that form. It tries to create the JSON. We export all the fields in that form in this query as a JSON, and now we have a JSON of truth, and then the AI JSON, and then we can compare them.
+
+Speaker 1  13:18  
+Yeah, yeah, you could do that if, like, that's useful be if you don't have access to the forms yet, that's
+
+Speaker 3  13:23  
+what I'm saying. Yes.
+
+Speaker 1  13:24  
+Yeah, yeah. But maybe you can like, maybe you'll get access to the forms shortly. I don't know. So, but yeah, good way to do that if you if you don't end up getting access. Okay. Okay, and then you can build a classification thing too, and and then. then hopefully we'll get some metrics around the classification accuracy too.
+
+Speaker 3  13:48  
+Yeah, yeah. I I should be able to get all that pretty quickly.
+
+Speaker 1  13:52  
+Yeah, and then keep going. Like think what what are the next steps? Because I'm sure you do the classification, then we find out there's an issue with like angles or something, or like I don't know, so just like see how far we can get. And the other thing is, if you don't get access to that, well, hopefully you'll get access to block storage to just like really push on people tomorrow to get access to it. But I think some of the forms from Madridal are actually in Snowflake.
+
+Speaker 3  14:26  
+No, I mean I I have the query here of the ones in Snowflake right here. These are the.
+
+Speaker 1  14:34  
+No, no, no. I mean I mean you don't have that line. I'm sure I'm sure you'll get access to that blob storage. It'll be fine. Okay, you want to jump to the other topic that you wanted to go over?
+
+Speaker 3  14:42  
+Yeah, so Fono and I had an interview with this guy here. So right off the bat, like he's a VP of data science at this lab or this this company reports directly to the CEO. He's a vice president. He's a PhD. He's got patents, and at first I thought he was bullshit. So I went and looked up some of these patents, and yeah. So this was like one of the patents right here, and sure enough, there he is. He's on there, so he's got these patents, whatever. So I'm like going through this interview, and I'm like, "Phone, is this guy like really overqualified for this job? So like, what does he want this data engineering job for? This AI engineer job for? Anyway, about midway, I mean, the guy was very smart. He knew exactly what he was talking about. Really talked about contracts and you know this kind of stuff. And then he started asking Phone and I pointed personal questions like, "Where do you live? Like, how long you've been doing this? What did you do before? Like, we almost felt like he was interviewing us. And then he had the balls to say, "Well, what's your organizational structure like? Who who do you guys report to? Like, who does he report to? Like, he started asking like very like probing questions about our company. And I'm sitting there going, "This is this is the weirdest interview I've ever had. Like I'm almost thinking he's either trying to get information about us and this company, or he's trying to steal employees, or he's trying to. I like I don't know what he's trying to do, but it ain't trying to get this job.
+
+Speaker 1  16:37  
+Huh. Um. Weird. I mean, asking organizational structure, things like that. That's not.
+
+Speaker 3  16:47  
+Yeah, but he was asking it like more from like what he didn't say what clients we had, kind of thing or whatever. But he was asking, like, well, who you know who interacts with the clients? Do you like who does the products? Does your so the chief AI officer does he do like more of the product or does he meet with the clients? And I'm like, why would you want to know? Like, is that odd to you or or is that just me?
+
+Speaker 1  17:22  
+I mean, I wasn't there. You were there, right? But to me, somebody, especially if they're coming in and maybe overqualified, they might be like trying to understand. Hey, is this? They might be interviewing us to say, "Hey, do I want to work for them? Right.
+
+Speaker 3  17:44  
+That's a possibility. Yeah. But the roles that we have open for this would be more like an AI DevOps or AI engineer kind of person, right? I mean, that's what we're interviewing for, right?
+
+Speaker 1  17:57  
+Yeah. I mean, this guy seems way overqualified. Right. Right. But sometimes, sometimes people also interview for a job that they're overqualified for because they they want to see if there's a different job that isn't posted or something at a different level. I don't know. I'm just brainstorming. Yeah, it was just a,
+
+Speaker 3  18:22  
+you know, I do these interviews. I probably go through four or five interviews a week, right? And I I would never bring this up unless it was an it was an odd thing. Like I'm telling you, this was a very odd interview. I've never
+
+Speaker 7  18:35  
+yeah yeah, that's weird.
+
+Speaker 3  18:38  
+Like I've never been interrogated and interviewed in an interview like this one before.
+
+Speaker 1  18:45  
+Let's say you do come across somebody though that you think is like I'm not saying this guy, but like maybe like running a like like Gen AI team or something like that. Like if they're really good, like I want to have multiple teams starting next year from a Gen AI perspective, running different projects with like lots of engineers underneath them. So we're going to need to ramp up recruitment. So if they're like really good, like maybe I could. They would have to also be able to be an individual contributor, though, like maybe I could hire someone sooner, even if they're gonna like go into like, but that's probably not this person because this person seems like even more senior than that. But you know what I'm saying?
+
+Speaker 3  19:32  
+Yeah, yeah. Like if it was someone that, like to your point, on their resume they were an engineer lead or something like that, I would get. But this guy's in client meetings, and he's-we asked him like, how much hands-on are you actually building of this? And he didn't really give us a really good answer around that. But anyway, I just thought it was very odd. Yeah, yeah,
+
+Speaker 1  19:57  
+yeah.
+
+Speaker 3  20:00  
+So if you get a call or something from this guy, or
+
+Speaker 1  20:04  
+like a manager or director, if they're still really good and also like a hands-on individual contributor, maybe let me know, and then we can see if we can like accelerate some hires. Because I want to have like,
+
+Speaker 3  20:17  
+I mean, the dude was fantastic. I mean, He he, I can send you my notes of what I did or what the way I mean. He's a professor. He lectures around AI topics and stuff like that, and he's got patents and this stuff. And I'm just like, so they're asking phone, like, what the hell is he interviewing for this job? Like, he should be going like, not not to say that that he's not what we're looking for. I'm just saying, like, at his level, he should be like leading teams of the the people. Like,
+
+Speaker 1  20:50  
+yeah, yeah, yeah.
+
+Speaker 8  20:54  
+Okay.
+
+Speaker 1  20:58  
+I mean, if he's not hand behind, he's not the right fit.
+
+Speaker 3  21:02  
+I don't think he's hands on. Like he didn't give me enough information as far as because I've asked I asked him at least three times like to describe the tech because he he went to a whole bunch of theory about stuff which is really cool. I really appreciated the theory part of it, but then when I asked him like, okay, now how do you actually do this in the environment, stuff like that, and that's where he was like, he kind of went back to the theory many times, and I was like, I don't know if he's got. I think he's more academic.
+
+Speaker 1  21:32  
+Okay, got it. Yeah. Well, if he's not fit then.
+
+Speaker 3  21:34  
+Yeah.
+
+Speaker 1  21:36  
+I mean, maybe that's why he's never really a few jobs like this because he probably doesn't get paid very much as an academic, and or maybe he does. Oh, I don't know. What he academic? Did he? He's at a job. Yeah, he's at a
+
+Speaker 3  21:50  
+job. Like he's a VP of something and whatever. And he's got. I mean, and the thing is, he went to really good schools. I mean, University of California Santa Clara, Stanford, University of Toronto. He he lectures at University of Chicago. He's fellowed at Stanford. So I'm like, that's all
+
+Speaker 1  22:11  
+right. Well, anyway, got it.
+
+Speaker 3  22:18  
+Anyway, cool. I say that just to say, if you get a phone call or something from this guy wanting to do business with you or something, then that's probably how he got your number.
+
+Speaker 1  22:33  
+Sometimes people interview because they have a consulting business too. Mm-hmm. And that's how they get consulting gigs. I wonder if he was trying to do that.
+
+Speaker 3  22:44  
+I wouldn't be surprised. Yeah.
+
+Speaker 1  22:50  
+Okay. Anyways,
+
+Transcribed by https://otter.ai
