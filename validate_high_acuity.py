@@ -141,3 +141,13 @@ if len(exceptions):
     print(exceptions[cols].head(25).to_string(index=False))
 else:
     print("none, which is the result that needs explaining")
+
+
+
+
+vc = df[NMTARA].fillna("(null)").value_counts()
+print(len(vc), "distinct labels")
+print(vc.to_string())
+
+print(pd.crosstab(df[NMTARA].fillna("(null)"),
+                  df[DISPO].fillna("(null)")).to_string())
