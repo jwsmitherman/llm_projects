@@ -1,0 +1,196 @@
+Speaker 1  0:01  
+Hey Cliff,
+
+Speaker 2  0:03  
+what do you got for me?
+
+Speaker 1  0:04  
+Yeah, share my screen. All right, so I went ahead and incorporated three processes here. So some of these, so I just made up a golden data set. We can swap it in and out just to kind of have it, just so I can have a validation area here. But we have a processing layer, a page classifier. So there is a logistic regression model here. And again, there's very limited data here. It's only like a few documents, but I'm just saying that the process is connected. We can have a trained model to identify page content. There's a golden dataset comparison here that evaluates what the LLM said versus what what the actual human being, quote unquote. Again, this is synthetic, and it produces a result that looks something like so. That's the confusion matrix. So, like, so for example, the training prediction. You look at the golden data set, golden data set prediction. So, here it says, okay, what? So first of all, it identifies and say okay, there's these number of pages on this document. Where is the form at? Right here, where it says the the actual label. That is what the actual form itself exists on. Which page? And then here is what the model predicted. So right now you can see it's and again this is it's only like four or five doc five documents here. So you can see right now precision recall F1 score around 85 percent, which I think you know. Go
+
+Speaker 2  1:59  
+back to the other sheet. Okay, yeah. Go back to the other
+
+Speaker 1  2:02  
+sheet. Sure. Yep. 1234567, documents. So it's we're talking about seven documents here.
+
+Speaker 2  2:17  
+And what methodology is it using to classify them? Just the L I'm looking at the document.
+
+Speaker 1  2:22  
+Well, there's an LLM, and there is a longistic regression. Are you talking about the classification for the the form? Because
+
+Speaker 2  2:30  
+that's what this is showing me, right? The classification of the form.
+
+Speaker 1  2:33  
+Yes. Yeah. That's a longistic regression model, and the LLM is parsing the text out. It's not giving you a accuracy as far as that. This is just a model prediction of. Oh no no no! I'm sorry. This is telling you the field accuracy. Actually, I think what we need here is the the actual fields underneath here, but that's not standardized. Yeah. What's
+
+Speaker 2  3:10  
+confusing is this is showing the form and the page number.
+
+Speaker 1  3:15  
+Now this is the page classification. So this is telling you, hey, this is a form to be processed. But what this is not telling you is how accurate was that processed form from the AI. That's what it's not telling you. Wait,
+
+Speaker 2  3:31  
+what does widget count mean?
+
+Speaker 1  3:33  
+I'm sorry.
+
+Speaker 2  3:35  
+What does widget count mean?
+
+Speaker 1  3:36  
+So yeah. So if there's a widget on the page, it assumes it automatically assumes it's a form. Like so, for example, like this is a widget. Like we take this one right here, this one here. So it says page one has a widget. These these things here are like they're they're like widgets that it identifies, like embedded into the document itself, like in the
+
+Speaker 2  4:15  
+PDF. Embedded. What do you mean? Like the like this isn't just a scan. This is like a form. Yeah.
+
+Speaker 1  4:24  
+Yeah. If it's an actual form, like an actual PDF form, like if this was a scan document, it would have no widgets on
+
+Speaker 2  4:31  
+it. No, no. We have to assume that everything's coming to us as a scan.
+
+Speaker 1  4:34  
+Oh, okay.
+
+Speaker 2  4:35  
+It makes exactly like this, but it's coming to us as a scan. So you need to make these like scans.
+
+Speaker 1  4:40  
+Okay. All right. Yeah. Cause yeah, the OCR. Yeah. Okay. So the annotation that I've done here, because there's still there's still when you OCR them, because there's a difference between a scan document and like an actual PDF document with actual forms on them. When you OCR them, the content is different.
+
+Speaker 2  5:04  
+These are scanned. Yeah, everything we're getting to be scanned. Okay, some some typed.
+
+Speaker 1  5:10  
+Okay, okay. So assume everything scanned. Okay. So yeah, just ignore that, and then, well, that shouldn't be. I mean, that doesn't really change that much about this, then, because it will still go through the logistic regression classifier. Let's see. Yep, reads every every PDF, extracts the text. Well, we're not doing the local there, and then it runs, and then you can kind of get an idea how long the process actually takes here, so we can we can run through one here together on these seven documents. So this is extracting the text in JSON. So this is basically populating this JSON and this text file. So it's extracting the text, and then the the LLMX is then will populate this JSON. But you can see how long it takes with seven documents here.
+
+Speaker 2  6:44  
+Okay, but this is extracting text from a non-scan. Like it's actually just finding the characters that are like encoded as characters, right?
+
+Speaker 1  6:56  
+Well, it's still using document intelligence and scanning the PDF and transcribing that into a text file. Does that mean? So I mean, yeah, you might
+
+Speaker 2  7:10  
+want to try to make sure that these aren't don't have like embedded character information and that it's really just an image.
+
+Speaker 1  7:17  
+Mhm. Okay.
+
+Speaker 2  7:19  
+Like maybe even just take screenshots of it and put it into like a Word and then save it or something to really make sure you don't have. But anyways, you actually probably shouldn't pull out real data now, didn't they? Just give you real data so you can use that. That's another thing.
+
+Speaker 1  7:36  
+Uh, yeah. Well, well, we don't have the real data right now, or at least I don't. Oh
+
+Speaker 2  7:41  
+wait, didn't I not see a chat on that? Let me look. Maybe I misunderstood.
+
+Speaker 1  7:58  
+More specific. Keep an eye out for your invites. I mean, I could try it. See,
+
+Speaker 2  8:12  
+those have come to maybe those would have come to our our email.
+
+Speaker 1  8:39  
+No, but that's it.
+
+Speaker 2  8:56  
+it. You could also even reach out to that green person. That he's like relaying information to us from. If you aren't getting a response from Alex right away,
+
+Speaker 1  9:14  
+let me see. I think that's it. No, Monroe.
+
+Speaker 2  9:23  
+Okay. So, all right. Well, you can keep following up with her with them after this call.
+
+Speaker 1  9:33  
+Okay. Yep.
+
+Speaker 2  9:36  
+All right. So, show me what else.
+
+Speaker 1  9:38  
+I'm sorry.
+
+Speaker 2  9:40  
+No, just keep going with your demo.
+
+Speaker 1  9:42  
+Yeah, I mean that's pretty much it. I was it took me a little bit to to get that classifier in here and get that working, but that that's about where that's as far as I've gotten so far. Oh, and I also updated the data set here, or I've got a query here that basically shows us all the patients and the drugs and the names by each field that are in the database here. So we can, as soon as we know the forms, that you know we have the information that was entered in from you know from the human or from the the people here. So we can we can use this as our validation as well.
+
+Speaker 2  10:24  
+Okay, have you seen the requirements that document that was in that chat that you got added to?
+
+Speaker 1  10:32  
+Let's see. Have I seen?
+
+Speaker 2  10:36  
+No. So if you go to there's a chat IDP team that document yeah go to that.
+
+Speaker 1  10:40  
+Okay.
+
+Speaker 2  10:46  
+So basically, they went out to like try to buy stuff from vendors, and Lynn is like, "We need to just do this in house. This should only take a few days. Like, get it done, right? But then Lin was like, "Told them, hey, like, loop Cliffhan. Let's see what what's going on. So they're going to loop us in. So there's going to be a few meetings with these different vendors. You should join those because you're going to the vendors are proposing and things like that. And then at the same time, you can. I would read through this. If there's any questions you have or things that you need clarity on, just comment directly on the document, and maybe even, or you might not have access because they were that used to put access. If not, you can put it in the chat if you can't comment directly on the document. And then I would also like use this as what we're building towards, actually.
+
+Speaker 1  11:43  
+Mm-hmm.
+
+Speaker 2  11:45  
+So this is our requirements now, and so.
+
+Speaker 1  11:51  
+Okay. We
+
+Speaker 3  11:52  
+should.
+
+Speaker 1  11:52  
+So this is kind of what we just did there. Okay. So you should have been to a known type. Okay. Huh. Interesting. Each page will get that classification. Okay. Cool.
+
+Speaker 2  12:13  
+Okay, but they they like this is like our organization not coordinating with itself because they like went out and like have interviewed two vendors already and have like four more vendors that they're interviewing and setting an RFP too. Okay.
+
+Speaker 1  12:24  
+Okay.
+
+Speaker 2  12:25  
+So that's where Lynn is like, we don't need to get this from a vendor. Let's just build it really quick. And so we need to show that we can do this. Um, so I would, I would actually use Claude and have multiple sessions going at once, so that you can be making progress on multiple different components of the overall project based on what we're working towards from the requirements perspective. So that you can get more done that way because you have like multiple sessions and they're working on different things related to it. You can kind of talk back and forth. Maybe we get Claude set up so that it gives you an audio alert whenever it finishes processing.
+
+Speaker 1  13:08  
+I haven't really needed it, but I can look into that.
+
+Speaker 2  13:15  
+So, like, if I'm working with like Claude or Codex or something, and there's like I'm working on four or five different sessions at once. Working on different parts. No, I could I could
+
+Speaker 1  13:25  
+see what I've just haven't I haven't been that involved in multiple sessions like that. So I get what you're saying on that one. Like when one session ends, have it alert you.
+
+Speaker 2  13:35  
+Yeah, that way you're like always back and forth between the sessions and getting getting more more stuff done that way, and then and then like we're going to need to kind of start showing like results on different components of this. So I would go first of all go through the you understand the requirements, make those comments, adding questions or clarifications. You're going to see a number of meetings probably come onto your calendar for different meetings with different vendors, or meetings for internal meetings for us to talk about that. Join all those meetings so that you're in the loop on the overall project. Because what we're trying to do is say, hey, we got this in and out. Like we don't need to go buy these vendors' products for like a ton of money, and then we need to come with proof of like, hey, this is what we did last week. This is what we're doing next week, so we can really show like, and we should be able to do it and get pretty high accuracy because like a lot of this stuff, Claude, like this isn't like something that's like so obscure that Claude can't figure out how to do it. If we're like giving it good specifications on what we wanted to build, it could probably even help us come up with specifications of best practices and stuff for this, like like where people have seen higher accuracy for this type of thing, like doing like using the image itself or whatever, right?
+
+Speaker 1  14:51  
+Yeah. No, that makes sense. Yeah, that's a good next step. Yeah, this is helpful. Okay, so what I can do here is I may need to go look for more forms that have these sections, clinical notes and labs. I don't think a lot of the forms I have have those sections. Patient information. Some of them do. Some of them do not. Yeah, I'll have to go through. I'll need to go through each one of these and make sure I have enough forms here that. Have these sections that they're talking about?
+
+Speaker 2  15:47  
+Yeah, and maybe we don't have all of them, and we can do some of them or whatever we have, and then we can move on to the other ones. That's fine too. But like, we you might as well go out and start asking for these different forms so that we get them. And okay, cool.
+
+Speaker 1  16:05  
+Okay.
+
+Speaker 2  16:06  
+All right. This is your baby driving forward. Let me know what questions or things.
+
+Speaker 1  16:11  
+All right, got it.
+
+Speaker 2  16:13  
+Yeah. Anything else you need from me on this? Nope. Wanted to show.
+
+Speaker 1  16:17  
+Nope.
+
+Transcribed by https://otter.ai
