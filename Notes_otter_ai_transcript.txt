@@ -1,0 +1,511 @@
+Speaker 1  0:00  
+Awesome. Have you met everyone here from Salesforce? Does quick intros make sense? Sure. Yeah. He's only met Matt. Okay. Yeah. Nice to meet you, Chase Langdon. I'm the account director between Sysrx and Salesforce, so I run the whole relationship.
+
+Speaker 2  0:21  
+But nice to see Ethan Choi. I'm on the mule stop automation side. I'm Matt's peer, who I believe you've met. So it's nice to meet you. You've been working with Zach and Samir for the past couple months.
+
+Speaker 3  0:30  
+Okay, great. Cliff, Matt, we
+
+Speaker 4  0:32  
+met a couple times last year. Good to see you again. I'm the solution engineer on the technical side, so I'll be sure now.
+
+Speaker 3  0:37  
+Good. Thanks for recording. Cut your screen share. Yeah. It's being weird. Building and sharing. See if I can. Cool. Okay, so to
+
+Speaker 4  0:47  
+set the stage a little bit, I'll get into the demo. I'm also Zach, for your reference, doing a slightly abbreviated demo than what I showed before. A lot of stuff has changed from a routing perspective and some of the things that were built in. But I'm going to try and showcase some of the technology and also the process. I'll start here. What we've been talking about as a team as soon as this essentially loads is the ability to automate a lot of the kind of pre-work processes that intake coordinators are doing today, automating intake enrollment forms, co-pay claims, insurance cards, the variety of information, catalog lines. What we did last year. The main difference is that we've expanded the process from really just talking about the actual extraction to how this works in a Cisarexic world with a lot of the other technology that you have and the APIs that you built, and that's what the conversation we did today was. My goal is to kind of walk you through the overall process of how this can work, and then show you some of the technology and let you ask questions. But what we've been talking about is four main steps. One is receiving the information of the forms. Second part is classifying them. Third part is extracting the data, and then the fourth is how do we actually route this to the correct Salesforce instance? Because one of the key challenges as part of this process is you get a bunch of instances. You can get a variety of things coming through via fax, via email, via file drop. How do we help for all that? The good news is a lot of that work has already been done by the engineering team from an API perspective with the document management API and the submission API. What I'm going to show you is kind of mainly focused on this classification and extraction piece, but I do think it's worth explaining kind of start to finish this process. If you're curious, what we're going to do is instead of trying to account for the 50 different fax numbers that this can come from, we're going to anchor on the document management API. So when something new comes to the document management API, we're going to say, okay, where did that come from? Which will then help us route that to the correct instance later. That gets passed IEP, which says, okay, it's this type of form, whether it's copay or enrollment or insurance card. Based on that, it'll get routed to the correct document extraction engine. It's been built on a form-specific process, not a an instance or a company-specific setup. So you don't have to have 50 different enrollment actions. You have one. It's going to account for all of the ones that come through. Based on that, we extract the data, and then we pass that to the submission API today, which is really, really powerful. It is going to. This is something that Systericx has already built that allows us to pass up the information that comes out of IDP in the form of the data that extracted, the submission API will route that to the correct instance and actually append or enrich that data that will come from the master management solution that you guys have a focus up to today. So it's not only going to say here's the data; it's going to say here's what else we know about this patient or the situation, and then pass that into Salesforce for review. And we are talking about a few different possible processes for human review versus in Salesforce or somewhere else, but goes into Salesforce at the end. That's the overall process. I will jump before I jump into the actual IDP technology. Any questions on the process or what we've kind of been talking about that I just mentioned? Make sense? Are you going to be going into details of like, is there a library of every single form that will be processed, or is it pulling generically from a file where the form isn't known, but it just has a list of values that it's pulling, or those kind of details for the solution? I think yes, we will. I'm not 100 sure I follow the question, but I haven't entered. Maybe I'll go into that.
+
+Speaker 3  3:35  
+There's 50 enrollment forms that we have, right? We upload all those enrollment forms and map the fields, right?
+
+Speaker 4  3:40  
+So you don't have to do that. I'll show you how to actually build this. It is not maybe right off the bat. This is not an OCR tool, meaning you don't have to create templates for every file that comes through with location-based processing and things along those lines. It's going to allow you to say, and I'll jump into it. Say, this is the information I want.
+
+Speaker 2  3:55  
+Yep, yep, go for it.
+
+Speaker 4  3:57  
+Yeah, cool. So this is IDP. I'll go through and really well done here. Find my systrx piece here. Why it pulled me out of that? But I've uploaded an example of sys form. We in the POC that we did, which I'll get into the results in a second. I did this with like eight different types of forms using the same prompt. But basically, what I do over here is say, for each of the fields I want coming out of it, I just write human-readable English-language instructions on what it should do and what it should return. In this case, give me patient date of birth. You'll see the same thing for fax, for email, for name, for anything that I want out of this document. The way you'll build this is not on a system-and obviously this is a big document-but not on a Gilead or a Pfizer-specific form. It's going to be kind of all-encompassing across the various forms that you have, and you might ask questions to this document that aren't relevant to it, but are relevant to Pfizer. And part of the goal of this is to have all the information extracted that's relevant for all of them pass to the submission API and let it parse that to the correct instance. When I click Run, all these prompts get applied to this document. This is not something that you have to do as a human as part of a process. This is an endpoint. The document gets into the endpoint. The data gets extracted on the back end without a human knowing, nobody has to go in and actually do this. This is just how I set it up and actually decided it's doing things the right way for me in a testing format. Great, Jeff, can
+
+Speaker 3  5:09  
+you talk? Can you talk to me about what happened just between those two steps, where it extracted the data? What was happening on the back end?
+
+Speaker 4  5:14  
+On the back end, there are a variety of models that you can choose from. Some are better for certain types of documents. Some are better for handwriting. Some are better for non-handwritten. Some are better for scanned end documents. This Gemini flash is the best I found for anything that isn't super pretty. Is how I would put it. I use that for patient enrollment forms. Essentially, these prompts get applied to the model, and the model says, "Hey, where on this page is that text? Or on this group of pages is that text? Goes and finds the thing that I referred to and brings back the value based on what I asked it for. So it's going to apply all these prompts to this document every time I click Run in this testing instance or in the real world every time a document feeds through. It then packages that all up into a JSON that can be moved on to whatever next part of the process is. In our case, Cinderbous Submission API. You can also set up grounding prompts here. Haven't done that, but these are essentially rules of engagement for how it can interact with any document, you might ask it or set things like never guess, never approximate, only decide to return something if you're 100% confident in it, or look, or this is how you should expect to treat checkboxes. Maybe you can only have one checkbox checked, or you can allow multiple checkboxes to be checked. This just basically sets the ground rules for how you can actually expect to receive the data.
+
+Speaker 3  6:19  
+How does it deal with X printed on top of text.
+
+Speaker 4  6:22  
+Facts. Sorry, fact X's on text. Oh, check boxes. Check boxes.
+
+Speaker 3  6:26  
+No, like let's say the doctor had this as a form, and instead of handwriting it, they put the filled out form through their printer, which wasn't lined up properly, and it printed the text of the answers on top of the text for the questions.
+
+Speaker 4  6:37  
+Oh, totally. It does well with that. I see this a lot. I I write in the margins a lot. You can see I did not a lot on here. There's a couple that well, not as many on this form. It does well. It treats it's it's on a pixel by pixel basis, but it treats the text, so it's it doesn't necessarily struggle with that. I would say in the POC that we did, there are quite a few forms that have that. It's also something that we would test and be happy to show, but that that would that does not present issues. Well, actually, do you
+
+Speaker 3  7:01  
+do POC with our forms?
+
+Speaker 5  7:02  
+Yes.
+
+Speaker 3  7:03  
+Oh, okay. Do we have the results of that?
+
+Speaker 4  7:05  
+We do. I will pull in this. Jump ahead a little bit. Use a variety of forms, and I treated success in two different ways: success across document types and success across. Handwritten versus non-handwritten. This was the success rate by document types, and when we talk about success rate, this was percentage of fields pulled correctly from each of the forms. So for insurance cards, they're all digital. It's going to get those right every time. For copay claims and patient enrollment forms, they're skewed handwritten. Some things just aren't human readable. Some things are written in a way that aren't aren't able to be extracted. It's not going to be any perfect. So there were a few fields in each of those that weren't perfect. Actually built a testing and a testing app for the specific USD that allowed me to go through and verify manually myself whether it pulled the information correctly on each of these runs, and that's what this data came from. And it's worth noting when we say success, success doesn't mean that it then polluted and put in some field into that. It's success specifically saying, "Hey, we need a human to review this to validate. I think that's an important distinction of what we agreed as a react to the criteria, to the criteria, man. So I'll agree what success was. Again, it's like still hiring a point, but we met with the team and also said, like, here's what needs to be said to be a success to like get that result of that. Yeah, it was exciting criteria, but you're right. Like for the fields that weren't pulled, it wasn't that it hallucinated something. It was just didn't get it. Wasn't included. Humans got to go figure this out, and that was I think two to three fields max on each section. What was equally important was this, and I think this is probably the most actual interesting learning. I did a lot of testing for this POC on when documents were typed versus handwritten, because the majority of documents coming in are handwritten. I wanted to see the overall success rate of handwritten documents. They're very, very high. Some drop off, but not not significant. But that is. So you're saying if it said it didn't know when it didn't have the answer. It wasn't giving the wrong answer. Is that really 100% of the time? For which one? Type, either. Just put the confidence intervals. Oh, maybe yeah. Maybe the key element here is confidence intervals. If we go back to IDP, you can see what comes out are the document. Sorry, the field names and the field values, but also a percentage score associated with those things, and basically how confident it is that I got the data right. What? So what was your confidence interval? 80% Anything below 80% I start to think about being wrong. What ends up? What in the case of my testing? What led to a not correct field here was the combination of something that was wrong with a low confidence interval. Basically, it was wrong, and I didn't tell it not to hallucinate. It guessed it was wrong. It was not picked up, or it was completely sorry. I guess it was either of those. Yeah, I didn't specify in this not to hallucinate or not to push it through if it wasn't 100% confident, because I wanted to see how the confidence intervals mapped to things that I manually knew it got wrong, and there was 100% overlap there. So essentially, three and a half percent of the time, it either extracted something incorrectly, or and told me that it did by having a low confidence interval.
+
+Speaker 6  10:06  
+Okay. Okay.
+
+Speaker 4  10:07  
+Or wasn't there at all. I just got a good phone.
+
+Speaker 7  10:09  
+Gotcha. Okay. It did
+
+Speaker 4  10:10  
+wrong. There was a 0% overlap of I got it wrong, and I think I got it, and I'm very confident I got
+
+Speaker 7  10:14  
+it right. Okay. But we could configure it not to hallucinate. Correct. Yes. So, so with your POC, everything was extracted. It guessed at everything, and three and a half percent of the tiny estimate score was below yes 80% That's right for them. Got it. Can you jump on that?
+
+Speaker 4  10:26  
+Yeah, I'm gonna keep going. I'll send you guys a question after another. If it pulls 99 out of 100 fields, you only have to really review the one, right? Because of the way this is set up, each field gets its own confidence interval, and then the cube or the kind of interim suggestion, it wouldn't say here's the document, here's 100 fields, but review them. It would say here's the documentary, here's 100 fields, here's the three that it got wrong, but we were confident about review those three, but not all these documents.
+
+Speaker 6  10:46  
+So you still got to talk about you don't want to go through. Yeah,
+
+Speaker 2  10:48  
+it wasn't that three and a half percent of these totally bricked. It was that across all documents, three and a half percent of the fields weren't formed correctly. Gotcha. Okay. Okay. Just keep in mind, from the carriage perspective, whether I'm having to now go through maybe instead of 10,000 forms of damage, paraphrasing, only have to go through the 500. They're flagged. Yeah, or don't know the whole. I mean, like the engine time into detail, they'll spot the field immediately. Go send this back, right? Yeah,
+
+Speaker 4  11:07  
+we have to gage our operations comfort level in how much automation there is. Like, does everything get reviewed? Do just the locals get reviewed? And to start, everything should be reviewed. Yeah, just gage right. Or this is a situation where you don't push this live and say we're good. You said you push the slides, and you have every form reviewed until the team is confident that it is doing its job correctly. And then you slowly pull back the, the you know, yeah, the gate. The thing on a golf cart that stops it coming. The limit, the limit. Pull back that until you're comfortable that it's actually doing its job correctly. But you don't. That makes sense. Okay. Quickly, other question.
+
+Speaker 3  11:38  
+I actually have a couple. The first thing is, do you have data on the exact fields that are being extracted and the the success rate for each of those fields?
+
+Speaker 4  11:47  
+Testing up. I don't because I didn't keep it when I was testing it. It doesn't mean we couldn't run a small test along those lines.
+
+Speaker 3  11:53  
+Okay. The other question I have is: so these documents were these ones that we created, or were these like actual like real patient documents?
+
+Speaker 4  12:00  
+These were created.
+
+Speaker 7  12:01  
+These are we have standard we have a standard document library, Cliff like branded client agnostic forms that we use.
+
+Speaker 4  12:08  
+Just forms that have filled in. For what it's worth, I also, for the sake of testing this, I also threw in a couple forms for actual pharmaceutical companies that I filled out for other demos, grossly with handwriting, so that we could kind of keep that as real world as I could. So
+
+Speaker 3  12:22  
+this, okay, I see. So this is a mix of those other handwritten forms plus the forms that we sent over in these.
+
+Speaker 8  12:27  
+Correct.
+
+Speaker 4  12:28  
+There weren't enough forms from assisted that I feel comfortable saying like, yes, for these two or three, this is going to be totally fine. So I added three or four in of my own to make the test a little bit more real.
+
+Speaker 3  12:36  
+Got it. Can you send us the ones that you added in?
+
+Speaker 2  12:38  
+Go. Okay. That's two. Sorry for
+
+Speaker 3  12:43  
+me. Okay, the next question I have is: Can we go back to earlier what we were talking about before we jump to success rates?
+
+Speaker 4  12:48  
+Yes. So here,
+
+Speaker 3  12:50  
+yes. So you were telling me about I was using a Gen 9 model. Can you tell me what the how what the steps are in that? How it's using that? Is it doing like a single pass?
+
+Speaker 4  13:01  
+Yes. One one pass through in my actual POC. It was two passes. One to classify the document. Basically, was it? Maybe for context, it helps. I was sending through packets of information that included multiple page enrollment forms, multiple copay claims, multiple insurance cards, and saying, "Hey, go break these apart and sort them into the correct extraction engines. So it was breaking them apart. The first pass through was to classify each page and then bring them back together. So first pass was classify as enrollment form and an enrollment form that matches this other patient and groups those together, insurance card, etc. And then based on that, it was cascaded into the correct document engine, either copay claim, enrollment form, or insurance card. That was the second pass. Each time through was one pass.
+
+Speaker 3  13:38  
+Okay, and then that. So when you say one pass, like within that pass, are there multiple steps being done, or is it just getting within that one pass where it's extracting data? It's just getting run through an LLM once,
+
+Speaker 4  13:48  
+as I understand, which we can confirm. One run through an LLM. What's the sound like? There's a question behind a question from the amount of times it runs through the LLM.
+
+Speaker 3  13:57  
+No, I'm just trying to understand the overall architecture of what you're doing and how, because this is going to lead into my next question. Maybe that'll be more clear. So, as you have these different fields that you have marked out and you've given it what you're trying to extract, right? I realize you're not mapping individual like fields to locations in the document, but are there sample documents that are also provided ahead of time?
+
+Speaker 4  14:23  
+No. So the way to build this is basically create. I don't. Let's walk through. Create something new. There's generic ones for invoice and purchase order because that's where we started. I will start with the generic, and I basically say enrollment form. I create that customized scheme. That's something you don't need to worry about. I'll pull in this packet of information, and I'll start saying patient name. Return the patient's name. And that
+
+Speaker 1  14:49  
+that pulls this up. One thing worth noting is through our discussion as part of this, our implementation team for the initial setups would do that. So when you say does it come with the solution by itself, these initial prompts do not come. But as far as assists are starting to use it, they would get it. And what we've talked about the team specifically is through that build-out process, having them actually a part of the prompt building, so that we are not left not knowing how to do this. Because the entire goal is, if all of a sudden we're talking the pharmacy management system, if they want to start ingesting some of those forms, they can build it out themselves without having to come to us. So this is not guarded behind our development team. This is given to your team.
+
+Speaker 2  15:19  
+Yeah, we'll be replacing most of this stuff. Yeah, that's good.
+
+Speaker 4  15:21  
+Well said. Like you can see what I did through here. I just this is obviously forbidden prompt engineering, but it's for speed. Turn the patient's name. Just give me the patient's name. You can put in the like I don't like this one. Yeah, you can do like return always be last first class, and include anything like junior. I'll probably just check that. Yeah. You can include whatever you want this to look like, you can also set whether it's required field, which is important for downstream validation, and whatever confidence threshold you're you're acceptable with, which is devolving to 80, and that can trigger whether something is or is not reviewed in that queue layer. Right.
+
+Speaker 3  15:52  
+When you look at results from your confidence intervals, tell me if this is what you see. Like if it's 80% confidence interval, that means it's getting it wrong 20% of the time and right 80% of the time.
+
+Speaker 4  16:01  
+Yeah, you would think I've done this at extreme lengths. That is not how it normally works. If it's higher than 60, it's 98% right. Like it's right a huge variety of the time. If it's lower than 60 or 55, it's wrong most of the time. Okay, so I don't know why that is, but that's how almost all models work. You can change that confidence level per field. So which are complicated? I feel like I feel like I got lost. I don't know why this is, but it's quite close asking me the question of like if you're if the confidence interval that's returned by the model is 80% do you see that it gets it right 80% of the time and wrong 20% of the time? That's not actually how. Like that's not the. It's just it's what it thinks. It's right. But like it's it's hard to explain. The model is almost like it's it's doing
+
+Speaker 2  16:36  
+it still. No,
+
+Speaker 4  16:39  
+it's it's it gives me 80% confidence, and it's right 98% of the time. But it'll always give you an 80% confidence interval for some people. I got you. If a human
+
+Speaker 7  16:46  
+looks at it, they're like 98% of the time. That was right. Okay, but you see something
+
+Speaker 4  16:49  
+with a 50% confidence interval. You'd expect it to get right 50% of the time wrong, 50% of the time. It's wrong. It's wrong like 100% of the time. If the confidence interval is below, it's
+
+Speaker 1  16:56  
+not a true statistical interval to spend the name. It's typically a single point, not a range, an upper or not.
+
+Speaker 4  17:00  
+Yeah, it does not track to percentage right in my experience.
+
+Speaker 6  17:03  
+So it's not something that we would like on day one, the 90, and then slowly knock down. Like once you're 80, you like you basically.
+
+Speaker 7  17:08  
+I just keep it at a level that you, in practice, find to be accepted. How often do you see like other people that have adopted this? How often do you see them playing around? But that does not cost the confidence
+
+Speaker 1  17:17  
+intervals. I feel like a lot of, especially the pharma company that I worked with like the upsurge that I worked before. 9% played a set for threshold
+
+Speaker 7  17:23  
+only versus 90%
+
+Speaker 9  17:23  
+The
+
+Speaker 4  17:24  
+asset also has to do with a lot of information is really critical. Yeah, you can't take any chances to do it well. Maybe it
+
+Speaker 1  17:29  
+also depends. Then that's why we're talking about intriguing kind of like your workflow idea of like if you're going to have a human new centralized onboarding team reviewing everyone. These like then you have a little bit more free time to select it lower. We could test it, right? So then I can and then maybe what's the difference? CIJ
+
+Speaker 2  17:40  
+would have had some dots. You got caught in something. I'm kind of bugging you.
+
+Speaker 3  17:46  
+Really good question for a cliff. It's not. Can can you go through your accuracy and also your process for the classification of documents?
+
+Speaker 4  17:54  
+Basically, see if I can. I'm not sure I'll be able to real time this, but for the classification engine, this is what I actually use in the VFC. This is what these are the instructions we give. I know this is small, but basically it says you're a document classification assistant. You have five options. Return me one of these five options at all times, and you can change what the five options are. And then I go and define what each of those five options are. And based on that, I can upload a file. This is the weird part. Is this is a packet that includes an enrollment form. Okay, an insurance card, codebase claim. I'm not sure if it's going to show up as I change the page, the correct one, but we'll see what happens. And then I'll pull in some correct ones because normally we're not like it's just a testing. Yeah, sweet. And also, before anything gets to this, it's been broken apart, so you won't have an insurance card, enrollment form, and a code. They claim all going through this at the same time. They would be pushed through separately and judge each page.
+
+Speaker 7  18:45  
+Yeah. Through submission API, storing them separately, exiting them. Well, it's important because we have certain document types that we consider PHI. Yeah. Today, certain PHI documents sneak in through the backdoor because they're attached to like an enrollment form or something like that. Keeping them hard, keeping them classified, like that's a that's a huge that that solves a huge problem. Yeah,
+
+Speaker 2  19:05  
+so I mean that goes into kind of the crazy question. Like we're gonna be pre-processing everything to to making sure that that happens. Right. Yeah. So
+
+Speaker 4  19:10  
+I pulled in an insurance card and then another one. This is another company's enrollment form that I filled out. Not real patient information. I'll run it. You'll see that they don't grade this as an insurance card, and then if I flip this over to the other one, it should grade that. It
+
+Speaker 2  19:23  
+might not be able to join now, but you might pop up. Give on. I was just going
+
+Speaker 9  19:26  
+to
+
+Speaker 1  19:27  
+say
+
+Speaker 4  19:28  
+this is the process. So it grades it out, passes that on. You can see if I move to the other one. Page enrollment forms. As it's this is part of an overall workflow. Okay. When it goes to this, it says, okay, this is the type, and based on that type, it sends it directly to the correct secondary extraction layer to actually get the information out.
+
+Speaker 3  19:43  
+Yeah, before it sends the secondary extraction layer, can you talk through the steps that happen for that? So we've already broken apart the pages. Now, now go through the steps, and this is another one where it does like we can choose the models that we use, or
+
+Speaker 4  19:55  
+so you can choose the models that you use. You just set it up here. You can do things like MacPi. Every page is in my POC and in the real world. Every page gets broken out and pushed through this. Two things happen. One, the documents are classified into types and then helped. The second is if there are multiple passed through at the same time, they get vet related to each other. So, for example, an insurance card and a patient enrollment form, all for Charles Green, they get grouped at least in my POC so that they can be processed together and sent to the same case later on. That is not something you have to do. That's something that I built out as part of the overall orchestration engine. There are two pieces of the platform. One is just this, what you're seeing here, and then the second is an orchestration engine that allows you to call to the submission API, retrieve from your document management API, pass to Salesforce, pass to an outside system, and basically route these packets of the data to the correct endpoints.
+
+Speaker 3  20:40  
+For your classification, you're you're essentially just running it through Gemini Flash once, or is there like a stage for like shrinking it, and then another stage for classification?
+
+Speaker 4  20:46  
+There's it's just running through the model.
+
+Speaker 3  20:48  
+Okay,
+
+Speaker 1  20:49  
+and then that was something we were talking about. Yeah, that was something we actually talked about in the room today. That there are times where we know the document type ahead of schedule. So meaning, if you were to come in and say as part of the intake package, just as like from your team ahead of schedule, we know that this is a certain document. We can pass it in and auto skip that part, but there are times where depending on submission, instead of submitting a box in the new sales rep process with a an email attachment, then we don't know, so we can do that classification.
+
+Speaker 3  21:11  
+Okay, do you have data on your classification accuracy?
+
+Speaker 4  21:17  
+No, I mean I I could easily set it up. This one is it's just a model design, but this is not a pre-built model or anything. There's no classification engine. This is just my prompt. I would be happy to do some testing if you if you guys wanted to send me more documents. But it's it's gotten them all right. Maybe the best way to play it, Cliff, is we did the POC, and as part of the POC, there's a classic. There are three classification steps in every single document we pass through. It has to get them right for the rest of the workflow to work, and it always gets them right. This this is pretty basic because of
+
+Speaker 3  21:43  
+done classic. Okay, what about when there's a lot of different enrollment forms, and they're all enrollment forms, but they're different ones that we need to write apart.
+
+Speaker 4  21:52  
+What would be the benefit of classifying them separately? Because for reference, that's all something that the submission API that Steve and team built would handle from a where does which instance does this go to perspective. All that this is caring about is getting the data out, sending that to the submission API. The submission API understands where the correct selling is. Some brands,
+
+Speaker 3  22:07  
+some some companies we work with have a number of different brands, and they all get submit together. For instance,
+
+Speaker 4  22:11  
+got it. Okay, so yeah, classify them correctly, but it would it would break them apart into some. It would be you see enrollment form one, which are pages one through four of a 30 page document come through, and then it would say, "Okay, I understand that that's the end of document one. No, no, that's not what I meant.
+
+Speaker 3  22:24  
+What I meant was there's like enrollment form for drug A, enrollment form for drug B, and so on. Have you done anything with like looking at how it differentiates that in the classification?
+
+Speaker 1  22:32  
+So in this case, it doesn't matter from from what we built out and from what your team already has. It wouldn't matter. What matters is the form ends, but it doesn't matter which drug for that manufacturer is routing to because your submission API that the team is already built out, it does then the parsing of that logic from there.
+
+Speaker 4  22:44  
+Yeah, maybe to take it even further. We're not doing patient enrollment form Gilead versus patient enrollment form Pfizer. We're
+
+Speaker 1  22:48  
+just classifying patient enrollment form, and the reason that matters, and the reason we're even splitting it to begin with, is because the the prompts for applying for an insurance form are different from an enrollment form, obviously. Yeah. And so that's why the document classification is happening is because then the prompts that'll be ran on a dead end screen. It's not actually for routing it to the correct order. Does that is that where your question was going? Well, I mean, I think you answered it. If we don't have a need for it, we don't have the need for it. But I wasn't aware that there weren't circumstances where we have them together and need to be separated, and those are you know of course more similar than you know enrolling form from an insurance form, right? Can you go through the part where you're extracting data from semi-structured documents. How? What can you give me an example of a semi-structured? Like there is an explanation of benefits where there's
+
+Speaker 3  23:30  
+like text blocks and descriptions, but then also like the way that it's handled is very different in different explanation of benefits.
+
+Speaker 4  23:35  
+I'm not sure I have any, but the process is exactly the same. It ends up here asking questions that are not so much focused on like a field, but I would say like create or full text of full the entire text explanation of benefits. You basically just sell it every morning. Yeah, but the process works exactly the same way.
+
+Speaker 1  23:58  
+Are you asking about the long text specifically as part of that, or what part of? Because yeah, the forms that we were showing before is somewhat semi-structured. It's pulling into dual fields. Is the question kind of around longer inference and like understanding inference from that text besides just pulling it?
+
+Speaker 3  24:09  
+Yeah, like the forms that I'm looking at so far, they essentially have a field. It's like a form you fill out, right? Like there's a a name in the field, and then there is the the spot that's building, right? But you know, sometimes you get documents that aren't that structured, and I'm just wondering, like, if there are any differences in your process when you're handling things that are less less structured like that.
+
+Speaker 4  24:27  
+Not really, because nothing in this is location based. So wherever it is, if it's long form, if it's not long form, if it's next to a field name, and it's not doesn't really affect anything. So we would treat it as the same type of prompt. We just would not give it any location based data.
+
+Speaker 1  24:38  
+But what what you said is interesting though, because so the POC itself was specifically focused on full enrollment forms and put claims. That was the request. What that doesn't include, and what we didn't do, but can be done, is on explanation of benefit. For example, what if we want to do some interpretation from the tax that's being read? So instead of saying just give me this tax, give me the sentiment of this tax, or do we expect to see that this explanation of benefit is like does it give a valid reason, or is this a like is there delayed reason? So there came that extraction that wasn't an absolute part of
+
+Speaker 7  25:02  
+it. I think part of the thing that we discussed with Steve though is that we, yeah, for data extraction, we wouldn't really need to go to that level for based on the based on what I'm I'm not close to that project like Steve is. But what I heard Steve say is that that's more of a get the document over. There's a few fields we would extract, but once we have the document, it goes over to another vendor to do all that work.
+
+Speaker 6  25:20  
+But I could see expanding this in the future into more document types, right? Like we could have PA clinical notes, whatever. And it would be interesting to say, "Hey, this is a PA document. Was it approved tonight? We have the group.
+
+Speaker 7  25:28  
+Yeah, document. Like it's a place where we, where we fill out free text. Like if I think of like a PA form, that's something like, "I need a document from you, Dr. Smith.
+
+Speaker 6  25:37  
+No, I just mean like, along with the enrollment form, they also say, "Oh, we got PA group. Here's the PA approval. Ah, I did it also Then I could have it read the payback and say, "Was this PA document an approval or denied? And that's like a
+
+Speaker 7  25:46  
+light years ahead of me. Like, is that something
+
+Speaker 6  25:50  
+managers could do that? Yeah,
+
+Speaker 7  25:51  
+is that something?
+
+Speaker 4  25:51  
+Do we can we explain in language what would be appropriate? Because I could completely write from this as read this document's approval or not, right? Because it's very clear in the PA back and said this is approved or it's denied. I see. I don't think I have it in here, but I was going to say one time I maybe this kind of answers the extent of your question. I built a prompt that analyzed an environmental impact report for a oil and gas company, and it was basically like giving me the sentiment, list all the possible waterfowl, environmental, river-based, water-based, land-based reasons why this study could actually go negatively for us. It was just a set of prompts inside of how you can read a document, extracted those items, and then gave a like a grade of how likely it was to be a path forward. So like phase one, but
+
+Speaker 7  26:30  
+obviously I'm like that's probably not great. Is there is there a link of what we can exactly? Yeah, yeah. Like why not think of totally nice flow? Is that where your mind was at, Cliff, when you were?
+
+Speaker 3  26:40  
+Well, yeah. I mean, essentially, you're talking about the similar types of things that I was referring to, but it sounds like that wasn't part of what was done here. But you could do it. But it's just basically you write a prompt and it processes, and it's that same process. So I understand the way that it's approaching it. I guess the other question I have is: Have you done things where you, in order to improve accuracy, you actually pass it through two different models and then compare the results? I
+
+Speaker 4  27:00  
+have yes. There's pros and cons to that. The pros are that you're going to see a which model is better for your use cases over and over again. You can run A/B testing on it. B you will be able to get the human review process even better by giving it multiple options and money to decide. The problem C though is that that uses two times your credit costs. You are running through things twice with marginal benefit, and it's not really what conversation we've had so far. Like that's from a pricing model perspective, I would describe that as inefficient with minimal gain. Doesn't mean it can't be done, and on certain high priority forms or processes, at least to start, not the worst idea. But long term, not a solution I would recommend. I guess what I'm the reason I'm asking this is, let's say there's a form where if we get it wrong, it's a big deal, and I'm trying to. I know you're saying you didn't see any false, like false positive, or like basically getting the wrong answer and not when it said it had a high confidence here. But what I'm the reason I'm asking this is because if we have some fields that are really high, we really don't want to get wrong. But we still don't want to have a human review every single record.
+
+Speaker 3  28:00  
+Have you done this where it does pass through two the two different? Actually, first of all, like what models do you usually use when you're doing that, and do they end up get when one's wrong is the other one wrong the same way usually?
+
+Speaker 4  28:08  
+To answer the second question, yes, they tend to be wrong in the same way the majority of the time. I like to use two separate models from two separate companies to minimize that happening. The two I use are Genii Flas 35 and then Glotson at 4.6, whichever is very good at document extraction and writing. So if I were going to do it, I would use those two. I think there's for the forms or at least the fields that are extremely high important to not get wrong. That's a fair use of credits to do it both ways. And if it passes gate one and gate two, which are model one and model two, is probably right. The other thing you can do is just go in here if you wanted to guarantee that they were right, but not for anyone to review the entire document each time. You could go back to mine. You could set for those specific fields threshold at 100% and then if you can task to review each document, but only that one field for each of those documents, not the whole thing. Go and highlight that one field in the eventual review process. There's a
+
+Speaker 2  29:01  
+variety of ways you could do it. A lot of you can test rendering implementation too, right? Like,
+
+Speaker 1  29:04  
+nice. And what? Correct me if I'm wrong. The reality is, is Gen AI is probabilistic. There's elements of it that it can get things wrong, and so typically, if there are those fields that are the most important, so one is the extraction. The other part we talked about with the team is MDM references. So being able to look in the MDM and say, "Hey, this looks like it's wrong, or this doesn't match up. Let's send it out for human review too. To your point, what we've seen is it's more of a process question of what the Cisterx is comfortable doing, less so by technology at this point. As it gets better and better at doing the documents, it's it becomes more of that because you know there obviously is the risk of a human reading that went wrong, but it's like what's the comfortability level and how do we do that? And that's also part of implementation we'll need to discuss. Is like we're getting to the point where what a human sees is what the model is getting at quite close. So what's the comfort level? What assurances you all need to to be confident? Because it's also an excuse to say like, well, what the screen said. It's like how you get processed.
+
+Speaker 7  29:48  
+Which is something that we run into all the time. Like we we're always at the mercy of what a doctor writes on an enrollment form.
+
+Speaker 3  29:53  
+Yeah.
+
+Speaker 7  29:53  
+What they write is even their own name sometimes. Not
+
+Speaker 6  29:57  
+enough. And I just I have a hard time thinking that like like to get human errors alternate too, right? Sometimes like the AI's rate of error would be higher than humans. Yeah, you know what I mean. I mean, in the aggregate, yeah, absolutely. Like even if we had high trusting the system, like budget plus point, it doesn't mean you can't build in safeguards for specific fields or forms that are extra important to make sure you get. Yeah, sure. Yeah, yeah, good matter, right? ICD sync code. Another example. Yeah, yeah.
+
+Speaker 3  30:20  
+So coming back to this for a second, it's really just sending what you write there as the prompt, or it's like augmenting that prompt with additional information when sending it to the model.
+
+Speaker 4  30:29  
+Sorry, one second. There's there's chat in there. I can hear you. Could you ask that question? Yeah, yeah,
+
+Speaker 3  30:36  
+sure. So when you're sending the the prompt to the LLM, you're just sending what's in those particular like what we write in those specific fields, or are you augmenting that with additional information before you in the prompt, or is it just
+
+Speaker 4  30:49  
+the things that are passed to the model of the document and then the prompts and the grounded prompts to to guide all the underlying prompts? So nothing else. That doesn't mean though that we can't. Well, part of the goal after is to append additional information from the submission API that's running the MDM is added later and verified later, but not prior to sending it in.
+
+Speaker 3  31:05  
+Got it. Okay, so then if I look at your product, and I'm trying to compare that to say just like us sending, like just doing this and sending process to LLMs like this, the value add that you're providing is this overall user interface where we can like set it all up easily. Is that correct?
+
+Speaker 4  31:18  
+It's three things in my opinion. One's the user interface. Two is the orchestration aspect that I talked about earlier of how do we send this to the submission API and various other things that handle that, and then third is the review process that's accompanied out of that follows this of how do we push this into Salesforce for an auxiliary screen with the content intervals and the required elements and all those things that come back, and also that there's if we wanted to extend it to other applications outside of Salesforce, yeah, there's a flexibility. Yes, yeah, there. It's not. It's totally agnostic to in system one process. Yeah. Sorry, Chase.
+
+Speaker 1  31:49  
+No, obviously. I mean, what Cliff's asking is like the question that I think is important to brought up. Like, what's it instead of getting an LLM and then giving instructions on each thing that you have fired over? It really is that orchestration piece that we've been talking a lot about. We said this on our very first call with you all. If you want to go, I'm going to put Jackie Q into right now and want to put it in any document and ask questions. But that's the easy part. The easy part is the extraction. The harder part is all the elements around the extraction of the confidence intervals. The routing to the correct systems is by far the where we've seen most projects stall, and and that's why companies come and talk to us as the retrieval news.
+
+Speaker 4  32:19  
+Yeah, I guess pre-processing too, breaking apart documents consistently classifying things. Yep. So
+
+Speaker 3  32:24  
+the confidence interval. So you're just asking the LLM to give you its confidence interval back, right? Sure. Okay.
+
+Speaker 1  32:32  
+Notice 12. Was there anything else? So from the PUC perspective, depth-wise, we showed we showed the success criterias that we wanted to cover here. I think that was amazing, and I could show it in Salesforce, but I think he gets the point. Yeah, and the only other part to Matt's point is the orchestration piece. So in the initial POC, we did the orchestration based on the type of form that came in. So if it said this form or this therapy, then we go to this org. From working with the team, the notion was, hey, we actually will have that based on the fax number that it comes in from, and so there's no parsing needing to be done from from that sense, and it would go into the target Salesforce org and then attach that as a file inside Salesforce org, so that way that that is kept on the case record itself. I guess one other thing that's worth mentioning. I was going to pop any questions around like the actual attachment Salesforce part or kind of the the downstream effect for the sake of this, but certainly we wanted to focus more kind of like the review elements. You can see how it works, but the actual overriding process is obviously pre dependent on the fact that you have your multi-art architecture, so there is some complexities done to that, and so that was actually, I would say, majority of the work that was initially done was making sure that that routing was done correctly.
+
+Speaker 4  33:31  
+Only other thing I'll mention, because we have relationships with all of these different vendors, OpenAI, Gemini, Anthropic, we keep everything up to date for the latest and greatest. You don't get locked into a specific model or set of models, so you can switch and choose at all times. It does not rely on you having relationships with these. This is stuff that we bring to the table.
+
+Speaker 7  33:47  
+Is that something we would have? You would tell us, and then we would update on our side, or is that just something pushed?
+
+Speaker 4  33:51  
+Pushed, pushed. It won't update your specific. So the updates here on the screen change and are pushed. If you have a model using 5.1 and 5.2 comes out, it does not auto switch you over, but he promised you that if you like to, there's a new model.
+
+Speaker 7  34:03  
+Is my crude analogy here, but like it's like a an iPhone update. Yeah, yeah. Do you want to update?
+
+Speaker 1  34:08  
+Yeah. Okay. Unfortunately, well, it's pushed your organ in your environment, but then you have to like social change your data. But it isn't like you have to like press restart and wait 24 hours. Yeah, it's like it's just update the model and keep still. It's multi-tenant.
+
+Speaker 6  34:19  
+I don't know. You said there are certain models that are better at things like handwriting. Does that mean that, like,
+
+Speaker 10  34:23  
+like
+
+Speaker 6  34:23  
+how would I know? Like beforehand, I don't know what's handwritten until I have
+
+Speaker 7  34:25  
+it. Well, for insurance cards, right? Right. It's always going to be one. Yeah.
+
+Speaker 6  34:28  
+So we know that based on the first round of document type classification, right? Yes. But then after that, do we just assume every enrollment is good at handwriting? Is
+
+Speaker 4  34:34  
+typically good at written. So I think that's one part we're saying. That's just all this. The best one. For like for insurance, for example, for patient enrollment forms. You should always be able to assume it gets handwritten, and it'll be fine if it's not. It'll be fine if it's not. But by the way,
+
+Speaker 1  34:45  
+and we miss you always define right now. And it's a speed thing, so I think and for you all, it doesn't matter. But there's no reason since you're not covering for the models. But sometimes also the better models can overthink, and so that's why it's not just straight to us. Like I really look at the thought of like the reasoning. So if you're asking that question to say mouse waterfall example where you're looking at the different like that in case one interpretation you wanted to spend more time then that would be a great example using a higher following model but you're asking where to track you feel you always need the so we can really use case where we didn't want to actually appreciate and use different model
+
+Speaker 4  35:13  
+yeah you need the trade off I was using Claude a couple nights ago to build something pretty complicated I had fractioned off the like speed versus complexity part of the model. Now I asked the question like, "Can you explain some like golf turn to me? It took like 45 seconds to answer because I tried to complexity. You don't always want the complex models and be right. Yeah, yeah,
+
+Speaker 2  35:30  
+that makes sense. Janet, you're using the grad input. Also, Cliff, just you know, Janet is the lead automation architect from our professional services team here. Janet, do you need more input to add on top of what we talked about with, I guess routing to the appropriate models based on the complexity of the process, or is it pretty self-explanatory?
+
+Speaker 11  35:49  
+Sorry, I didn't realize I had to set the because of the recording. But no, no, no, no worries. Nice to meet all of you. And yes, I got the question. Yes, I think we could we can definitely route based on complexity and things like that. Any other questions? Thoughts?
+
+Speaker 3  36:04  
+I mean, I have some questions on the pricing, but make it sound like you guys already had a meeting on that.
+
+Speaker 2  36:09  
+Yeah, we're working on some some details right now. Still with that. I guess my
+
+Speaker 3  36:13  
+question is like the granularity of how it's priced. Like, is it priced by the fields that we're extracting, or by tokens used, or by documents processed, or pages, or those types of things? You can send it over later if it's all like well documented, and I'll just review that.
+
+Speaker 2  36:24  
+Yeah, I mean it's pretty narrowly some thinking or it's odd. It's two main factors: it's the number of documents that we're processing. But keep in mind, if we are classifying a document and also extracting field submit, that would typically count as two runs for a certain page, which for your use case is going to be mandatory because we have to classify whether it's a copay form or enrollment form. So that's the number of total documents that we have. Zach's provided an estimate of the faces that you've received. We're going to bake in a buffer for expected growth in year two and three. That I think it's that's going to be important. The second factor after the number of pages is the integration flows. Mac can go on over top of the specifics, but it's really just the amount of fields that we're sending into a downstream system like Salesforce.
+
+Speaker 4  36:58  
+Yeah, I got one of you today. It's not going to be massive, at least for me, because on the registration side. Alright, we tapped So really, just a number. It's number of pages processed by the the model. Just number of pages.
+
+Speaker 3  37:09  
+Okay, and then when if we're choosing a particular model that your system's using, like, is it using that like in like extra like high like medium like what level of or or no?
+
+Speaker 4  37:19  
+There's no choice. If you choose the model and the credit usage is the same whether you use the simplest or the most expensive model, we eat those costs. So that's not something that gets passed on. It's a it's a consistent per page dollar or per page on how it's priced, regardless of the model.
+
+Speaker 3  37:33  
+I see. But within a particular model, like I'm using like Opus 4.5, can I choose different intensities of how how much it processes it or what? Which I don't believe
+
+Speaker 4  37:41  
+so, Janet. That might be a more granular question for you. Is like if you're using it on cursor or something, you can choose medium complexity high low. How does that relate to IDP?
+
+Speaker 11  37:49  
+So unfortunately, like you said, Matt, there's no way to actually set the thinking. I mean, like thinking or you know low effort things like that on the model. That's already pre-configured when you set it. But we can probably check back and see if there is a way to maybe add that layer into IDP and allow us to select like a high versus low model. But right now there isn't one, so it's it's mostly all of them are set to high as far as I know. But we'll have to confirm and come back for that.
+
+Speaker 3  38:09  
+Yeah, if you could let me know like what they set up, that would be good. Okay, thanks. Thanks, Bush. Yeah, and then when you send over the documents, can you also just send like what the responses were from your process, and then like what you use just the truth?
+
+Speaker 4  38:21  
+Yes. I can, I can, I can figure out the best way to send you the a subset of the hundreds and hundreds of the ones I did. I tested hundreds and hundreds of documents, so or hundreds of runs. So I'll, I'll figure out a way to. Wait, wait, what?
+
+Speaker 3  38:35  
+Yeah, can you explain that more?
+
+Speaker 4  38:36  
+My understanding, your ass is like the truth versus the what the model sent back sends you the results of that.
+
+Speaker 3  38:42  
+When you said you tested hundreds of runs, though, when you said, what did you mean? Do you mean like you were changing the prompts in between, or you just meant different sets of documents that you ran through?
+
+Speaker 4  38:49  
+I ran each document through between 10 and 20 times to account for variations in what the model sent back. It was rare, but just to make sure. So I can I can send out I can take apart a couple of the runs and send them your way and show you like what came back versus what I said is the ground truth in my testing app.
+
+Speaker 3  39:03  
+Got it. So when you were choosing your accuracy numbers, how did you calculate those? Given that you did multiple runs,
+
+Speaker 4  39:07  
+averages between the runs. So it would be pointed if I can pull up my testing app. I don't think I have it running.
+
+Speaker 2  39:14  
+We want to dive into it. We can always just have a ball for like later this week to go into some more the testing methodology you use.
+
+Speaker 7  39:19  
+I do want to get into. I do want to make sure we type a knot on some of the stuff. Sure.
+
+Speaker 9  39:23  
+Yeah.
+
+Speaker 3  39:24  
+Okay.
+
+Speaker 4  39:24  
+It's a good question. I have a testing app that I built. I can run through and show you what actually came back for every single run. Absolutely. Okay. If it works for you, maybe we set up a couple minutes, and I'll just run you through what that looks like.
+
+Speaker 3  39:34  
+Okay. Yeah, that sounds good. Send me an email. I'll like coordinate your time.
+
+Speaker 4  39:35  
+Cool. Boom. I know there's chatter in here, but I think they're trying to talk through.
+
+Speaker 3  39:43  
+Did you have any other questions on what was shown? No, I'm good. Was there anything else that was relevant to me on this call? Then I'll jump off.
+
+Speaker 4  39:48  
+I think you're good. Thank you for the time. You see it. Thanks. Thank you. Thanks.
+
+Speaker 3  39:52  
+Okay.
+
+Transcribed by https://otter.ai
