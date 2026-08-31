@@ -27,9 +27,9 @@ ENVS = {
 }
 
 TEMPLATE_FILES = [
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-default.yaml",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-max-clause-test.yaml",
-    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-reduced-tiers.yaml",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/updated_20260831/search-default.yaml",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/updated_20260831/search-mc-tiers-nameb.yaml",
+    "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/updated_20260831/search-mc-tiers-dobb.yaml",
 ]
 LOG_FILES = [
     "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs/larger/bhub-a.csv",
@@ -43,7 +43,8 @@ LOG_FILES = [
 ]
 RESULTS = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
 
-SIZE, TIMEOUT = 100, 120
+SIZES = [10, 20]
+TIMEOUT = 120
 NAME_THRESHOLD = 0.85
 SERVICE_SIZE_FIELD = "size"
 DEDUPE = True
@@ -194,7 +195,7 @@ def load_template(path):
                 scal["{{" + m.group(1).upper().replace("-", "_") + "}}"] = m.group(2).strip()
     else:
         tpl, scal = txt[txt.index("{"):], {}
-    scal.setdefault("{{SIMILAR_SIZE}}", str(SIZE))
+    scal.setdefault("{{SIMILAR_SIZE}}", str(max(SIZES)))
 
     for m in list(NESTED.finditer(tpl))[::-1]:
         fld, s = m.group(2), m.start()
@@ -246,7 +247,7 @@ def strip_ph(n):
         for i, v in enumerate(n):
             if isinstance(v, str): n[i] = PH.sub("", v)
             elif isinstance(v, (dict, list)): strip_ph(v)
-def build_dsl(tpl, f, scal):
+def build_dsl(tpl, f, scal, size):
     s = tpl
     for p, v in scal.items(): s = s.replace(p, v)
     p = dict(f)
@@ -256,13 +257,13 @@ def build_dsl(tpl, f, scal):
     s = PH.sub(lambda m: p.get(m.group(1)) or m.group(0), s)
     s = re.sub(r'"size"\s*:\s*"(\d+)"', r'"size": \1', quote_bare(s))
     s = re.sub(r",(\s*[}\]])", r"\1", s)
-    q = json.loads(s); prune(q); strip_ph(q); q["size"] = SIZE; q["track_total_hits"] = True
+    q = json.loads(s); prune(q); strip_ph(q); q["size"] = size; q["track_total_hits"] = True
     return q
 
 def build_service(f, client_id):
     has_name = any(f[k] for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME"))
     method = "identifierSearch" if (f["ANUMBER"] or f["RECEIPT"]) and not has_name and not f["DOB"] else "advancedSearch"
-    b = {"page": 0, SERVICE_SIZE_FIELD: SIZE, "clientId": client_id, "searchMethodType": method}
+    b = {"page": 0, SERVICE_SIZE_FIELD: size, "clientId": client_id, "searchMethodType": method}
     nm = {k: f[v] for k, v in (("first", "FIRSTNAME"), ("middle", "MIDDLENAME"), ("last", "LASTNAME")) if f[v]}
     if nm: b["names"] = [nm]
     if len(f["DOB"]) == 8: b["dobs"] = [{"dob": f"{f['DOB'][:4]}-{f['DOB'][4:6]}-{f['DOB'][6:]}"}]
@@ -384,7 +385,7 @@ def post_with_retry(url, headers, body):
             time.sleep(RETRY_BACKOFF_S * (2 ** attempt))
     return last, MAX_RETRIES
 
-def call(run, f, tpl, scal):
+def call(run, f, tpl, scal, size):
     t_start = time.time()
     try:
         if run["path"] == "service":
@@ -398,7 +399,7 @@ def call(run, f, tpl, scal):
             counts = (len(ex), len(sim))
             tot = sum((j.get(k) or {}).get("totalElements", 0) or 0 for k in ("exactMatches", "similarMatches"))
             return ppl, tot, r.status_code, "", j.get("clientId"), method, counts, round((time.time()-t_start)*1000)
-        body = build_dsl(tpl, f, scal)
+        body = build_dsl(tpl, f, scal, size)
         qh = hashlib.md5(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
         r, _ = post_with_retry(run["url"], run["h"], body)
         if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, qh, (0, 0), round((time.time()-t_start)*1000)
@@ -459,7 +460,7 @@ if not REUSE_RAW_CSV:
     pf = []
     for r in runs:
         t = tpls[r["tpl"]]
-        res, tot, st, err, cid_back, _, _, _ = call(r, probe, t["tpl"], t["scal"])
+        res, tot, st, err, cid_back, _, _, _ = call(r, probe, t["tpl"], t["scal"], max(SIZES))
         note = ""
         if err:
             note = "CALL FAILED"
@@ -506,18 +507,19 @@ if not REUSE_RAW_CSV:
         cases = [x for v in by_c.values() for x in v[:SAMPLE_PER_CONSUMER]]
         print(f"Sampling {SAMPLE_PER_CONSUMER} per consumer -> {len(cases)} searches")
 
-    tasks = [(c, run) for c in cases for run in runs]
+    tasks = [(c, run, size) for c in cases for run in runs for size in SIZES]
     total = len(tasks)
-    print(f"{len(cases)} searches x {len(runs)} runs = {total} calls, {CONCURRENCY} at a time")
+    print(f"{len(cases)} searches x {len(runs)} runs x {len(SIZES)} result sizes {SIZES} "
+          f"= {total} calls, {CONCURRENCY} at a time")
 
     done = [0]
     t0 = time.time()
 
     def do(task):
-        c, run = task
+        c, run, size = task
         f, pid = c["f"], c["pid"]
         t = tpls[run["tpl"]]
-        res, tot, st, err, cid_back, method, counts, ms = call(run, f, t["tpl"], t["scal"])
+        res, tot, st, err, cid_back, method, counts, ms = call(run, f, t["tpl"], t["scal"], size)
         top = res[0] if res else None
         ids = [r["id"] for r in res if r["id"]]
         unique_ids = sorted(set(ids))
@@ -542,6 +544,7 @@ if not REUSE_RAW_CSV:
                 "log_results_listed": c.get("log_results_listed"),
                 "log_search_method": c.get("log_search_method"),
                 "template": run["tpl"], "environment": run["env"], "path": run["path"],
+                "requested_size": size,
                 "template_used": cid_back if run["path"] == "service" else run["tpl"],
                 "identities_returned": len(ids),
                 "unique_identities_returned": len(unique_ids),
@@ -600,7 +603,7 @@ def pct_col(num, den): return (100 * pd.to_numeric(num, errors="coerce") /
                                pd.to_numeric(den, errors="coerce")).round(1)
 
 score = []
-for (e, t, p), s in long.groupby(["environment", "template", "path"]):
+for (e, t, p, size), s in long.groupby(["environment", "template", "path", "requested_size"]):
     failed = int((s["error"] != "").sum())
     s = ok_rows[(ok_rows["environment"] == e) & (ok_rows["template"] == t) & (ok_rows["path"] == p)]
     if not len(s): continue
@@ -610,7 +613,7 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
         pool = set()
         for v in g["returned_ids"].dropna():
             pool.update(x for x in str(v).split(",") if x)
-        score.append({"environment": e, "template": t, "path": p,
+        score.append({"environment": e, "template": t, "path": p, "requested_size": size,
                       "search_criteria": crit,
                       "searches": n,
                       "identities_per_search": round(u.sum() / n, 1),
@@ -628,11 +631,11 @@ for (e, t, p), s in long.groupby(["environment", "template", "path"]):
                       "failed_calls_excluded": failed if crit == "ALL CRITERIA" else None})
 scorecard = pd.DataFrame(score)
 scorecard["is_total"] = scorecard["search_criteria"] == "ALL CRITERIA"
-scorecard = scorecard.sort_values(["environment", "template", "is_total", "searches"],
-                                  ascending=[True, True, False, False]).drop(columns=["is_total"])
+scorecard = scorecard.sort_values(["environment", "requested_size", "template", "is_total", "searches"],
+                                  ascending=[True, True, True, False, False]).drop(columns=["is_total"])
 
 pairs = []
-for (env, path), g in ok_rows.groupby(["environment", "path"]):
+for (env, path, size), g in ok_rows.groupby(["environment", "path", "requested_size"]):
     sets, tops = {}, {}
     for _, r in g.iterrows():
         sets.setdefault(r["search_key"], {})[r["template"]] = set(
@@ -657,7 +660,8 @@ for (env, path), g in ok_rows.groupby(["environment", "path"]):
                 elif len(sb) < len(sa): fewer_b += 1
                 else: same += 1
             if not n: continue
-            pairs.append({"environment": env, "path": path, "template_a": a, "template_b": b,
+            pairs.append({"environment": env, "path": path, "requested_size": size,
+                          "template_a": a, "template_b": b,
                           "searches_compared": n,
                           "identities_per_search_a": round(na / n, 1),
                           "identities_per_search_b": round(nb / n, 1),
@@ -673,7 +677,7 @@ for (env, path), g in ok_rows.groupby(["environment", "path"]):
                           "neither_returned_anything": both_empty})
 template_overlap = pd.DataFrame(pairs)
 
-by_file = (ok_rows.groupby(["source_file", "consumer", "environment", "template", "path"])
+by_file = (ok_rows.groupby(["source_file", "consumer", "environment", "requested_size", "template", "path"])
              .agg(searches=("unique_identities_returned", "size"),
                   total_identities=("unique_identities_returned", "sum"),
                   median_identities=("unique_identities_returned", "median"),
@@ -684,12 +688,12 @@ by_file = (ok_rows.groupby(["source_file", "consumer", "environment", "template"
              .reset_index())
 by_file["identities_per_search"] = (by_file["total_identities"] / by_file["searches"]).round(1)
 
-file_grid = by_file.pivot_table(index=["source_file", "consumer", "environment", "searches"],
+file_grid = by_file.pivot_table(index=["source_file", "consumer", "environment", "requested_size", "searches"],
                                 columns="template", values="median_identities").reset_index()
 
-criteria_grid = (ok_rows.groupby(["search_criteria", "environment", "template"])
+criteria_grid = (ok_rows.groupby(["search_criteria", "environment", "requested_size", "template"])
                    ["unique_identities_returned"].median().reset_index()
-                   .pivot_table(index=["search_criteria", "environment"], columns="template",
+                   .pivot_table(index=["search_criteria", "environment", "requested_size"], columns="template",
                                 values="unique_identities_returned").reset_index())
 
 uniq = ok_rows.drop_duplicates("search_key").copy()
@@ -752,7 +756,7 @@ if len(template_overlap):
         print("\nEvery template pair returned the same top hit on every search compared.")
 
 if "response_ms" in ok_rows:
-    timing = (ok_rows.groupby(["environment", "template", "path"])["response_ms"]
+    timing = (ok_rows.groupby(["environment", "template", "path", "requested_size"])["response_ms"]
               .agg(calls="size", median_ms="median",
                    p95_ms=lambda x: float(x.quantile(0.95)), max_ms="max").reset_index())
     print("\nRESPONSE TIME")
@@ -794,7 +798,7 @@ with pd.ExcelWriter(out, engine="openpyxl") as xl:
             "search_criteria", "criteria_count", "identifier_count", "search_method",
             "log_returned", "log_identity_id", "log_dob", "log_search_method",
             "log_total_identities", "log_results_listed",
-            "environment", "path", "template_used",
+            "environment", "path", "template_used", "requested_size",
             "identities_returned", "unique_identities_returned", "duplicate_ids_in_result",
             "distinct_alien_numbers_returned", "distinct_receipt_numbers_returned", "response_ms",
             "returned_one_only", "returned_none", "total_hits", "exact_matches", "similar_matches",
