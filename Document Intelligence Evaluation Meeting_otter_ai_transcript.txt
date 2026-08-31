@@ -1,0 +1,427 @@
+Speaker 1  0:01  
+All right, so went back in, converted all these into scanned-ish documents. So there's no widgets whatsoever in these documents here, and I went through, and obviously you can see they have like the signature here and here, right? So I redid the LLM portion of this to be able to identify whether a signature was identified or not. Field validation. Let me see where this is. Okay, yeah. So I did a field. So there's two passes, right? There's the there's the classification model that classifies each page as either it is a form or not, right? We have that bit, which right now that's sitting around 96 percent, and then we have the field level validation. Now, I will say the field level validation wasn't great. It's 76% and I think from yesterday's Salesforce call, I think they they said they're getting around 90 something percent field field valid 96 or something field level, but some of these are higher than others. So, and again, these are these field levels is exactly kind of what it says. You know, like for example, like I was just filtering on this guy right here, and like this this is considered a miss right here. So if you look at this document, let me see if I can make this more readable. Let's trim this down where we can see these like side by side. Okay, so you see, ground truth is Devon R Ashcraft, which is, you know, kind of what you see here for the for for the name, or actually the full the first name. The LLM extracted Devon, so it did not include the R dot.net, or I'm sorry, the R dot, but in the full name, see where it says m.it. looks like it's kind of it may be picking up this here, so you can see kind of where it missed.
+
+Speaker 2  2:32  
+Yeah.
+
+Speaker 1  2:33  
+So I went through and I said okay, because right now we're I'm only using like the LLM vision right here, and I wanted to stack it up against Document Intelligence to see how
+
+Speaker 3  2:46  
+it
+
+Speaker 1  2:47  
+compared. And so, I compared these two together, and ironically, Document Intelligence is significantly worse, like way bad worse.
+
+Speaker 2  2:58  
+Yeah, I mean, I'm not surprised because it seemed like Salesforce just converted their whole process to like a vision model. Yeah, yeah.
+
+Speaker 1  3:09  
+So document intelligence is definitely yeah. Document Intelligence is bad, and did they? I I got to go back and look at the video, the recording. But for what I gathered, I couldn't gather like what their POC actually, what LLM they were using for their OCR. I know they said it was a vision model, but I'm not sure which one.
+
+Speaker 2  3:31  
+I do have that. I do have that. Yeah. One second. They said it, and I wrote it down. So let me just so you don't have to like find where they said it very quickly in that video. Let me. It is in the video, but like you don't need to like go digging. So let me find it for you. Okay. So the first model that he uses, or maybe they didn't say it. Maybe they flashed it on the screen, and I and I saw it is what it was, and then we talked about it, though. Yeah. So one model that they use is Gemini Flash 3.5, is their favorite model.
+
+Speaker 1  4:07  
+Okay.
+
+Speaker 2  4:07  
+And their second favorite model, he said, is Claude Sonnet 4.6.
+
+Speaker 1  4:15  
+Okay.
+
+Speaker 2  4:16  
+And it sounds like they use them at like very high reasoning levels.
+
+Speaker 1  4:20  
+Well, I mean, if they're getting 96% field level matching, that's that's pretty damn good.
+
+Speaker 2  4:26  
+Yeah, what I'm saying is, like, you know, I don't know how you do it in the API, but you know how you can scale the yeah, yeah. They, it sounded like he said they have it turned all the way up.
+
+Speaker 1  4:36  
+And did they say? Looking back at my notes. I didn't really understand why they were running their documents 10 to 20 times or running them twice. Through did you did you understand that? Like I didn't get a really good answer on that one. Like, are they running multiple LLMs? Because they they were they said they they ran the same document multiple times, right? Yeah,
+
+Speaker 2  5:06  
+and so that was what was weird to me because I was like, wait, are you just like jacking your numbers by finding the one that come out? Right. Yeah,
+
+Speaker 1  5:15  
+that's kind of what I'm thinking. Like, so but then
+
+Speaker 2  5:18  
+but I interested in that, and you said no, they're showing us the average.
+
+Speaker 1  5:22  
+It still doesn't make sense to me, though. Like, I can I can understand. Okay, this run we use this LLM. You said like Gemini. This one we're using Sonnet. This one we're using this, and then we're just picking whichever one's best. But in the real world, when you have to like, that's for like just selecting the best one, right?
+
+Speaker 2  5:45  
+Did you see the prompts they were giving?
+
+Speaker 1  5:48  
+No. Well, they had like screenshots of the prompts. I've got to go back and do some maybe some screenshots. Here, wait,
+
+Speaker 2  5:55  
+wait. Let me send you something. One second. One second. I took some screenshots. You can look at those, but like the video probably has more things that I missed. But one second.
+
+Speaker 1  6:08  
+But clearly, from what I, and this is the reason why I switched from document intelligence to vision model, vision LLM. And by the way, we were using document intelligence for our OCR for the CMS process right before. So, so no wonder we weren't getting great results there. But when I went and tested this vision model, this vision LLM, because I was looking at this at 76% and thinking, okay, maybe document intelligence is better, and it turned out not nowhere near.
+
+Speaker 2  6:42  
+Yeah, yeah, that makes sense. So let me just do this. Give me one second.
+
+Speaker 1  7:03  
+And they're also using the LLM for classification too, right? And now they're they're classifying by drugs too, like drug brand. No,
+
+Speaker 2  7:12  
+they were not. They were not.
+
+Speaker 1  7:13  
+Oh, they were not. That
+
+Speaker 2  7:14  
+that I was grilling them on that and saying, were you classifying by drugs or what were you doing? And they were saying no. Their class-they were just classifying like an insurance card versus a welcome, or an insurance card versus like an enrollment form. And they had like four other things, and Cobay claims and stuff like that. So here, let me get you.
+
+Speaker 1  7:47  
+I mean, I can go back and look at the video again. I just did a first pass this morning at
+
+Speaker 2  7:52  
+it. Yeah, yeah, that's fine. That's fine. I'll get you a. But let me give you my notes anyways, because that'll get you started as well.
+
+Speaker 1  8:03  
+Yeah, because I tried to join on the phone, but no one no one let me in.
+
+Speaker 2  8:09  
+Oh, were you joining the Google Meet or the
+
+Speaker 1  8:18  
+No. Yeah, the Google Meet one. I tried to join. Oh yeah,
+
+Speaker 2  8:21  
+that was the wrong one. Did I not? Maybe. Oh. Well, before
+
+Speaker 1  8:26  
+before I left, I I I got the URL and everything. I was like, okay, I can just use my phone for it. But then I just sat there and no one let me in. So.
+
+Speaker 2  8:34  
+Oh yeah. So I couldn't get in right away either. And eventually they gave. I thought they copied you, but maybe they did. In any case, it doesn't matter. You have the video, but it was a Teams video instead. Oh, okay. So they so they gave us the wronging footage.
+
+Speaker 1  8:50  
+So did you? So I just
+
+Speaker 2  8:51  
+gave you the screenshots of Salesforce stuff that I got from that meeting.
+
+Speaker 1  8:56  
+Where did you put it? I don't see it.
+
+Speaker 2  8:58  
+In chat. In in like our chat, just the two of us, not this mean chat.
+
+Speaker 1  9:03  
+Oh, okay, got it. Okay, cool. Um, but I mean, even 76% I mean, isn't great. But I mean, I'm still I'm still analyzing this and trying to figure out like how this like so for example like this this is a little miss but a lot of these are just blank like where the data is present and it just it just flat out missed
+
+Speaker 2  9:35  
+it. Well, what prompt are you using to get it?
+
+Speaker 1  9:38  
+Uh, it's 3.4 GPT.
+
+Speaker 2  9:41  
+No no no no. When you when you prompt the, what are you doing with the LM? Are you doing getting the LLM and saying, like, what are what prompt are you giving alongside the image? That's what I'm
+
+Speaker 1  9:51  
+saying. Like, it's very basic prompts, so the prompts definitely need to be improved.
+
+Speaker 2  9:57  
+Yeah. So, like, the thing that they're saying is their approach is they write a prompt and they don't care what the enrollment form is. There's just like a prompt on how to get the patient name from enrollment form. Now I'm kind of like, well, maybe once you have certain types of enrollment forms that don't work well, then you might need to adjust your prompt so it can handle those types of enrollment forms or whatever. So it can't like there's definitely learnings you can have by using the different forms, but they don't have any like forms that are like as a like golden record form for the model and all. They just give it a thing and and some text. Well, how do they
+
+Speaker 1  10:39  
+how are they getting that confidence interval that they were talking about then?
+
+Speaker 2  10:44  
+They're getting it from the LLM.
+
+Speaker 1  10:48  
+That's ass backwards. I'm sorry, but the LLM's telling you how confident it is. A
+
+Speaker 2  10:53  
+lot better than that because we can do more things. But I'm saying that's what they're saying is all they're doing. So I'm saying that's so easy. Let's also just build what they're doing, because that's like so fast for us to build, and then go from there to make it better.
+
+Speaker 1  11:07  
+Yeah, yeah. Because I mean, like like I said, I mean, I'm already there. I'm 76% accurate right now without any really doing anything earth-shattering special.
+
+Speaker 2  11:21  
+Yeah. So wait. Let me let me pull this up again. So give me one second. So what accuracy were they saying? They were saying. I mean, of course, they had different forms than you have, and they had a lot of handwriting, by the way.
+
+Speaker 1  11:40  
+Yeah, and they also said like it did better on the handwriting than it did. Did I misread that?
+
+Speaker 2  11:47  
+No, no, I think you misread that. 97.1% handwritten, 100% typed. Oh, okay. But still, 97. But they're actually saying a lot higher success. the The confidence interval they said is not real like that confidence interval of of 80% Well, it doesn't mean what you think it is. Is what they said. Confidence interval of 80% doesn't mean that it's right 80% of the time. They said when they said the model thinks when the model gives you an 80% confidence interval, it's right 99% of the time. They said.
+
+Speaker 1  12:22  
+I don't know. Like it's hard for me to wrap my brain around. If you're not using a golden set, like how does it? How is it even judging?
+
+Speaker 2  12:30  
+Well, basically, what? No, no, no. They have a separate way to judge. They, they, they do have the the the way to judge it. What I'm saying is, there isn't a golden set used for training. They just use that for valid for validating it, so literally all they're doing is I mean once they do the classification, all they're doing is they're dropping in the form and prompts like here look there. I tried to take screenshots of the different prompts. So so there's a grounding prompt that you can use for it overall, which applies to all fields, and then for each field, you write what you want, like patient okay to leave detailed message, and then you write a prompt. And so their tool comes
+
+Speaker 1  13:13  
+with a UI to help build the prompts. Is that what?
+
+Speaker 2  13:15  
+Yeah, yeah. So so that's basically what it does. But like we can just do this, right? Like we don't need to. We don't need the new line
+
+Speaker 1  13:21  
+for it. Yeah,
+
+Speaker 2  13:22  
+yeah, yeah. So I don't know if they send it through like one time with all. They probably like take all these different things and say these are all the fields, and here are your instructions for each of the different fields in order to get this right. And I don't know if they like add some other prompt engineering on the backend that's hidden. That on top of this some other instructions, but they told me they don't. So here, like here, here's one. Like I don't even know what field this is, but because I didn't get that in the screenshot. But part of this important rules: choose exactly one category if the page is mostly blank or contains only instructions or legal text classified as non-data page. If there's any actual non-patient specific like like stuff like this, like for this claim form, and you can probably look through the video and get more than I captured here in these screenshots if you keep pausing it. But like, oh, this is the classification. So this is. Oh wait, no. Is this? Oh, this is still part of the classification, actually. So they have like they had a really long prompt for the classification that they were scrolling through, and they drop, and then but then for the fields that they were getting, let me find it. Thought I was getting. Oh, maybe it's up more classification. So this is the long prompt for cat classification. Here, medical insurance company. Find and return the name of the medical slash primary insurance company. That's it, right? I imagine there's probably even better prompts you can make over time, but like provider facts. Extract the provider's fax number exactly as handwritten. Yeah, the video. They were scrolling through it fast, so the video will have more. If you want to see what they did on other prompts,
+
+Speaker 1  15:23  
+yeah, I was going to go back and and take a look at that. My only problem right now is is that I because I don't have access to our our Azure subscription still, I can't change the LLM model to test with the API. Oh,
+
+Speaker 2  15:40  
+really? So, what model are you using?
+
+Speaker 1  15:44  
+Just the one that we used before with the CMS one. I mean, because I don't have access to go in and change it. It's still that GPT. It's still that GPT four.
+
+Speaker 2  15:56  
+Oh, do we have a better? Wait. Okay. Let's solve that.
+
+Speaker 1  16:02  
+I mean, the bottom line is, I got to get access to that subscription, and we've been waiting on Alex to get. Like, I don't know. Until I can get access to that and be able to to to go in and change it, I I'm sort of stuck with what we got.
+
+Speaker 2  16:17  
+Okay. Does that make sense? When was the last time you messaged him about it?
+
+Speaker 1  16:21  
+This was. what is today. Today's Thursday. This was Tuesday, so let's ping him again and let me this maroon guy. This is just taking too long, but yeah, I have to get access to that subscription so I can try these different models that that the. Hey Alex. Yep. Hey guys, let me
+
+Speaker 3  16:50  
+pick this up on the computer. One second.
+
+Speaker 1  16:52  
+Okay.
+
+Speaker 2  16:58  
+What else do you? What other access don't you have, Josh? Besides
+
+Speaker 1  17:02  
+that. And I still don't have access to the the actual documents, the PDF documents. So those two things mainly. But yeah, so right now because I don't have access to the Azure subscription for that we that we built this CMS one for, I I can't change it. I can't I can't update the models. I can't do anything.
+
+Speaker 2  17:25  
+Hey guys. Hey. So can you put the two ticket numbers in here, Josh? And then we're still working on getting Josh access for these tickets from a while ago that we were messaging you about, and we're just trying to figure out how to how to get that done. So, like, I don't know whether if I saw you,
+
+Speaker 3  17:44  
+was that Josh? I thought you were at it already. You weren't at it, or you weren't given access.
+
+Speaker 1  17:49  
+Yeah, let me just double check. I mean, I've never received any kind of notification or anything. But let me let me just double check again.
+
+Speaker 3  17:59  
+Hold on a second. You know, I I hate that I my hands are kind of tied here because I don't have the access to do anything, so I have to rely on others to do the work. One second, while we're talking.
+
+Speaker 1  18:13  
+Yeah, it still says unauthorized. Hang on
+
+Speaker 3  18:17  
+a second.
+
+Speaker 1  18:17  
+Let me let me see here. So this is this is the subscription right here, and I need I need access into the subscription, so I can go in and add change these APIs that we're using for Azure OpenAI and for Blob Storage. Right now I can't. So anything in this subscription, I can't see. I can't see blob storage. I can't see any of our OpenAI services that we're using. Is this insufficient privileges to see the billing data. I wonder what that means.
+
+Speaker 3  19:03  
+So, so according to Kareem, Kareem is one of the DevOps engineers. You, you, per compliance, they will not approve your access until you are up to date on all your no befores. What is your training? What no before K N O W B E and the number four. So compliance is keeping you from getting access until you do all your. How do you spell that? Or training. Oh, K N O W like I O E
+
+Speaker 1  19:40  
+N O W.
+
+Speaker 3  19:46  
+Yeah, see what authorized use of disclosed protect. Yeah, you. If you click on one of them, pick pick one. I just completed one today.
+
+Speaker 1  20:00  
+I mean, I get the I get these all the time, and I click on them, and I most of them you just click through, and then
+
+Speaker 2  20:04  
+maybe maybe it's it's easy to miss one. Why don't you go back and hit the back arrow there and see how many you have? Under death. No, no, no, not there, not there, not there.
+
+Speaker 1  20:12  
+Oh, my bad.
+
+Speaker 2  20:13  
+Within within the thing. Oh, here you go. You found it. You found it. Okay.
+
+Speaker 1  20:16  
+Okay.
+
+Speaker 3  20:19  
+Oh, if you just click dashboard all the way on top. Oh, these are all the ones you have to do. Overdue, five days left. E 14. Yeah, you have to do all of those.
+
+Speaker 1  20:27  
+Okay, so that's what's holding us up.
+
+Speaker 3  20:29  
+Yeah. As soon as you do, you yeah, you just next, next, next, down arrow. I accept. Yeah.
+
+Speaker 1  20:35  
+I mean.
+
+Speaker 3  20:36  
+You read so fast.
+
+Speaker 1  20:40  
+No one saw that.
+
+Speaker 3  20:42  
+Yeah, I'm sorry. I'm sorry. As soon as this, as soon as you're done, compliance will give you the green light, and Kareem, who's a DevOps engineer, will give you the access. All right. Well, it looks like he's going to be done in seconds here. Yeah. In
+
+Speaker 1  20:58  
+record time.
+
+Speaker 3  20:59  
+Clifford, I'm sorry, man, and Josh, I'm sorry. They're sticklers. I, I, I have to, I have to go by compliance.
+
+Speaker 2  21:10  
+Okay, that fraud, waste, and abuse one. It looks like he probably needs to do this training, which you can do today, Josh. But that's not even due for 19 days, so he's up to date now. Yep. Um.
+
+Speaker 1  21:23  
+Don't worry
+
+Speaker 3  21:25  
+about the environmental policy, and there may be some others.
+
+Speaker 1  21:28  
+You have.
+
+Speaker 2  21:29  
+Yeah, the only one that's left is the one that's due in 19 days. Okay, let me let him know. Did somebody message Josh to tell him that that's why we weren't? He wasn't getting access.
+
+Speaker 3  21:39  
+Yeah, I thought Kareem Kareem mentioned it in a Teams chat. I believe you guys had with him, and I think I mess mess may have said something a few days ago or last week.
+
+Speaker 2  21:56  
+Got it. Okay.
+
+Speaker 1  21:58  
+I don't know. Anyway. Okay. Well, I didn't know that. That was the hangup. Now I know. Okay.
+
+Speaker 3  22:03  
+Yeah, I hit up you. I hit up Kareem.
+
+Speaker 2  22:10  
+Josh, does that solve all your issues, or or no? I just need those two things. I just
+
+Speaker 1  22:14  
+need access to the documents and access to that subscription. That's it. Because right now, what I want to be able to do, if I have access to that subscription, I can then go in and update the LLMs and try those LLMs that Salesforce guys were using, so I can compare.
+
+Speaker 2  22:30  
+Okay, cool.
+
+Speaker 3  22:33  
+I'm gonna I'm gonna reach out to Becky Nichols. She is the manager of compliance, and I'm just gonna see if she can push this through right now.
+
+Speaker 2  22:42  
+Okay, thank you so much.
+
+Speaker 3  22:43  
+Thank, thank you. Hang tight. I'll chat with you guys in just a few minutes. Okay.
+
+Speaker 2  22:47  
+Thanks.
+
+Speaker 4  22:49  
+Bye. Bye. Thanks. Oh yeah. Yeah. Who knew? It was just
+
+Speaker 2  22:56  
+like be aggressive about what I found here. It's like ridiculous because it's it's not the people like they like. It's our systems aren't aren't connecting it together, right? So like, I didn't see that message. Maybe somebody messaged us and we missed it. Maybe not. But there isn't like a good way for us to be like, oh, this is now you need to do this. Yeah. And so the only way I found to get stuff through quickly is just like you got to call people like every day. Jesus. Like you message them and they ignore it, you gotta like call them. Wow. Anyway, but I I feel your pain because I have a lot of pain getting stuff through IS too. So
+
+Speaker 1  23:31  
+all good. But
+
+Speaker 2  23:32  
+that's my advice.
+
+Speaker 1  23:33  
+Yeah, I had no idea that was the hangup. So yeah,
+
+Speaker 2  23:36  
+yeah, I get you. But yeah, it's like you don't know what you don't know until you're like pestering people so much that they like give you the answer. All right, so let's go back to next steps on stuff, right? Okay. Did you have more to show me first of
+
+Speaker 1  23:53  
+all? Um, that was pretty much it. Was just that comparison of the the field validation again needs to be improved, and I can continue to work on that. But right out of the gate, way better than document intelligence, which is what we were using on the CMS side, or for those document intelligence. So I think that was a good win. And then I was trying to line up best I could, kind of what from those the the business requirements from that that Word document that you provided.
+
+Speaker 2  24:22  
+Can you show me? Oh, great, great. Yeah, yeah, that's that's good because we got it. We can. We'll need to work towards. I'm still
+
+Speaker 1  24:29  
+working on that part to get that built in. I mean, I've already built some of the components, but it's not really working presentation-wise. It's sort of built into the code, so still need a little bit of work there. But I should have this pretty much up and going, and then I mean, once I get access to the subscription, I can and I can align to those exact LLMs that Salesforce is using. We should be able to replicate exactly what they they were doing.
+
+Speaker 2  24:55  
+Okay, can you show me the prompt that you're using with the LLM?
+
+Speaker 1  25:02  
+Yeah, one second. All right. So, can you see my screen? Uh
+
+Speaker 5  25:40  
+huh.
+
+Speaker 1  25:41  
+So this is for the vision model extraction. So it says your system extraction. Your job is to you know any of the checkbox compared to a boolean. You know basically kind of very similar to what we did before. And then I have these specific Content examples, kind of like few-shot prompts. Like, given this example, this is how I expect it, kind of deal. But that's it. I mean, that's literally all
+
+Speaker 2  26:14  
+it is. I mean, again, but where where do you specify the specific fields that we need?
+
+Speaker 1  26:20  
+Again, it's only doing this through semantic examples. That's it. That's what I'm saying. Like we can definitely expand on this. I only gave it. I I only gave it a few.
+
+Speaker 2  26:32  
+Yeah, I mean, I'm wondering if you should definitely try out what they're doing, where you they're writing a few sentences or whatever to better describe each of the different things, and and see if you can get it without even specifying like where it is in the document or anything document specific, right? Like, I mean, it'd still be like enrollment form specific, but like maybe it'll work for the different enrollment forms either, and we don't even have to have a enrollment form specific version.
+
+Speaker 4  26:59  
+Right.
+
+Speaker 1  26:59  
+You want to keep it as generic as possible, but be able to pick up all the. We
+
+Speaker 2  27:04  
+have to go more specific, right? Like, but like seems like they their system works completely generically with an enrollment form, right? So.
+
+Speaker 1  27:11  
+Mm-hmm. Yep. But like I said, I mean, no doubt I can expand on this. I didn't. I didn't. I just threw this together very quickly, just to be able to because there there are a lot of fields or whatever. But again, I can I can get Claude to help me build out more specific. But it gets very more it gets way more difficult because then you're just going to be loading it with a crap ton of few shot prompts with different variations, and then it sees a variation it's never seen before, and trying to make this thing very generic is going to just blow up your few shot prompt examples.
+
+Speaker 2  27:50  
+Yeah, yeah, and the and this this few shot prompt that you're doing here, you're giving it an example enrollment form into the prompt, right? Yeah. Yeah, like I wonder, like,
+
+Speaker 1  28:03  
+are you going to need a ton more examples of that to keep it very generic? If you're not going to make this form specific,
+
+Speaker 2  28:11  
+yeah, yeah. Like maybe you don't want to give it an example. Like I don't know if that improves it or doesn't. No, it's bad.
+
+Speaker 1  28:17  
+It will not. It and then you'll get hallucinations and you'll get
+
+Speaker 2  28:21  
+yeah
+
+Speaker 1  28:21  
+you'll get a bunch of crap.
+
+Speaker 2  28:25  
+Okay, so I would definitely try their approach and then see how that does and see if it works generically with forms versus just a one. And then also how's classification? Yeah,
+
+Speaker 1  28:36  
+we're we're 96. Well, I mean again, it's we're only talking about seven documents here, but it's a linear regression model. It's classifying them correctly 96% of the time each per page, and that's not per document. That's per page.
+
+Speaker 2  28:51  
+Okay. So perfect. And then if you have any questions about the requirements that Zach had like feel free to reach out to him and get clarification.
+
+Speaker 1  29:04  
+Yeah, I might just set up a meeting with him anyway, just to kind of introduce myself and just yeah go that route.
+
+Speaker 2  29:13  
+Okay, perfect. All right, this is good. Thanks so much. Keep it up! Like let's keep cranking at this because I'm.
+
+Transcribed by https://otter.ai
