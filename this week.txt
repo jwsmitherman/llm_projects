@@ -1,0 +1,32 @@
+This week / Next steps (row 25):
+"Completed self-care deep dive: split self-care calls into what patients did next (stayed home, self-transported, refused). Added negation handling to override drivers and call-drop rate by market. Next: nurse SME audit of note-based categories before finalizing."
+
+Shorter version if the cell is tight:
+"Completed self-care deep dive and refined override/call-drop analysis. Next: SME audit of note-based categories."
+
+
+
+------------------
+
+
+
+This week
+
+Incorporated Sep 2025 billing training guide into criteria
+Rebuilt determination to follow the CMS decision trees instead of a point score
+Added presumed-necessary conditions and the four-part denial test
+Ran first live test against Transport.net orders
+
+Findings
+
+Order text field in use held workflow statuses, not clinical detail
+Corrected to read clinical notes; added a check that blocks the run if the wrong field is selected
+
+Next steps
+
+Confirm origin/destination modifiers exist in Transport.net to select the correct decision tree
+Jen and Michelle to resolve fall risk and oxygen conflicts between the two guidance documents
+Re-run against corrected clinical field
+MUSC denial history from Vic and Robin for accuracy measurement
+
+If the cell needs to be shorter, the four "Next steps" lines alone carry the status; the findings are the part Dave will most want to see, since they explain why the first run produced nothing usable.
