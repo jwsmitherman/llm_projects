@@ -1,0 +1,463 @@
+Speaker 1  0:01  
+Oh, how was the weekend? It seems so far ago. I don't even remember. Honestly, I don't even remember what we did. So, got some good stuff here.
+
+Speaker 2  0:13  
+All right, center.
+
+Speaker 1  0:18  
+Sorry, I'm a little brain fog right now. I'm coming down with something. I'm not really sure what it is, but where did you travel to? Were you traveling?
+
+Speaker 2  0:30  
+Oh yeah, I went backpack in Yosemite.
+
+Speaker 1  0:34  
+To Yosemite, like the park? Oh okay. Are you a camper guy.
+
+Speaker 2  0:42  
+Yeah, so more like backpacking than camping, but I guess I'm still camping, just walking in between.
+
+Speaker 1  0:52  
+I like hiking. I could, I, I, I'd be down for that. I've never been to Yosemite though. I'm more like, I like nature rune, nature runes. I tried mountain biking for a little bit, but I'm like, I don't want to die. So, okay, cool. So, good news. We've got models. We've got access. We've got we've got PDFs. We've got it all, baby. So I've been. So first of all, let's start out with the resource group. So I have access to the old to the resource group. I have access to everything that we've done with CMS before. I have access to the all the PDF documents here. So there's that, and then I I don't have direct access to implement and deploy LLMs, but I worked with what's his name Matt Weber, and he hooked me up with these additional models here. So what you're going to see today is real data, real models, real process. Like this is the real thing. So what I've done here is I've, with the help of Cloud Code, I have this process here. So it's rebuilt the prompts here. The PDFs are all loaded here, so I sampled about 800 PDFs here, but this process takes a really long time to run. So I only sampled it to run on around 20 of them at a time, randomly sampling them, just to kind of prove that it works. Because I wanted to make sure that it actually works and is accurate and all that kind of good stuff. So, what it produces is so there is a training. So there, there's training here, and I think a better view here is So in these PDFs, here we go. So for page classification, there's there's there's five categories that they could fall into: patient enrollment form, other non-data page, insurance card, and co-payment claims. I saw a lot of these pages, and also I think this is what Salesforce was doing as well. If I'm not mistaken, they were they were categorizing pages in different categories like this. So I tried to I tried to mirror as much as what the Salesforce prompts screen shares that they were doing into this process as much as I could, so here I ran at this with four different model classification models, and and I know the one that we're primarily interested in at I guess at the moment is the is the patient enrollment form, but there's a you know there's quite a few of those pages that have the insurance information that has the payment or patient information, things like that. I'm not sure what the exact output of this use case exactly needs to be, but we have the capabilities of if we wanted to extract insurance card information, we can we can do that as well. How
+
+Speaker 2  4:20  
+are you getting the so that accuracy in column D is what the the classification accuracy? Yeah,
+
+Speaker 1  4:30  
+it's the classification accuracy of of of that page. It's the page level classification.
+
+Speaker 2  4:37  
+And where are you getting the ground truth for that?
+
+Speaker 1  4:39  
+I had to manually go in and do it. Like I had to take like 20 documents and just say, "Okay, these are the ones. This is this document. This is this document. And then I told AI or I told Claude, "Hey, based on this, can you help me populate more ground truth? So the caveat is, there's still I still need to go in and review a lot of that ground truth information to make sure it's correct, but at least I wanted to get enough in front of you to make sure that this is the process that we can that we can continue to refine and make better.
+
+Speaker 2  5:17  
+Okay, so some of the ground truth is like Claude classified the ground truth. Yeah, but they're more. Some
+
+Speaker 1  5:24  
+some of it is. Yeah, yeah. But it. Do you have a hesitation on that? Obviously, it needs a human in the loop review. So, but there's 800 documents here. So, with you know however many pages. So my goal is if I can get to around like 50 documents classified, you know that should be a good sample size. I think is there a number in mind that you have that would be sufficient for if we were to demo this to
+
+Speaker 2  5:53  
+probably fine. I just I'm hesitant to having like AI classified documents being the ground truth for measuring the AI classification. Well,
+
+Speaker 1  6:03  
+yeah, yeah, of course, and I did, I did do some manual work in there, but to get this up and going and just kind of to get it in front of you and to get get the process in place, it's really more of the piping. But yeah, from here on out, we can we can code and label the documents at a later point for more better accuracy to improve this. But the key is is the process elements in place for us to be able to. You know what I'm saying? Yep. Keep going. Okay. So from a page level document here. So here, this produces a file name. It tries to. It has the category. It also identifies because there's a lot of handwritten stuff in a lot of these these documents. If you did notice here, you know they did. The Salesforce guys were using the Gemini Model, I forget the name of the model, whatever. But that model is not available to us here. So I, in this particular one, we're only using, we're only comparing GBT five, Claude Opus five, and Sonnet five. Just those three LLMs.
+
+Speaker 2  7:18  
+Okay. Now, is it not available because it's not even on Azure? It's not on
+
+Speaker 1  7:24  
+Azure. Okay. No. Yeah, we we tried, but it's not there. We have Deep Seek. We could try. I mean, there's a ton of other ones we can try, but I wanted to just kind of compare what they were showing versus what.
+
+Speaker 2  7:41  
+Well, they said they liked Claude Sonnet Five, I think, as their second best, right? Yeah.
+
+Speaker 1  7:46  
+Yeah. So what you have here is each GPT's response, and I threw in the confidence intervals because that's what they they were having in here as well. And again, a lot of this needs to. A lot of this I just got working as of last night. Working, so a lot of this still needs to be validated. But like, so for example, like for example, like this page classification right here is wrong because if you actually look at that Document here. It says clearly it it is claiming this this is a patient enrollment form, which it kind of looks like one, and I guess it could be debatable. It could be. So this is one of those corner cases where this isn't exactly a patient enrollment form, but the but the the model did classify it as a patient enrollment form, and when you look at the extracted information, let me see if I can do these side by side. So again, we're just talking about this section here. So you see GPT four, even if it misclassified it. See if I can pull in the fields. Do this. Is that readable? So you can like patient first name, last name. You can see that it did do a fair job. Date of birth, right here, and this is GPT four.
+
+Speaker 2  9:43  
+So wait, where do we have the ground truth for this stuff?
+
+Speaker 1  9:47  
+Well, again, this is the one because I only did 20 documents, and again, this is a random sample of 20 documents within the 800 that it has to pick from.
+
+Speaker 2  10:01  
+But my but my question is not the ground truth for classification, but for the ground truth for these things. Because don't we have this in the database? This data? No, I know that maybe not for this form because this form isn't actually the right form. But for yeah, we we do
+
+Speaker 1  10:16  
+we do have that, and that's that's going to be the next. That's that's again an additional step that we need to do is and we have that query to be able to to look at those documents and let me see if I have that up right now I just didn't get that far yet on that but we do have. But yes, we do have that ground truth that we could get for each document. My only thing, though, on that one is I don't know if we have all the fields.
+
+Speaker 2  10:54  
+Well, I would identify the fields that you can, and the fields you can identify. Go back to the people that I forget their names, but that I connected you with, and see if they can help you identify the other ones.
+
+Speaker 1  11:04  
+Mm-hmm. Yeah. So, for example, I was dorking around with this. So you can filter on. See this patient RXID here. These tie to like the actual documents. So, like for example, let me just go and look for one of the ones. I think this was the one that we were looking at. If I go right here, and I should be able to search this document without that part there. Yeah. So, and then what you do here is you grab the patient this number here, and then down here, I should be able to get the patient info here. But again, this isn't an enrollment form. It'll be interesting to see what what they have in here because this this didn't look like an enrollment form, right? All right, so yeah, I mean they got they got her in here. Let's see. Let's see how accurate this is. So Cynthia Moreau.
+
+Speaker 3  12:45  
+Here, I'll be right. Be right back.
+
+Speaker 1  12:48  
+They have the date of birth, mailing address, Azure MPI info. I guess this is an enrollment form. I guess it did classify it correctly. It just looks a lot different than the other ones. Does it say for insurance? Okay. What page did it say this was on? This said page one. Okay. Page two. Okay. I guess that's correct. Yeah. Here's what we can do.
+
+Speaker 2  14:27  
+You just found a different enrollment form for her. I stepped away for a second.
+
+Speaker 1  14:30  
+No, I mean, so what this thing has done? It classified this page as an enrollment form, and it classified this page as also an enrollment form. And I guess that's correct because it pulled because you live right here. It pulled the patient's name, last name, and date of birth from page one, and then it found all the rest of the information it was looking for in page two.
+
+Speaker 2  14:52  
+Roll out the second. Roll out the second.
+
+Speaker 1  14:55  
+Which one? This
+
+Speaker 2  14:56  
+one? Yeah, yeah, yeah.
+
+Speaker 1  14:58  
+I mean, this doesn't look like an enrollment form to me, but I guess it is.
+
+Speaker 2  15:03  
+No, this is a benefit investigation completion. Like they, well, let me read it. This is like a notice about the benefit, the summary of benefits, right? Please read summary of benefits for more details and content payer, so it you know has a lot of the same info, but it's not really yeah. What what it
+
+Speaker 1  15:26  
+should have done is just it should have pulled everything from this page.
+
+Speaker 2  15:32  
+Yeah, maybe it thought it was an enrollment form because it mentions enrollment form in the top in the paragraph.
+
+Speaker 1  15:37  
+Yeah, it does.
+
+Speaker 2  15:41  
+Um, So, but what were the different forms that you're classifying between? Maybe we just need this type of thing to be part of the classified forms.
+
+Speaker 1  15:52  
+Let's see by category. So copayment claim insurance. There's a ton of insurance cards embedded in these. So let's take a look at another. You want to take a look at another example that's better?
+
+Speaker 2  16:06  
+Oh, sure. Yeah, let's use a different example where it's the actual form when we're going through the quest.
+
+Speaker 1  16:11  
+So this one is a legit one. So it's this one right here. Let me just filter real quick. Um. Let me just filter on that document. Okay, so this one it classified at page one. Let's see if I can find a copayment. Okay, so this is all enrollment form. So it says page, page one and page two are enrollment forms, and so clearly page one is an enrollment form. It even says it. Clearly, that's an enrollment form, and page two still has information on the patient enrollment form. So I would say that is correct. And then page three, it just ignored.
+
+Speaker 4  17:03  
+Okay.
+
+Speaker 1  17:05  
+Which I don't really want it to ignore the third page. I would rather it classified as other. So that's still an update that probably needs to be made here, because I still want every page to be accounted for. You know what I'm saying?
+
+Speaker 5  17:22  
+Yeah.
+
+Speaker 1  17:23  
+But so I'll pause right here because I already or let me let me just say what I know the next steps need to be are we have what we need to do is we need to search create a table of all those all the document names that are in that Excel, right? Then what we need to do for all those documents, we need to search all the patient RX IDs for each one of those documents, put those in Excel, and then just hand that Excel to Claude with that other Excel and say, hey, provide me the ground truth column next to the the the the pipeline results. Does that sound?
+
+Speaker 2  18:16  
+Back up, back up, back up, back up. How does your pipeline currently work? Does it just? Does it use document intelligence? No.
+
+Speaker 1  18:25  
+No. What you're what you're looking at is well. It says it here. It's using these models here, and these models only. There's no document intelligence.
+
+Speaker 2  18:38  
+Okay. So.
+
+Speaker 1  18:39  
+Because it documental just performed so badly, I just removed it.
+
+Speaker 2  18:45  
+Okay, so it just uses those models. So now, what you're saying the next step is is to have AI like a different model.
+
+Speaker 1  18:56  
+Not a different model. Let me let me let me rephrase this. This is only for validation, right? What we need to do is we need to grab all these documents here, right? All the names of these documents, right? For every one of these documents, we need to get the patient RX number because that's what this table represents here. This table right here. We need we need this ID right here, see it.
+
+Speaker 5  19:23  
+Yeah, we
+
+Speaker 1  19:23  
+have to have that ID per document. Then for every one of those, we we produce a table in Excel and we extract that. So we know that document for this or for this patient RX ID. This is the content of that we have available in the database, name, date of birth, NPI, insurance information, yada yada yada. It may not be everything that's on that form, but for what it is, then what I'm saying is we have that document right here. We already have this document right here that you're that I'm showing you right now. We have AI incorporate all the ground truth information it can find into this one and lay and show it. Okay, what is the actual first name? What is the actual date of birth? What is the per per document per page? Does that make sense? What I'm saying. So it's not a new model. It's just beefing up this to say, yeah. Does that make sense as a logical next step?
+
+Speaker 2  20:27  
+Yeah, because then you're going to use that to get all the that data, and then
+
+Speaker 1  20:34  
+well, that gets us the field. That gives us a baseline for the field level accuracy.
+
+Speaker 2  20:40  
+Yeah. Okay. Okay. Yes, that that makes sense.
+
+Speaker 1  20:45  
+And let me. I want to search for one. Hold on. That has that does have the insurance card in here. Let's find a document on that because I do want to show you that as well. Okay, so here is one that has an insurance card. So here is the page. See, there's a ton of them like this. So if you look at, so if I go back to this document here, and let me just filter on that one document. But is this looking good, good to you so far, or no?
+
+Speaker 2  21:40  
+Um, I mean, I think they're taking the right approaches. Yeah, um, I think we just um need to do the rest of the steps. So,
+
+Speaker 1  21:50  
+okay, so you see right here. So I classified page two as a as a enrollment form. Okay, that looks correct. It's I I threw in because this is my personal. I wanted to know was it handwritten text that it was OCRing or not? So because I wanted I want to validate to see how good it is with versus typed text. So here you can clearly see. So let's see first name. It says it's. I don't even know if I can read that. Okay, is that Reuben? I think it's Reuben.
+
+Speaker 2  22:26  
+Yeah, that's.
+
+Speaker 1  22:27  
+Yeah. So it it extracted Ruben Ramirez. So that looks right. Data. Okay, this one looks a little choppy. So that's 319 1956. Let's see if it got it right. 319 1956.
+
+Speaker 2  22:49  
+Okay, so I think we don't need to go through these one by one. I think the. Oh, I wanted to show you the
+
+Speaker 1  22:56  
+insurance form. Sorry, that was the whole point of me looking at this one or the insurance card. So it says. Sorry, I didn't mean to cut you off, but I I wanted to kind of get your direction. So it says page 19 has the insurance card. So 19, yeah, and boom, there it is. Is that useful? Like, should we? Do we need that, or we only care about the enrollment form information?
+
+Speaker 2  23:27  
+What did they put in the requirements that I forwarded over to your?
+
+Speaker 1  23:34  
+They did put. I believe they. Let me open it up. That's a good question. That's the screenshot. Why is this not over? I have it somewhere. I know I saved it. I think I deleted it out of my downloads. Hold on. Checking my desktop. Actually, trash can here. All right, I'll find it. I know I have it somewhere. All
+
+Speaker 2  24:59  
+right. Well, anyways, you can look at that to see whether it makes sense to do the insurance card or not.
+
+Speaker 1  25:08  
+I'm pretty sure it did. Again, I was just I was just trying to go off of what Salesforce was doing in that demo, but that's a good call. Why cannot find this document? I know I had it. Oh, you know what? It's on the VM. No. Put it in here. I did not. Anyway, I'll find it. I know I have it somewhere. is bugging me. I had downloaded it, but now I cannot find it. Okay. Yep. I'll check those requirements on that. I'll find that document. But so far, I mean, if you look at this overall, I would say the process looks like it's working fairly well, and if we can produce information like this, and it has the ground truth in it, do you think it's at that point it's it's demoable or? Well, I
+
+Speaker 2  26:34  
+mean, we then need to have accuracy metrics.
+
+Speaker 1  26:38  
+Yeah, that's what I'm saying. Like once once I overlaid the field level accuracy so that way we have the form page classification metrics. We will have the field level classification or yeah classification metrics on that, and I could have that to you today. That that's not going to be a problem.
+
+Speaker 5  26:59  
+Okay,
+
+Speaker 2  27:01  
+And then, yeah, we definitely do that. I'm trying to remember what else we were chatting about last time to do his next steps. Were you are you pushing things to GitHub?
+
+Speaker 1  27:32  
+So that's the other thing. We need to set up a project for this, and I'm working with Matt to get that set up right now.
+
+Speaker 6  27:39  
+Okay.
+
+Speaker 1  27:39  
+So as soon as they get me set up on that, we can push that. I'm trying to let me ping them real quick.
+
+Speaker 2  27:47  
+What were we using before as a project
+
+Speaker 1  27:51  
+for the CMS one? Oh, I mean, I guess we could push it to the same repo. But the problem with that is, is that. We probably don't want to do that because there'll be two. There're going to be two different projects in the same repo. I don't. I don't think you want to. No, you don't want to do that. You want. You want a same repo because you're going to be overlaying and overwriting some key functionality in that AI form CMS process with this one, which is a little bit different, and I don't think you want to do that.
+
+Speaker 2  28:32  
+Okay, what about how this accepts? Like, how does this accept this system accept data? I mean, I guess that would be a next step, right? Like, what payload does it accept? I mean, I guess maybe probably even before we get to that, the next step would be going through the requirements. Make sure you understand all the requirements, and is there anything else in those requirements that we haven't done or that we need clarity on, then we can talk to product to get clarity on those requirements.
+
+Speaker 1  29:19  
+For the left, me, I don't know what the hell I did with that document. I had it in my downloads, and I think I deleted all my downloads because it was getting ridiculous, and then I may have accidentally deleted it in there. But why? I thought I moved it over here, and I am not seeing it in our chat. My inventory. I'm so sorry. Like I do not know where that. I know I had it at one point, but I, for the life of me.
+
+Speaker 2  30:18  
+I hope I can get it.
+
+Speaker 1  30:24  
+Oh, you know what? I got it. Here we go.
+
+Speaker 2  30:26  
+Okay, good.
+
+Speaker 1  30:32  
+Business requirements. Okay, here we go. Got it.
+
+Speaker 2  30:54  
+So when did you get access to the documents?
+
+Speaker 1  30:57  
+When?
+
+Speaker 2  30:58  
+Yeah.
+
+Speaker 1  30:59  
+Yesterday. Okay. See if they say anything about. I'm almost positive. I read somewhere that they had. I mean, they listed examples of page classification. Yeah, right here. Automatically, document type identification must automatically classify each page or document into known types. Yeah, authorization, insurance card, benefit verification, enrollment form. So they didn't. They didn't like. I mean, they have these categories here, but I would I would imagine that is a requirement. They they want those classifications. Now, I didn't do all these classifications.
+
+Speaker 2  31:54  
+I mean, you don't have to do all of them in order for us to get started, but
+
+Speaker 1  32:02  
+but yeah, that is a requirement, so we'll leave it in. Or it is a type of requirement. Yeah, it's an ask, but not necessarily detailed as far as what exact categories. Let me just give examples. So, so I've got to do number one: work on ground truth. Get those in there. Get the field level accuracy. That should that shouldn't take me too long. I should definitely have that done today. Get the repo set up. Get this push. All this code to push to its own repo, which Matt is going to help me do that probably today, most likely. For this to work in an automated fashion, what we what we also need to test is, and this is the part I'm not 100% on. So, the CMS process we have right now has credentials to get into here, and get the data from from here. The part I'm not 100% on is do does our application have access here to pull directly from this container? That's what we have to test, which I'm sure it does. But I don't know if I have access to get the token. So if I go back here, yeah. See, I don't access poly. I mean,
+
+Speaker 2  33:57  
+these won't be the places where we get it in pro. I don't think. Well,
+
+Speaker 1  34:03  
+so the so what I'm saying is is like so if we were to run this as an automated CI/CD process, right? We can do one of two things. So this is where the current PDFs live right now. This is where all the PDFs live right now. So we could create a triggering event where anytime a PDF gets dropped here, we run the process can run, or we can run it manually, and it can point to this. What I'm saying is, I don't know if I have the credentials or access tokens to be able to get into this blob storage from the application, another option we could do is we can create a container here, which we know we have access to because this is what we were using before, and we can test drop some PDFs in here and have the process run from here.
+
+Speaker 2  34:56  
+I think before we ended up using an API, right? But I think we need to figure out whether we want to use an API or whether we want to use a different tool, like it being a file drop and then being picked up. So I think that needs to be product and architecture discussions to some degree. Yeah, yeah,
+
+Speaker 1  35:18  
+right. Because I don't know. I've got to go back and read my notes. I'm trying to remember how. Oh, I believe that's how it worked before because it was it was it was in a Dockerized container that spun up an endpoint, and I believe Salesforce when they hit it was integrated that endpoint was integrated into Salesforce right when they hit submit or there was some functionality where they did something in Salesforce that triggered that API, right? I believe. And honestly,
+
+Speaker 2  35:51  
+I-I mean, I don't think we want to trigger it the same way as that because that required a user. I think we want as soon as the form comes in to trigger.
+
+Speaker 1  35:57  
+Then I wouldn't. What you would do then, the the or at least what I've done in past history, is you set up an Azure function that listens on that blob storage account, and it will trigger and it will trigger the the app service to run. Okay. And so, what you would do is you would set up. It would still be an API, but you would you would develop the API in Azure, and any time a PDF document hits that blob storage, it knows to trigger that API, and it will send it over the document's name and the location.
+
+Speaker 2  36:46  
+Yeah.
+
+Speaker 1  36:50  
+If that's the way you want it to work.
+
+Speaker 2  36:52  
+I mean, I think we need to talk to product and get alignment on how it's going to work. Is what it is. So let me. I will. Yeah.
+
+Speaker 1  37:03  
+But once I get the ground truth in here, we get the fill level accuracy in, and once we're at that point and we get this code checked in, I think we're at a point. At we're at a point where, you know, we need to figure out. I mean, either we get a thumbs up. I would imagine then at that point it's just a business call to say, "Okay, looks good. Let's move forward, or we need more metrics on accuracy to feel comfortable with this. So, which happy to do. It's just going to take more. The one that's going to take the most time is just building up those human-in-the-loop reviews of all the accuracy levels, you know, that's just going to take. I mean, it shouldn't take a lot of time, but that's that's going to take some time to really kind of build that up. If, but again, my goal is if I can get up to at least 50 documents, and then we run those through those 50, and then we measure what's in Snowflake. Again, I'm just throwing that number out, 50. I don't know if that's a good number, acceptable number, whatever, whatever number we want, right?
+
+Speaker 2  38:10  
+So that's a demo. Yeah, that's a demo to start with. That's fine, and then we can look at accuracy and be like, this is what we're getting. And then I think there's two routes to go from there. So one route is do things to improve the accuracy, like running different models in parallel or other things like that. Right.
+
+Speaker 1  38:29  
+The
+
+Speaker 2  38:30  
+other thing to do is make sure we go through the requirements docs And start really getting figuring out which requirements we have enough alignment on, like all these things, like how the pipeline is going to work and like get triggered and how the human review is going to work and all of that. So I think having meetings with product to get alignment on all of that, and then because then, as you get alignment on those different components, you can have Clog start working on those, right? Yeah. Okay. Did you want me to set up those
+
+Speaker 1  39:08  
+meetings then?
+
+Speaker 2  39:10  
+Yeah, go for it.
+
+Speaker 1  39:11  
+Product team would be. Let me pull up his name. It'd be people in that thread, right? Yeah.
+
+Speaker 2  39:19  
+Let me.
+
+Speaker 1  39:35  
+Oh, it's the IDP team, right? I can just reach out to. I think it's is it Zach? Is he the is he like the product owner?
+
+Speaker 2  39:45  
+I think it was Zach. Yeah.
+
+Speaker 1  39:47  
+Yeah, senior product manager. So it'd be Zach and John.
+
+Speaker 2  39:57  
+Yeah, yeah, and we'd be on the first meeting there, but kind of if I if I'm free.
+
+Speaker 1  40:06  
+There's that requirements document. Okay, it's like I know I got it somewhere. Okay, got it. Should I include Steve as well or Stephen?
+
+Speaker 2  40:20  
+Uh, yeah, he's free, but like I think you need to kind of structured go through. Okay, what are the requirements? Yeah. Like first of all, have you gone through that requirements document? Do you know where we need clarity and where we don't?
+
+Speaker 1  40:33  
+Yeah, I'll do more. I do not
+
+Speaker 2  40:35  
+have questions. Like put questions on it and stuff so that you're prepared going into that meeting.
+
+Speaker 1  40:39  
+100% Yep. Yep. I will get that going. Cool. So yeah, I will get the ground truth. Get this in the repo. Run this again. Get the metrics. I'll send those metrics over to you today, and then as soon as that's done, I will set up that meeting with the product team, and then we will, and I will. I will be prepared for any requirements, gaps, or discussions that we want to have.
+
+Speaker 2  41:11  
+Okay, and then all right, one second. I'm trying to make a list too. Here, let me show you my list.
+
+Speaker 1  41:29  
+The other question I had for you for time management: How should what project should I be putting this time under? Because I can't put it under AI next specs action. I don't think.
+
+Speaker 2  41:41  
+No, there should be like an intelligent document processing project that you used a long time ago. You can just keep putting it under that.
+
+Speaker 1  41:48  
+Oh, okay, okay, excellent. Okay,
+
+Speaker 2  41:51  
+so ground truth and accuracy metrics for field level, right? That's one thing. Yeah, repo setup and push to repo, right? One is still the development requirements. So we talked about that. So then it's develop the requirements in parallel, right? Maybe up here as well. Get meetings set up to get alignment, and then develop requirements in parallel from number three. Right, because. So, if in order to develop it in parallel, you probably there are certain requirements that how they interface with each other. But like, you know, you'll use quad to kind of do this in parallel. So then, as you're doing this stuff up here, though, this is going to be meetings, getting stuff up with people, so improve accuracy, e.g. E.g. multiple models running, so it's in improve accuracy for how well, how for knowledge of how sure we are of how accurate is that's like, or or maybe a better way to say that is, or how or accuracy of confidence.
+
+Speaker 1  43:36  
+Well, that'd be accuracy versus confidence. That would actually be a pretty interesting score, like to measure because we already have the confident score of each LLM, and then once we actually get the ground truth, we know the binary yes or no whether it matched or not. It'd be interesting to see the ones that it's confident in where it hit or where it missed.
+
+Speaker 2  43:58  
+Yeah, yeah, yeah. Okay, so that's a big one too. Accurate metrics for field level, including how the confidence level predicts the accuracy.
+
+Speaker 1  44:16  
+Yeah.
+
+Speaker 2  44:17  
+Or no. The ground. The ground.
+
+Speaker 1  44:18  
+I would say ground truth. Yeah. Yeah. Yeah. Yeah. Cool.
+
+Speaker 2  44:35  
+Okay, so then, so these are some stuff to do. Yeah, like. let's just keep pushing on it. When you're blocked by people, like you, like definitely drive this forward, right? So that you can get that set up as quickly as possible. But then also, like this, you can always do in parallel, right? There's yeah, 100%
+
+Speaker 1  44:56  
+Yeah,
+
+Speaker 2  44:56  
+yeah. One more thing. Let me get that. One second.
+
+Speaker 1  45:20  
+As you're looking it up, I sent you some dates for my. It's my wife's birthday, and we were thinking about going to Fort Lauderdale. I was wanting to see if I could take the 16th, 17th, and 18th off of this month.
+
+Speaker 2  45:35  
+Yeah, that works.
+
+Speaker 1  45:38  
+She's turning. I find Fort Lauderdale, 35. Yeah, we we we used to be like big Miami people, but we ended up liking Fort Lauderdale way better. That's more laid back, and we don't California. We we we thought about San Diego. We still have not been San Diego together after the eight years we've known each other.
+
+Speaker 4  46:05  
+Uh huh.
+
+Speaker 1  46:08  
+So, and we wanted to kind of keep it close into the state. We didn't don't want we didn't want to do anything like far, like way far travel. So anyway, she hasn't really. We haven't really taken a good vac because we we popped out those two kids pretty quickly. So I have you know we have that two year old and then we have that that 10 that 10 month old. So we really haven't taken like a good vacation in probably two and a half years. I mean we went to Nigeria, but that was more so to visit her family. And yes, that was a vacation, and yes, it was vacation time. But that was more, you know how it is. Like that's more family than anything. We're not doing vacationy things. All, even though we did do some, but you get it. So anyway, I said, hey, for your 35th birthday, we are gonna do a semi-good vacation.
+
+Speaker 2  47:07  
+Good. Yeah, I mean, definitely have fun. I, you know, I haven't been to Fort Lauderdale since I was a kid, so I, I don't really know what it's like, but I'm sure it'll be a blast. All right, so let me just look at my calendar. I'm going to try to set up our next meeting. So today, I kind of want to like see where we are on stuff.
+
+Speaker 1  47:39  
+Oh yeah, you're in Florida, right? You're in. Are you outside? Is it Orlando? Oh
+
+Speaker 2  47:44  
+no, that's where the headquarters are. But I'm in SF.
+
+Speaker 1  47:48  
+Oh okay.
+
+Speaker 2  47:50  
+Yeah. Um. So I could use 6 p.m. today if that works for you. If not that, then tomorrow.
+
+Speaker 1  47:59  
+No, 6 p.m. to today works.
+
+Speaker 2  48:01  
+Okay, so let me do that.
+
+Speaker 1  48:06  
+Did you still want to do the one tomorrow? Because it's gonna be tight for me. I have a I have to have some kid stuff tomorrow afternoon. I got to be there at like 3p.m. But happy happy to do whatever you need to move things around. My son is, yeah.
+
+Speaker 2  48:25  
+So you said tomorrow.
+
+Speaker 1  48:28  
+Yeah, if we could either push that to Friday or move that one up to tonight. I mean, that's fine.
+
+Speaker 2  48:35  
+I'm looking where. When is ours tomorrow? Oh, I have it at I have it at three. Got it. And when is your kid stuff?
+
+Speaker 1  48:47  
+It's right at 3o'clock tomorrow.
+
+Speaker 2  48:49  
+Okay. We could move it till noon, or we could. I mean, we can leave it till Friday, I guess. Let me see here. Friday at two. Yeah, that
+
+Speaker 1  49:07  
+works.
+
+Speaker 2  49:14  
+When you're out, or like have, maybe this is just coming. Uh, like this, like it's cool. Like you have something you need to do, like out of the office, but just make sure you're putting like out of office blocks on your calendar.
+
+Speaker 1  49:32  
+Yeah, yeah, I'll do that. Okay.
+
+Speaker 2  49:47  
+Okay. Cool. All right, and get those other meetings set up in a row so you can get those going so that we can get those requirements squared away, and and definitely come prepared to that meeting. Okay, and include me on that thread so that people aren't wanting to get in the push on that.
+
+Speaker 1  50:08  
+Yeah, I want to get everything that we talked about done first, like the app field level accuracy. So I would imagine field level accuracy priority, get repo. Well, I can schedule a meeting regardless. That anyway. Yeah. And and. I'll get that meeting scheduled. But then by time that meeting, I'll I'll I'll probably end up sending you a draft of questions and notes on the business requirements just to vet those with you.
+
+Speaker 5  50:31  
+Okay,
+
+Speaker 1  50:33  
+just to make sure we're aligned, and then yeah, we'll go from there.
+
+Speaker 2  50:37  
+Okay, thanks so much. All right, bye.
+
+Speaker 1  50:39  
+Yep.
+
+Transcribed by https://otter.ai
