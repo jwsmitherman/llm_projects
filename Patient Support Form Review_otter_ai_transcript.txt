@@ -1,0 +1,256 @@
+Speaker 1  0:00  
+Patient support form, maybe for Resdiffra or something like that to like say which form we're talking about. Like if the enrollment form happens to be the madrigal patient support form for Resdiffra, the
+
+Speaker 1  0:14  
+refill occurs in the second column, or like the oh the title, not the thing. The other, the last. The bridge
+
+Speaker 2  0:26  
+for coverage.
+
+Speaker 1  0:27  
+Yeah, we want the ruling. Yeah, sometimes things say that have two refills numbers: the overall refills and how much bridge coverage. In those circumstances, we're looking for the overall refills on the RX, not how much bridge coverage there is, or I'm making this up. Like you'd have to like. Yeah. I see what you're saying now, and you're saying that that's what
+
+Speaker 2  0:48  
+they had. That that's yeah.
+
+Speaker 1  0:50  
+So every single field, like we did, their platform allowed us to enter in those props, like like for the field. So it's for this field, and then we could write however long we wanted, and usually it was short. Though for each of the fields, people there was like maybe two to three sentences, but it could be longer if it was a hard one that was getting wrong a lot, right? But then for the classification, they had like paragraphs written, like like it was like two pages of text in order to make the classification better. No, I get what you're saying now.
+
+Speaker 2  1:28  
+Yeah, and yeah, we can we can definitely incorporate that. There's nothing that we can't do on that one. But yeah, I
+
+Speaker 1  1:37  
+talked about this a while ago, right? I don't know if you remember, but we talked about this back when we were talking about the what they were doing before, and then you watched the video. Yeah. Okay.
+
+Speaker 2  1:53  
+Yep.
+
+Speaker 1  1:55  
+Maybe it's good to keep a list of these things.
+
+Speaker 2  1:57  
+Yeah. Let me make a note.
+
+Speaker 1  2:04  
+All right. So the other item here we had was.
+
+Speaker 2  2:32  
+Okay, I have that noted.
+
+Speaker 1  2:40  
+Okay, so now,
+
+Speaker 2  2:43  
+quick thing though, they had scheduled an interview here in next 15 minutes. I can tell them I'm going to be late, or I don't, or do you think we're going to wrap up in 15 minutes?
+
+Speaker 1  2:58  
+We can wrap in 15. Okay. What else do you have here?
+
+Speaker 2  3:05  
+That was pretty much it. The other thing too is that I went in and and I'm doing a deep dive into the requirements here. So I went in and summarized each of the the requirements from the document, and I've listed here where we meet it, what you know, what was partial, where did we we do it, and some of these some of these requirements are kind of out of the scope. Like so, for example, if you look at some of the automation ones, like API integration, cost measurement, CRM delivery, I don't really know. I mean, that is a requirement, but
+
+Speaker 1  3:42  
+yeah, I get it. I get it.
+
+Speaker 2  3:45  
+But like you know, look at you know, or some of these may be good enough. Like they they wanted auto identify document type, where we have a page classification for informant, insurance card, copayment, claim, things like that. Now I may take a little bit more investigation to do this auto auto identification. But I'm sorry.
+
+Speaker 1  4:11  
+Can you share this with me?
+
+Speaker 2  4:12  
+Sure. Wonder if we need like a SharePoint or something to hold all these documents. But no, I'll just put it in this meeting for now.
+
+Speaker 1  4:24  
+Okay. Are you
+
+Speaker 2  4:26  
+recording? I'll just put it in this chat. Yeah, but
+
+Speaker 3  4:30  
+it made it
+
+Speaker 1  4:31  
+like doesn't mean our chat. Yeah.
+
+Speaker 2  4:33  
+Yeah. There we go.
+
+Speaker 1  4:35  
+Okay. But yeah, like stuff
+
+Speaker 2  4:37  
+like this. Yeah, we do meet it partially, but does it do auto identification? No. Without some sort of like, there's a finite number of categories, right?
+
+Speaker 1  4:54  
+I think that's what it means by auto identify. There's still always going to be a finite number of categories.
+
+Speaker 2  4:59  
+Yeah.
+
+Speaker 1  5:01  
+Okay. So okay, I I get this. Did you end up meeting with Zap to go over the requirements?
+
+Speaker 2  5:09  
+No, I skid. He wasn't available. I pinged him a couple times. He did accept that meeting invite for next week. Okay, so we're good to go there. I could certainly meet with him beforehand too. He just he didn't he just wasn't available.
+
+Speaker 1  5:24  
+I think he expects you to be doing a demo because on this other meeting where he and Lynn and I are having, he's like, oh, I've seen the demo from our internal solution by then.
+
+Speaker 2  5:36  
+Okay, I mean I'll touch base from beforehand then on that. Just just just him.
+
+Speaker 1  5:41  
+Yeah. So okay. So then
+
+Speaker 2  5:55  
+the other thing I'm doing right now, or what?
+
+Speaker 1  5:58  
+I'm sorry. Can you include optional for that meeting.
+
+Speaker 2  6:01  
+Uh, you should be already. I think you accepted.
+
+Speaker 1  6:04  
+Oh, okay, okay, fine, cool. We're good. We're good. Okay, I keep going.
+
+Speaker 2  6:09  
+The other thing I'm doing is uh, you know, we have these 13 documents here, so now we have 800 documents. So I'm going to be expanding this to another probably 20, and just kind of just keep this thing rolling and do a manual categorization of these, just to make sure that it's it's hitting correctly on these on these specific categories. But I was going to ask you, and I guess this is more of a Zach question because I have not run across a lab result yet, or any kind of clinical notes yet, so maybe that's more of a Zach question.
+
+Speaker 1  6:50  
+I mean, you can start a chat with us and Zach, and maybe John or whomever like you want to like start asking these questions even in advance of the meeting.
+
+Speaker 2  7:00  
+Okay, I'll do that. Yeah, because I haven't I haven't come across anything other than an insurance card. Basically, you know, obviously enrollment forms and just what's our
+
+Speaker 1  7:15  
+classification? What's our classification accuracy?
+
+Speaker 2  7:19  
+For enrollment forms, it's like 80% Now, for these other ones, I haven't really spent a whole lot of time on them to get the the accuracy better. They're not because there's not a lot of samples. Some of them are like only like two samples of insurance cards or things like that or copayment. You know, there's just not a lot of data because I've been so I've been I've been primarily focused on the enrollment forms. That's why I wanted that's why I wanted to expand these 800 documents and specifically find more categories that we can fit in there. So I honestly wouldn't even trust those numbers that much just because there's not that many observations.
+
+Speaker 1  7:57  
+And you probably need longer like instructions for that. Like it seemed like they had put in like a couple pages of instructions in order to get it to classify well. Like I bet you can even like I bet I mean you can even go back and look at the video and or my screenshots and see what they were writing in theirs to get an idea.
+
+Speaker 2  8:21  
+Yeah, I'll probably go back today and rewatch that video again.
+
+Speaker 1  8:25  
+Yeah, and then if you put those longer custom instructions, hopefully it'll be able to classify better. Like I just basically copied theirs as a starting point.
+
+Speaker 2  8:33  
+Yeah, yeah. But yeah, like I said, there's just not a majority of these are enrollment forms. They're not. I would say most of them are majority or majority are enrollment forms. The second ones are the insurance cards, and the rest of them are like ones and twosies. And they're only we're only talking about 13 documents here, so it's not that many.
+
+Speaker 1  8:53  
+Okay, the other thing was human review. So can we have human review like when the model outputs don't match, for instance, or when the confidence score is low, right? And then, furthermore, what is our accuracy of the ones that? What is our accuracy of the ones that we determine don't need human review? Bg.
+
+Speaker 2  9:36  
+So, like, which fields are more susceptible being wrong versus which ones are more susceptible being right?
+
+Speaker 1  9:42  
+Well, not by field. I mean, you could also do it by field, actually. But
+
+Speaker 2  9:46  
+yeah,
+
+Speaker 1  9:47  
+what I'm saying is like not even by field. Like, will it still be it be by field by specific filled out form?
+
+Speaker 2  9:56  
+Yeah, because if you have, because a lot of these enrollment forms are kind of similar, or sometimes there's the same kind of standard, and if the LLM is like missing, like say for example this one, a lot of the time, that'd be more like a field level human in review, not a document.
+
+Speaker 1  10:14  
+So what I'm what I'm saying is, the ones that need human review and the ones that don't, right? Like, so for instance, what fraction can we identify what needs human review and what doesn't? And then when you do that, right, you might say, e.g. like 83% don't don't need human review, and 17, and do need human review.
+
+Speaker 2  10:48  
+Yeah, we would need more, and that's why I want to expand this to like 50 documents. If we if we analyze 50 documents and then, because I think that gives us enough data to say to to say that right, 13 documents isn't going to really tell us much on that, especially if we only have like one or two that have copayment information or insurance cards. Right. No, but I got what you're saying, but from okay, I see what you're saying. But even even if the confidence was high by document, if there's like if there's 80 fields in there, let's say it comes back.
+
+Speaker 1  11:35  
+Wait, wait, your confidence comes out by document or by field?
+
+Speaker 2  11:38  
+By field.
+
+Speaker 1  11:40  
+Yeah, yeah, that's what I'm saying. By but field by field, what what's our confidence on?
+
+Speaker 2  11:44  
+Oh, okay. Well, yeah, we have that. That's already baked in, right here.
+
+Speaker 1  11:49  
+And then if we choose a confidence cutoff like 90% as our confidence cutoff, like of the things that are 90% confident or more, what fraction of time are we right? Of the ones that are 80% confident or more, what fraction of the time are we right? Stuff like that, and then can we make it even better by not just using the confidence interval, but by comparing the output of multiple models and say what fraction of the time are we right based on like this meta meta thing, right? Like
+
+Speaker 2  12:20  
+Yeah.
+
+Speaker 1  12:22  
+Like then we can. It's almost like a chart, right? Like if we choose this much cutoff of like how confident we are, right? Then you know you could you could do that, right?
+
+Speaker 2  12:33  
+No, that makes sense. Yeah. So here's why. I mean, I I really want to expand the documents and do a human in the review, get all the the ground truth labeled on that. Get the confidence interval at least on 50 at least on 50 documents where there's a mix of different categories. So that way we have at least some better baseline.
+
+Speaker 1  12:56  
+Uh huh.
+
+Speaker 2  12:57  
+So I'll definitely have that ready to go by next week for sure.
+
+Speaker 1  13:02  
+So what? What I'd like you to do is these enhancements that we're talking about. Get Claude working on those and thinking deeply about making those. And while Claude's thinking, then you can go through and do the because the other you you have the other, and also by the way, the ones that you're doing human review, you have the the the output from. Are you just doing it all manually? Is that the best way? Are you using either way? I'm I'm not. Are you are you saying
+
+Speaker 2  13:37  
+like going off the OC? I'm I'm just flashing up the document. So I take what the LLM has done and and look at all the fields, what it's what what it's applied. I I take the combine right. So in this exercise, I looked at all the combined LLMs,
+
+Speaker 1  13:54  
+and then
+
+Speaker 2  13:55  
+I have that up on one screen. I have the actual document up on the other screen. I'm just going row by row, saying, "Okay, is this right? Is this right? No, no, you know, yes, no, you know, whatever. Oh, did it miss this field completely, or did it did it not even include this field? Because sometimes that happens. What I'm
+
+Speaker 1  14:11  
+saying is, while you're doing that, you could have Claude working on these other enhancements, right?
+
+Speaker 2  14:20  
+Yeah, and I do that. I mean, I I do that already. Like Claude's over there working in the background, and I'm doing some evaluation. I get what you want. Like you want it speeded up, and you know, not waste time, and you know, me evaluating stuff. I get
+
+Speaker 1  14:33  
+it. Okay, cool.
+
+Speaker 2  14:34  
+Yeah, I'm I'm 100 on board. I get it.
+
+Speaker 1  14:38  
+Okay, awesome. Thank you. Looking forward to this.
+
+Speaker 2  14:42  
+Yeah, yeah, we want to push this out quickly. I think it's a. I mean, overall, I think it's a pretty good solution. So right now, so, but I would like to see more documents, more categories. Like you said, we need to analyze the confidence level versus the categorization of it, and I want to see more. I mean, that's pretty much it. Like once I, I feel like once we have enough categories to to actually visibly look at and see how it's actually performing, and then ask them questions around those other categories, because you know, I'm I'm just not seeing a lot of them, so yeah.
+
+Speaker 1  15:27  
+And then you know, in addition to all this, like you could almost have like another instance of Claude like setting up processes for monitoring model drift over time and things like that.
+
+Speaker 2  15:40  
+That'd be cool. Yeah,
+
+Speaker 1  15:42  
+yeah, yeah. So, yeah. There's actually a
+
+Speaker 2  15:45  
+whole paper I was just reading on.
+
+Speaker 1  15:46  
+There's so many pieces that like that can be like the clot can be working a lot. Oh yeah,
+
+Speaker 2  15:51  
+yeah. I was just reading a paper on that where they're using AI for data drift and model drift detection, and they're having the AI retrain the machine learning models as once it detects a a drift threshold break. So imagine that you have this machine, like a legacy machine learning model that's out there right now. It's trending along, and all of a sudden you start seeing, you know, the precision going down, and then they have like a cutoff. Once it meets this cutoff, an LLM goes back in, partitions part of that data out, analyzes all the the data within that that that subset, finds the identification of the drift, retrains the model, in in in Git get actions, redeploys the model in staging, runs in against staging versus prod to see if it improves over time, and then a human in the loop is then deciding: Do I deploy this to prod or not? All you know, that's pretty cool.
+
+Speaker 1  16:53  
+Okay, awesome. All right, liking it.
+
+Speaker 2  17:01  
+Yeah, but we should be able to rock and roll by next week. So next week we should have all this stuff that we just talked about. The only things that are going to be open are just those additional requirements that we don't really that are kind of fuzzy around those other classification topics. That's
+
+Speaker 1  17:16  
+it. Okay, perfect. Thank you.
+
+Transcribed by https://otter.ai
