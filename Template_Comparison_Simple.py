@@ -260,7 +260,7 @@ def build_dsl(tpl, f, scal, size):
     q = json.loads(s); prune(q); strip_ph(q); q["size"] = size; q["track_total_hits"] = True
     return q
 
-def build_service(f, client_id):
+def build_service(f, client_id, size):
     has_name = any(f[k] for k in ("FIRSTNAME", "MIDDLENAME", "LASTNAME"))
     method = "identifierSearch" if (f["ANUMBER"] or f["RECEIPT"]) and not has_name and not f["DOB"] else "advancedSearch"
     b = {"page": 0, SERVICE_SIZE_FIELD: size, "clientId": client_id, "searchMethodType": method}
@@ -389,15 +389,22 @@ def call(run, f, tpl, scal, size):
     t_start = time.time()
     try:
         if run["path"] == "service":
-            body, method = build_service(f, run["cid"])
+            body, method = build_service(f, run["cid"], size)
             r, _ = post_with_retry(run["url"], run["h"], body)
             if r.status_code >= 400: return [], 0, r.status_code, r.text[:300], None, method, (0, 0), round((time.time()-t_start)*1000)
             j = r.json()
-            ex = (j.get("exactMatches") or {}).get("content") or []
-            sim = (j.get("similarMatches") or {}).get("content") or []
-            ppl = [api_person(x) for x in list(ex) + list(sim)]
-            counts = (len(ex), len(sim))
-            tot = sum((j.get(k) or {}).get("totalElements", 0) or 0 for k in ("exactMatches", "similarMatches"))
+            if "identities" in j:
+                ident = j.get("identities") or []
+                ppl = [api_person(x) for x in ident]
+                counts = (len(ident), 0)
+                tot = j.get("totalHits") or j.get("totalIdentities") or len(ident)
+            else:
+                ex = (j.get("exactMatches") or {}).get("content") or []
+                sim = (j.get("similarMatches") or {}).get("content") or []
+                ppl = [api_person(x) for x in list(ex) + list(sim)]
+                counts = (len(ex), len(sim))
+                tot = sum((j.get(k) or {}).get("totalElements", 0) or 0
+                          for k in ("exactMatches", "similarMatches"))
             return ppl, tot, r.status_code, "", j.get("clientId"), method, counts, round((time.time()-t_start)*1000)
         body = build_dsl(tpl, f, scal, size)
         qh = hashlib.md5(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
@@ -468,13 +475,27 @@ if not REUSE_RAW_CSV:
             note = f"template not deployed, service used '{cid_back}'"
         pf.append({"run": r["key"], "template": r["tpl"], "environment": r["env"], "path": r["path"],
                    "url": r["url"], "status": st, "results": len(res), "error": err[:200], "note": note})
+        if err:
+            print(f"\nHEALTH CHECK FAILED for {r['key']}")
+            print(f"  url    {r['url']}")
+            print(f"  status {st}")
+            print(f"  error  {err}")
+            print(f"  query sent:")
+            try:
+                probe_body = (build_dsl(t["tpl"], probe, t["scal"], max(SIZES)) if r["path"] == "direct"
+                              else build_service(probe, r["cid"], max(SIZES))[0])
+                print(json.dumps(probe_body, indent=2)[:3000])
+            except Exception as be:
+                print(f"  the query could not even be built: {type(be).__name__}: {be}")
     preflight = pd.DataFrame(pf)
     print("\nHEALTH CHECK")
     print(preflight[["run", "status", "results", "error", "note"]].to_string(index=False))
 
     failed = preflight[preflight["error"] != ""]
     if len(failed) == len(preflight):
-        raise SystemExit("Every endpoint failed the health check. Nothing was run. Fix the errors above.")
+        raise SystemExit("Every endpoint failed the health check. Nothing was run. The full error and the "
+                         "query that was sent are printed above. The endpoints themselves may be healthy, "
+                         "run Test_Endpoint to confirm, in which case the query is the problem.")
     if len(failed):
         print(f"\n{len(failed)} of {len(preflight)} runs failed the health check and are dropped.")
         runs = [r for r in runs if r["key"] not in set(failed["run"])]
