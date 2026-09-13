@@ -1,0 +1,265 @@
+Speaker 1  0:00  
+I didn't get a chance to pull up and read through your review again before this meeting. Okay, probably just review this for later so I can like look through it before we meet on it because I put it together a while ago. But maybe we can use this time to instead go through the anything any updates on the document processing?
+
+Speaker 2  0:24  
+Yeah. So I've gotten. I'm kind of going back and forth right now with the training right now. So it's still misclassifying. I'm working through right now a misclassification of the copayment. It's supposed to be taking it directly from the CMS example that I provided, but for whatever reason, like so, for example, I was just validating these classifications
+
+Speaker 3  0:59  
+here.
+
+Speaker 2  1:06  
+So,
+
+Speaker 1  1:16  
+okay. This particular thing. Do we have the overall metrics?
+
+Speaker 2  1:22  
+It's still the same ones. I'm hoping I may end up having to push the meeting back till tomorrow if I can't get this working. But this, according to Zach, this is what we use for the copayment identification. So right now, it is not classifying very well on that, so I'm going through each of these labels here for copayment, just to make sure that they are in fact those CMS forms. And right now, I'm not seeing good results of that, so that's what I'm trying to figure out why why it's assessing this as a copayment.
+
+Speaker 1  2:04  
+A copayment or CMS 1500? What is it?
+
+Speaker 2  2:08  
+That's what he he said. That a CMS 1500 form, any detail around the CMS 1500 form, if they have any of those fields, then that is a that is what we they would consider a copayment claim.
+
+Speaker 1  2:24  
+Okay. So is that the only type of copayment claim? Is the CMS 1500? Yeah,
+
+Speaker 2  2:30  
+that's what he said. Yep. Got it. Got it. Okay. Yep. So, but right now it's not. It's not. Well, okay. So let's take a look at another one here. Let's just. look at this one because of the ones I just ran this, and of the ones that I've looked at, I was like, "This does not look right. Let me go back in here. All the other classifications look correct to me, but it's this one that it's not looking good. And the weird thing is, is that it has a high confidence level in it, so it's like, yeah, I don't know about that. All right, so I think it was the same document. Let's try this one. Um, what's going on in your world? Um, everything and everything.
+
+Speaker 1  3:33  
+Yeah.
+
+Speaker 2  3:33  
+But it sounds like we're we're leaning towards build on this, right? Because I kind of got Vic signals from Zach and.
+
+Speaker 1  3:42  
+Not leaning towards build. Lynn is leaning towards build, but I think what it's going to come down to is what we can show.
+
+Speaker 2  3:49  
+Okay. So this is page six. Yeah. See this. This does not look like an in, and there's no information on here. See, it's it's not classifying this correctly.
+
+Speaker 1  4:12  
+But there's no information.
+
+Speaker 2  4:15  
+Well, it class it classified this as a copayment page, and there. This does not. This doesn't come close to a CMS 1500 form.
+
+Speaker 1  4:28  
+Maybe you need to put in the requirements of how we classify it, like that it needs to be a CMS 1500 form. Then
+
+Speaker 2  4:34  
+I did. I've I've I've said that kind of multiple times. So anyway, I'm going back and forth with this thing.
+
+Speaker 1  4:41  
+So we also had a classifier that we made before, right, with IDP.
+
+Speaker 2  4:46  
+Mhm. Yeah.
+
+Speaker 1  4:48  
+How does how does that work compared to this?
+
+Speaker 2  4:52  
+That one was better. So I'm going to resurrect that code, to be honest with you, and those prompts because right now I don't know. This isn't this isn't classifying it correctly based on what I've what I've because I went in and and helped it with 70 some odd documents and classified them and it's still not getting it correctly.
+
+Speaker 1  5:22  
+But what's your prompt for how to classify it
+
+Speaker 2  5:27  
+as a well with the 1500 fields, 1500 form fields, but it's still not.
+
+Speaker 1  5:33  
+Oh, your prompt says these are the fields that you'd expect in 1500 form.
+
+Speaker 2  5:36  
+Yeah. So it's still not. It's still. Do you say
+
+Speaker 1  5:41  
+like it is on the top? Like does it say CMS 1500 on the top left or top right? Do we? I didn't go in that
+
+Speaker 2  5:47  
+kind of detail, but yeah, that's the detail. It looks like I'm going to have to go into.
+
+Speaker 3  5:52  
+Yeah.
+
+Speaker 1  5:57  
+And it's also trying to classify things as none of the above, right?
+
+Speaker 2  6:01  
+Yep.
+
+Speaker 3  6:02  
+It is.
+
+Speaker 1  6:18  
+I mean, you could prompt it with a CMS 1500 form blank image. I wonder if that would help. Well, that's what I
+
+Speaker 2  6:24  
+that's what I did. It's still not it's still not getting it right.
+
+Speaker 1  6:28  
+Got it. Okay. All right. Well, show me the overall metrics. Let's
+
+Speaker 2  6:34  
+see. Let me open up my latest one. I'm trying to find the latest one. Played gas vacation results. That's not it. Sorry, I've got downloads everywhere. I'm trying to find the latest one. So this was one here. This was as of the fourth, though. This was last week. Trying to find the latest one.
+
+Speaker 1  7:58  
+When it says fields matched, that's matched correctly.
+
+Speaker 2  8:02  
+Mhm. But that's only for enrollment. That's only for enrollment pages. That's not. That's not considering any of the other fields. So like for, for like a like copayment or any of these other ones, it's not. I didn't. I didn't build any field level matching yet. That's what I'm doing now. But right now, this is only for enrollment forms only. I'm trying to find. And again, I'm gonna have to go through the retraining again once I do this again, and the retraining, training the models right now because there's like 800 some odd documents. Well, let me ask you your opinion on this. Well, my idea was is that since we have like 800 some odd documents, if I can class manually classify, let's say 100 of those, in which I'm getting up to that point. If I can classify 100 of those manually, use that as a training, then we at least have a ground truth of a page by page ground truth, right? And a field level-that's for the-that's for the page classification. I'm sorry.
+
+Speaker 1  9:29  
+Using those to validate the model's effectiveness, or using it to train the model?
+
+Speaker 2  9:33  
+Using it to train the model.
+
+Speaker 1  9:36  
+So, how are you going to train the model with it? What are you going to do?
+
+Speaker 2  9:39  
+So, again, I'm saying out of these 100, so if we train on 100 documents, right, and say that we held out like 1010, of them, how many of those 10 of those hundreds that I manually reviewed, saying okay, these pages are in fact these pages, how many of those did we get right? How many did they go wrong? Right now, it's hitting when I'm when I'm doing this on like when I ran this through the 50 of them that I I did manually, it was it was getting like 76% page accuracy based on what I manually reviewed page level classification. Right, it looks like it's still struggling with this, and again, from the like where where it's struggling the most is the copayment one. For whatever reason, it's not getting that one correctly. So I'm working on that one. All the rest of them are in the like if you exclude copayment out, it's it's getting the classification right like 95% of the time.
+
+Speaker 1  10:45  
+Okay. Now, with these field level ones, do you have metrics that show like where it said the confidence was above a certain amount? What fraction of the fields and stuff like that? Yeah,
+
+Speaker 2  10:58  
+yeah. So, like for example, this right here, it'll have like it'll have each model's confidence. Is this what you're talking about? Like its confidence level for each field level map. So each row represents a document slash field. It gives the page classification and the actual field the the field name so like refills, you know whatever it is right, and each model will then give its assessment of what it thinks it is and its confidence. So right here, so then
+
+Speaker 1  11:35  
+something where if the confidence score is above a certain amount,
+
+Speaker 3  11:39  
+right,
+
+Speaker 1  11:40  
+then that is, but where are those metrics? Like, if the confidence interval is above 90% then that happens 85% of the time. You get a confidence level above 90% and the ones that are the confidence level above 90%
+
+Speaker 2  11:56  
+Yeah, that's what I'm trying to get to right now. Yeah. Yeah. So, so if I can get out of these out of these documents, let's say for example, it's hitting after I now this is field level this is field level accuracy. So for each field, the ones that I manually reviewed and it said okay I had 90% you know whatever or confidence in this, out of those 90% how many how many of those were actually false positives, false negatives, you know how many actually did match based on what your confidence level was. So what you're wanting to see is x axis, or x axis is confidence level, y axis numbered that you got right within each of those buckets.
+
+Speaker 1  12:46  
+Is like this. Let me just type down to like a table with confidence levels. Zero to 5% five to 10% etc. And then
+
+Speaker 2  13:11  
+what the accuracy rate was for each of those buckets?
+
+Speaker 1  13:14  
+Yeah, then accurate, then fraction of time, a fraction or count of records at that confidence level, and then accuracy for that bucket of records.
+
+Speaker 2  13:41  
+Mm-hmm.
+
+Speaker 1  13:42  
+Something like that.
+
+Speaker 2  13:45  
+Yep, I'm tracking. Yep. And you might
+
+Speaker 1  13:48  
+need to do it different. Like maybe some of those can be like wider ranges, but then like maybe you need to have more fine grained ranges at higher accuracies. I'm not sure.
+
+Speaker 2  13:56  
+Mm-hmm. Okay. Yeah, I'm really close on on getting that, so yeah, I should definitely have that by by today. Once, well, the the training takes a takes a minute to run, so I'm hoping to get this re. It looks like I'm gonna have to rebuild the training again. The training, even on 100 documents, takes about 30 to 45 minutes. Yeah, but
+
+Speaker 1  14:21  
+while you're building that training, then you can work with Claude to like make these.
+
+Speaker 2  14:25  
+Yeah, I totally understand. Yeah.
+
+Speaker 3  14:27  
+Yeah.
+
+Speaker 2  14:27  
+Yeah.
+
+Speaker 1  14:28  
+Okay. Okay. Cool. But anything that you had?
+
+Speaker 2  14:35  
+No, that's that's pretty much it.
+
+Speaker 1  14:38  
+So as far as the requirements, um. I mean, I think it's like you were on the call where we were talking about the pipeline, right? Of like, we get documents, we classify them, we get all the fields, we output it in the JSON, and like a lot of that code was from before, right? So I don't know if you want to be part of that in this or how you want to do it, but then basically, then we need to pass it on to like the next part that does the validation or whatever, right? And then even this thing that you have here, right, like. Yeah. Okay. Okay. Um, and then we need to like work through the workflow of how this is all going to fit in. Cause like,
+
+Speaker 2  15:45  
+well, let me ask you about that because you know I had that one-off conversation with Zach.
+
+Speaker 1  15:51  
+Uh huh. How'd that go?
+
+Speaker 2  15:52  
+And it went fine, but you know their whole their whole thing was it wasn't necessarily the document extraction process that was really what they because they said every vendor they've talked to it they can do document extraction to in the 90 percentages basically kind of what we're showing as well. He said what was appealing about the Salesforce solution is that it integrated into all the different workflows of different things, and so where I got confused was is that okay, basically what they're asking to do is not a document extraction process, but really, okay, let's say we have a document extraction built, and that's kind of what I was saying, like as a manufacturing process. Say we do all the document extraction, we load it into a database, and you have all these services that are hitting, that are need that need access to that data, right? Whether whatever whatever process it is, whether that's Salesforce, whether that's this, whether it's that, whatever whatever it is. The limit they said that there's pros and cons to each of these. Salesforce can't see all their processes, so it's either either way they're limiting their their scope, or they're they're going to have to limit their scope on what each vendor can do because each vendor can't span across all the different processes. And again, I don't know all the different processes that they they mentioned several of them. I don't know all of them off the top of my head, but there's several of them that that would use this this intake process, but document the document intelligence part of this is just one freckle on the horny toads' butt on what they're looking for. Like they're looking for like a whole integrated solution.
+
+Speaker 1  17:35  
+If you can set up the like like what the architecture of that would look like, and get alignment on that. Maybe they have it in their their requirements. Maybe not. Maybe you need to work with them to get closer, better understanding of that. But like you could even map that out.
+
+Speaker 2  17:53  
+Yeah,
+
+Speaker 1  17:54  
+and show.
+
+Speaker 2  17:55  
+Yeah, because then
+
+Speaker 1  17:56  
+we can be like, okay, this is what we're doing. These are other things. Like who's going to work on those, right? And then, like then we give out a vendor, we can also say like, well, does the vendor do all those different things? I feel like they're just exactly,
+
+Speaker 2  18:09  
+exactly. Because I was I was left there going, well, if you don't care about what I'm showing, or what I'm doing here, and that's not helping you, goes, no, no, no, it is helpful. It's helping us, you know, mull over because, like you said, in their minds, it was it was buy that they're looking for a buy solution, but they liked what we were showing to just compared to what these vendors are doing. But at the same time, out of the same breath, they said, "Well, not all these vendors are going to be able to integrate in all of our solutions anyway. And I'm sitting there going, like, you know, okay, if in my mind, if it's as simple as we have documents, we have an intelligent sort of workflow and intelligent service. Let's say we build this in Azure. It's an Azure service application. You hit this endpoint. This and and it could be multiple endpoints for different services. The data gets loaded into Snowflake or wherever you want this to be stored, and you have all these services that sit on top of it after it's been QA'd. To me, that's not that complicated of an architecture to build, and you can build that 100% in Azure. So the problem here is is that I don't know all the processes, and I don't think they do of every every little connection point that's going to be able to to need this data, like who's going to need the enrollment information, who needs the CMS copayment information, what processes you know what processes need this you know
+
+Speaker 1  19:35  
+lay all these things out and like some of it may be in their documents, some of it won't be, but then we can work to get more clarity and like, okay, these are all the different things, and like help them to get to. Yeah,
+
+Speaker 2  19:47  
+because I don't think they know what they really want. Because,
+
+Speaker 1  19:52  
+but but if we lay it all out like that, then it'll force them to make those decisions.
+
+Speaker 2  19:56  
+Yeah, yeah.
+
+Speaker 1  19:57  
+It'll also show that we've kind of like laid it all out. Yeah,
+
+Speaker 2  20:00  
+and so they are looking for a vendor to basically build the foundation with. This is the way I'd imagine it, right? We have a concrete slab, and it's for a mini mall, and this mini mall is going to have like a haircut place, a pizza place, and all these different things, right? We want to be able to configure the platform to be able to be with all the the wiring and the configurations for each of these platforms for which businesses is going to sit on each plot. We are the platform. We we are building the platform, the the base there, regardless of whether you Salesforce or whatever. We're building that platform, regardless of what service sits on top of that, it's the same platform that sits on top. It's just the configuration is going to be different, like the piping and and the electrical and this and that. But we own that. We we could build that platform for whatever services sit on top.
+
+Speaker 1  20:58  
+Yeah, but show how that fits in with the rest of the services, or some examples of the services.
+
+Speaker 2  21:03  
+Yeah, whether that be Salesforce, whether that be they mentioned another process that I don't know off the top of my head. Maybe you you know it. I have to look it up in my notes. But they mentioned some other a couple of different other processes too, not just Salesforce, but and they had concerns with Salesforce too because they're not going to be able to integrate. I don't think, in some of our other other tools. So, I don't know. It seems more logical to me, and I'm not just saying this as selfishly. I want to build this, but it seems to me what they're looking for is, hey, I want to build a platform that I could sit a whole bunch of different services on and use the same data, but be configured differently, so Salesforce could use it differently than you know yada yada yada. If that's the case, build
+
+Speaker 1  21:47  
+all those different configurations, configurabilities, right? Like that's yeah. So, but then we need to just help like get to those requirements, and I don't think they're being clear enough on it. So we need to help with that. Is what I'm saying. So, like, like, let's lay out the architecture, and then make our questions of like what's answered, what's not, also.
+
+Speaker 2  22:09  
+Yeah, yeah.
+
+Speaker 1  22:11  
+Good.
+
+Speaker 2  22:12  
+Yep. Cool. So. All right.
+
+Speaker 1  22:15  
+I'm gonna this meeting a little bit later today or maybe tomorrow or Monday. Uh,
+
+Speaker 2  22:20  
+that's cool. Okay. Yeah. No worries. No worries.
+
+Speaker 1  22:23  
+Cool, all right, see,
+
+Speaker 2  22:25  
+bye.
+
+Transcribed by https://otter.ai
