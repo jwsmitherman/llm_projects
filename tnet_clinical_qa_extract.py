@@ -1,4 +1,12 @@
 # Databricks notebook source
+# MAGIC %pip install openai
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 import os
 import re
 import json
@@ -10,13 +18,9 @@ from typing import Dict, Any, List, Tuple
 
 import pandas as pd
 from openai import OpenAI
-from pyspark.sql import functions as F, types as T
-from pyspark.sql.window import Window
+from pyspark.sql import functions as F
 
 SOURCE_TABLE = "`prod-sandbox`.vivekkumar_patel.gold_tnet_tripmaster"
-CACHE_TABLE = "`prod-sandbox`.vivekkumar_patel.tnet_clinical_qa_llm_cache"
-OUTPUT_TABLE = "`prod-sandbox`.vivekkumar_patel.tnet_clinical_qa"
-WRITE_OUTPUT = True
 JSON_OUTPUT_DIR = os.path.join(os.getcwd(), "json_payloads")
 
 WORKSPACE_BASE_URL = "https://adb-2790612761746757.17.azuredatabricks.net/serving-endpoints"
@@ -25,7 +29,7 @@ LLM_TEMPERATURE = 0.0
 LLM_MAX_TOKENS = 4000
 LLM_RETRIES = 3
 MAX_WORKERS = 8
-FLUSH_EVERY = 200
+PROGRESS_EVERY = 200
 PROMPT_VERSION = "qa_v2"
 
 # COMMAND ----------
@@ -240,110 +244,69 @@ src = (spark.sql(f"""
     """)
     .withColumn("text_hash", F.sha2(F.col("ClinicalData"), 256)))
 
-distinct_texts = src.select("text_hash", "ClinicalData").dropDuplicates(["text_hash"])
+src_pdf = src.select("TripRequestId", "RequestDate", "text_hash").toPandas()
+todo_pdf = src.select("text_hash", "ClinicalData").dropDuplicates(["text_hash"]).toPandas()
 
-CACHE_SCHEMA = T.StructType([
-    T.StructField("text_hash", T.StringType()),
-    T.StructField("prompt_version", T.StringType()),
-    T.StructField("status", T.StringType()),
-    T.StructField("qa_json", T.StringType()),
-    T.StructField("qa_count", T.IntegerType()),
-    T.StructField("dropped_ungrounded", T.IntegerType()),
-    T.StructField("error", T.StringType()),
-    T.StructField("processed_at", T.TimestampType()),
-])
-
-if not spark.catalog.tableExists(CACHE_TABLE.replace("`", "")):
-    spark.createDataFrame([], CACHE_SCHEMA).write.saveAsTable(CACHE_TABLE)
-
-done = (spark.table(CACHE_TABLE)
-    .where((F.col("prompt_version") == PROMPT_VERSION) & (F.col("status") == "ok"))
-    .select("text_hash").distinct())
-
-todo_pdf = distinct_texts.join(done, "text_hash", "left_anti").toPandas()
-
-print(f"Source rows          : {src.count():,}")
-print(f"Distinct texts       : {distinct_texts.count():,}")
-print(f"Already processed    : {done.count():,}")
-print(f"To send to the model : {len(todo_pdf):,}")
+print(f"Source rows          : {len(src_pdf):,}")
+print(f"Distinct texts       : {len(todo_pdf):,}")
 
 # COMMAND ----------
 
-def flush(buffer: List[Dict[str, Any]]) -> None:
-    if buffer:
-        spark.createDataFrame(pd.DataFrame(buffer), CACHE_SCHEMA).write.mode("append").saveAsTable(CACHE_TABLE)
-
-
-buffer, completed, errors = [], 0, 0
+results, errors = [], 0
 started = time.time()
 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
     futures = [pool.submit(extract_one, r.text_hash, r.ClinicalData) for r in todo_pdf.itertuples()]
-    for fut in as_completed(futures):
+    for i, fut in enumerate(as_completed(futures), 1):
         res = fut.result()
-        buffer.append(res)
-        completed += 1
+        results.append(res)
         errors += res["status"] == "error"
-        if len(buffer) >= FLUSH_EVERY:
-            flush(buffer)
-            buffer = []
-            print(f"{completed:,}/{len(futures):,} done | errors {errors:,} | {time.time() - started:,.0f}s")
-flush(buffer)
-print(f"{completed:,}/{len(todo_pdf):,} done | errors {errors:,} | {time.time() - started:,.0f}s")
+        if i % PROGRESS_EVERY == 0 or i == len(futures):
+            print(f"{i:,}/{len(futures):,} done | errors {errors:,} | {time.time() - started:,.0f}s")
+
+res_pdf = pd.DataFrame(results)
 
 # COMMAND ----------
 
-QA_SCHEMA = T.ArrayType(T.StructType([
-    T.StructField("question", T.StringType()),
-    T.StructField("answer", T.StringType()),
-]))
+parsed_pdf = src_pdf.merge(res_pdf, on="text_hash", how="left")
+parsed_pdf["qa"] = parsed_pdf["qa_json"].fillna("[]").apply(json.loads)
 
-latest = (spark.table(CACHE_TABLE)
-    .where(F.col("prompt_version") == PROMPT_VERSION)
-    .withColumn("rn", F.row_number().over(
-        Window.partitionBy("text_hash").orderBy(F.desc(F.col("status") == "ok"), F.desc("processed_at"))))
-    .where("rn = 1")
-    .drop("rn"))
+answered = parsed_pdf[(parsed_pdf["status"] == "ok") & (parsed_pdf["qa_count"] > 0)]
 
-parsed = (src.join(latest, "text_hash", "left")
-    .withColumn("qa", F.from_json("qa_json", QA_SCHEMA)))
 
-qa_by_trip = (parsed
-    .where((F.col("status") == "ok") & (F.col("qa_count") > 0))
-    .groupBy("TripRequestId")
-    .agg(F.max("RequestDate").alias("RequestDate"),
-         F.array_distinct(F.flatten(F.collect_list("qa"))).alias("qa"))
-    .withColumn("qa_count", F.size("qa"))
-    .withColumn("qa_json", F.to_json(F.struct("TripRequestId", "RequestDate", "qa"))))
+def merge_qa(qa_lists: pd.Series) -> List[Dict[str, str]]:
+    merged, seen = [], set()
+    for qa in qa_lists:
+        for item in qa:
+            key = normalize_text(item["question"])
+            if key not in seen:
+                seen.add(key)
+                merged.append(item)
+    return merged
 
-display(parsed.groupBy(
-        F.coalesce(F.col("status"), F.lit("not_processed")).alias("status"),
-        (F.col("qa_count") > 0).alias("has_answers"))
-    .count())
-display(qa_by_trip.orderBy(F.desc("RequestDate")))
 
-# COMMAND ----------
+qa_by_trip = (answered.groupby("TripRequestId")
+    .agg(RequestDate=("RequestDate", "max"), qa=("qa", merge_qa))
+    .reset_index())
+qa_by_trip["qa_count"] = qa_by_trip["qa"].apply(len)
 
-display(parsed.where("status = 'error'").select("TripRequestId", "ClinicalData", "error"))
-display(parsed.where("dropped_ungrounded > 0")
-        .select("TripRequestId", "ClinicalData", "qa", "dropped_ungrounded")
-        .orderBy(F.desc("dropped_ungrounded")))
-display(parsed.select(F.explode("qa.question").alias("question"))
-        .groupBy("question").count().orderBy(F.desc("count")))
+print(f"Rows with answers    : {len(answered):,}")
+print(f"Rows without answers : {int(((parsed_pdf['status'] == 'ok') & (parsed_pdf['qa_count'] == 0)).sum()):,}")
+print(f"Rows errored         : {int((parsed_pdf['status'] == 'error').sum()):,}")
+print(f"Trips with answers   : {len(qa_by_trip):,}")
+display(qa_by_trip)
 
 # COMMAND ----------
 
-pdf = qa_by_trip.select("TripRequestId", "RequestDate", "qa_count", "qa_json").toPandas()
+display(parsed_pdf.loc[parsed_pdf["status"] == "error", ["TripRequestId", "error"]])
+display(parsed_pdf.loc[parsed_pdf["dropped_ungrounded"] > 0, ["TripRequestId", "qa", "dropped_ungrounded"]]
+        .sort_values("dropped_ungrounded", ascending=False))
+
+# COMMAND ----------
 
 os.makedirs(JSON_OUTPUT_DIR, exist_ok=True)
-for r in pdf.itertuples():
-    with open(os.path.join(JSON_OUTPUT_DIR, f"{r.TripRequestId}.json"), "w") as f:
-        json.dump(json.loads(r.qa_json), f, indent=2)
-print(f"Wrote {len(pdf):,} files to {JSON_OUTPUT_DIR}")
-pdf.head()
-
-# COMMAND ----------
-
-if WRITE_OUTPUT:
-    (qa_by_trip.select("TripRequestId", "RequestDate", "qa", "qa_count", "qa_json")
-        .write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(OUTPUT_TABLE))
-    print(f"Wrote {OUTPUT_TABLE}")
+for r in qa_by_trip.itertuples():
+    trip_id = r.TripRequestId.item() if hasattr(r.TripRequestId, "item") else r.TripRequestId
+    payload = {"TripRequestId": trip_id, "RequestDate": str(r.RequestDate), "qa": r.qa}
+    with open(os.path.join(JSON_OUTPUT_DIR, f"{trip_id}.json"), "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+print(f"Wrote {len(qa_by_trip):,} files to {JSON_OUTPUT_DIR}")
