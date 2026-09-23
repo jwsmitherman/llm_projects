@@ -1,0 +1,553 @@
+Speaker 1  0:51  
+Going on.
+
+Speaker 2  0:53  
+Hello.
+
+Speaker 3  0:56  
+Hey. Hey guys,
+
+Speaker 2  1:16  
+how's everyone?
+
+Speaker 4  1:17  
+Hey, how you doing? Talking to you on site?
+
+Speaker 5  1:20  
+I am.
+
+Speaker 6  1:22  
+very nice. Very nice. Work from home anymore? What the heck?
+
+Speaker 5  1:26  
+I know. I don't think I've been home for like two weeks. It's crazy. So it's some momentum stuff. Trying to get set up assistant out the door.
+
+Speaker 2  1:41  
+All right, great. Let's see. Let me just make sure take a look at the calendar here. Make sure we got all everybody here. I think, yeah, I think we're good. All right. Well, thanks everyone. Hey, so this is just a continuation, really a demo of a local sort of process test of this document processor AI generation for extraction of these different types of forms that we're seeing here, and just kind of level setting on accuracy. So, just full disclosure: what this demo isn't? This is just simply the field extraction and the accuracy in showing that step by step how that's built into an API that can later be called for by any other system and then stored in some. In this case, it's interacting with Snowflake specifically, but again, it's not talking about how this particular process is integrating into other processes. That's not what this one's doing at all. It's just simply demonstrating the field extraction portion of that, if that makes sense.
+
+Speaker 7  2:50  
+And the classification of the documents, right?
+
+Speaker 2  2:52  
+I'm sorry.
+
+Speaker 7  2:54  
+And the classification of the documents. Classification
+
+Speaker 2  2:56  
+of the documents and field extraction. Yes, correct. So does it
+
+Speaker 6  3:00  
+do document splitting, Franny Jacks?
+
+Speaker 2  3:03  
+Like per page.
+
+Speaker 6  3:06  
+Like if if we had 120-page fax, but three different patients were included, would it split those?
+
+Speaker 2  3:14  
+It would. It it does a by-page extraction. So for each page, it tries to classify what it is, whether that's a enrollment form or whatever it is, and then it will extract all the fields from that particular page. So, in theory, if there were, I don't know, say 20 different patients, and each one of those were one of the the enrollment forms, then yeah, they would it would extract each individual one on in that document if that's what you're if that's what you're asking.
+
+Speaker 5  3:48  
+Well, it's more than just the extraction, right? It's like when those pages land in the case management system, it would need to partition these dot these pages belong to this patient record, and these other pages belong to this other patient record. So I think that's what Jeremy means by splitting.
+
+Speaker 2  4:09  
+Yeah, yeah. I mean, once you once the fields are extracted by page, it's a simple check to see okay, this is classified as an enrollment form. Here's a patient name. Does it match this patient name on the other form? If they're different, then we can split those out. That's a that's a very simple thing
+
+Speaker 8  4:29  
+to do. Okay,
+
+Speaker 5  4:30  
+is that logic that lives within the extractor tool, like within the AI, or is that something that would have to be partitioned out? Like you would just send everything to like our submission API, and submission API would have to figure that out.
+
+Speaker 2  4:46  
+We could do it either way. I mean, I mean, think about it because after let me just kind of let me just walk you through kind of example, and I think that would be make more sense to you. So, what I've done here, so there are about 800 documents here that you can see right here. These vary from some have enrollment forms, some don't, some of them are just insurance cards, some of them. I mean, it's everything under the sun. There's a whole mixed bag of all kinds of stuff in here, and so what this process does is that you spin up this endpoint here, and this is just a local endpoint right now, but this can this can exist in Azure. And what we or what we what we're using specifically to sort of not just match, but I know after the Salesforce call they were using Claude, I believe it was Gemini and GPT five, I believe on those. So what we what I've built here is that we're using GPT five, Claude Opus five, and Claude Sonnet five. Gemini was not available, but there are other models we can we can use. So it's and again, this is just for demonstration purposes. So if we wanted to expand out to other models, we certainly could do that. There's a there's a big list of models available to us. But right now, the only three that we're using for this particular use case are are these three right here, and the way it works too, it's it's not like we just run one, like oh we get a result from one model. We're literally running all three of these at the same time, and each one's judging each other, and there another one is combining them all together, because one thing that we noticed is GPT five would leave like a lot of blank entries, whereas Sonnet would have actual fields populated. But usually, it was either Sonnet or Opus would have the most complete ones. But each one would like have blanks in one, and other ones would. So it's really a combination of all three of them of who not so it's not necessarily who had the better answer. It's literally a accumulation of all three. If that makes sense.
+
+Speaker 6  7:09  
+You use way more tokens.
+
+Speaker 2  7:12  
+Yeah, it does. Yeah, it does use more tokens, but your accuracy is very much improved.
+
+Speaker 7  7:22  
+And we don't have to do it that way. Like it's, you know, it's just we're improve accuracy with more tokens. Where don't we want to?
+
+Speaker 2  7:33  
+Yeah.
+
+Speaker 7  7:33  
+You know, we'll have to see.
+
+Speaker 2  7:35  
+Yeah, yeah. And it's very pivotal too. So if we only wanted to use a couple models or just one model. We can certainly do that, and it's very it's customized that way. So yeah, you stand up this endpoint here. Here I have it running through randomly selected around 10 documents, five of them. In this particular case, I'm I'm specifically wanting five hand ones that are known to be classified as handwritten. Oh, that's the other thing I wanted to talk about too. In this particular process, it identifies what is handwritten versus what's typed. So you see, so what ends up happening is each document by page gets classified, right? Then once it's classified, it'll go through the the field extraction portion of this, where the LLMs are doing its thing, right? And then it will identify fields that are handwritten or not. So, for example, like we go take a look at one, we go take a look at this document here. So clearly, you can see this is very much handwritten, and if you bump up against, let me see if I can minimize.
+
+Speaker 5  9:13  
+Did it classify that one as an insurance card?
+
+Speaker 2  9:19  
+Uh, it did not. It classified this. Let's see.
+
+Speaker 5  9:26  
+I just I just saw the file name.
+
+Speaker 2  9:28  
+Yeah, and then the file name it says insurance, but it doesn't. The file name itself doesn't really do anything for this process. So it's saying page 12345, all have enrollment form information. So this, obviously, it says patient enrollment form on it. So I would imagine it's a patient enrollment form. So and if you click over on the field extraction here, you can see, and I'm trying to minimize, or I'm trying to get this where we can see. Let me just hide these fields so it's easier to see. So, like for example, is that is that good for you guys? Can you see like the top and the bottom here? So here you can see, you know, first name Renee, confidence level, handwritten true. You can see that you know some of this information here. So you can see how it's extracting the information, even like the so like so for example like email address. See right here it says it's this is located on page two, so here you can go right here and look at page two, and you can you can see there is the email address. I would have to go. So the other thing about this too is is that where information is available in Snowflake? This thing does ping out to Snowflake. Like so, for example, what it's doing is it's it's searching for this patient ARX ID that it extracted from the document name. Now, not all document names have these. So, where where this is either located inside the document or in the document name, this is what it's being used to key from Snowflake. And so, for example, like if I were to scroll down and say, let's say we'll look at this this one right
+
+Speaker 5  11:44  
+here. Can I ask a question about that?
+
+Speaker 2  11:46  
+Yeah. Go go for it. The
+
+Speaker 5  11:50  
+forms we're going to care about extracting from are going to be enrollment forms for net new patients. So, is there a test that we did where we weren't going out to Snowflake to enrich the data, and it was just trying to extract human, like a
+
+Speaker 2  12:11  
+human review? Is that what you mean?
+
+Speaker 5  12:14  
+Well, not specifically. What I feel like I heard you say, and correct me if I'm wrong, is that it's pulling a lot of this information because it's referencing a patient ID that we have in Snowflake.
+
+Speaker 2  12:27  
+No, no, no, no. It's pulling the patient ID from the document itself, and then it's reaching out to Snowflake and querying based on that ID. For if there's if there is data, then it will populate this. If there's no data, then they just leave it blank.
+
+Speaker 7  12:44  
+Right. So what I'm saying as a check, not as a not as to make its accuracy better. We're checking the accuracy against no break here.
+
+Speaker 2  12:54  
+Right.
+
+Speaker 7  12:54  
+I got you.
+
+Speaker 2  12:55  
+Yeah. Is that is that clear?
+
+Speaker 6  12:59  
+Does it have to be the idea of having it. I like the idea of it checking against what we know. If we're able to confidently say we already have this patient in the system, let's see what it compares to in Snowflake. But we're not going to have like an ID on the form most of the time, right? Like it would just be like a fuzzy match or something with name date or zip codes, stuff like that.
+
+Speaker 2  13:20  
+Yep, I've definitely run into that. Yep, and so I have the snowflake one here, and I have about 50 documents that I've manually reviewed too, because that's how I did like a human in the loop field level accuracy, and I can tell you out of the 50 I audited myself, and again, this is a human audit versus with with with what the LLM is extracted, I was seeing around like 96% field level accuracy, and around 92% for patient enrollment forms. It was hitting at 99% page classification. Where it struggled was on the still. It's still struggling with the copayment information, even though it's supposed to be exactly like a CMS form. And Zach, I did see your new requirements come over, and I did see here at the bottom. These are the list of forms that they're wanting Here, so one of the challenges
+
+Speaker 5  14:24  
+that we have in Salesforce today. That doesn't mean these can't change. This is just what we have
+
+Speaker 2  14:31  
+options. Yeah. So one of the challenges that I've had here is getting enough examples. Like so, for example, like you know, I'm I'm just I'm just going off of this, you know, 800 documents I have here, and so I would have to like comb through a lot of these, and get enough observations to fit within each bucket because the the more observations I have right now are enrollment forms, obviously. So enrollment forms, it does great on. It nails that almost 100% of the time. Where, and again, handwritten versus non-handwritten. I'll give you an example where, obviously, handwritten, it does. It's a little less accuracy. It's it's still the 90 percentage, but it's not it's not as good as the nine. Yeah, the I think that's to be expected. Yeah, yeah, it's not as good. I'll give you a perfect example of that. Let me show you an example of that. Let's go to. I don't
+
+Speaker 6  15:57  
+know if we have any kind of baseline data around like how often enrollment forms are handwritten versus typed. Might be interesting if there's any way to know that, but I don't think that's a data point we capture today.
+
+Speaker 9  16:08  
+Mm-hmm.
+
+Speaker 5  16:14  
+I I've never seen a a typed enrollment form.
+
+Speaker 2  16:18  
+Oh no, they exist. I know they
+
+Speaker 5  16:20  
+they exist. I've just never seen them. I'm going to assume handwritten is a majority, but again, it's not backed up by data. It's just anecdotal.
+
+Speaker 6  16:29  
+Yeah.
+
+Speaker 2  16:31  
+Okay. Here it is.
+
+Speaker 5  16:32  
+Question, because you mentioned trading, Josh.
+
+Speaker 2  16:36  
+Yep.
+
+Speaker 5  16:36  
+Both from a hey, here's a net new enrollment form. There may or may not be differences in the actual fields we capture versus hey, this is a change to an existing enrollment form. There may or may not be new or removed fields from the form, but maybe the layout changed a little bit. Can you just talk to me about the requirements for training?
+
+Speaker 2  17:10  
+No, that's a good question. So there's already a few different variations of enrollment forms in here. I think there's like three or two or like three. I think that I've observed that are different formats, and I can show you a few examples. This one actually, well, let me see what this. But but to answer your question, there's already a little bit of variation in enrollment form layout, is what I'm saying, and so far, the enrollment form, at least from a human-in-the-loop categorization and verification standpoint, it's-I mean-it's almost hitting 100% of the time. As but
+
+Speaker 7  17:53  
+Josh, you're not eating it all the different examples of enrollment forms from a training perspective.
+
+Speaker 1  17:59  
+It's
+
+Speaker 7  18:00  
+just the prompt. So I think to answer your question, Zach, it's able to classify it without knowing ahead of time what those other forms look like. Yeah,
+
+Speaker 5  18:09  
+and I'm and I'm guessing confidence is lower where it doesn't have the training, and eventually it scales up as it gets more examples.
+
+Speaker 2  18:18  
+Yeah. So for example, like a copayment, or I would say insurance cards is the next highest one for whatever reason you would think insurance card would be higher because it's pretty basic it's an insurance card but it was actually lower accurate classification accuracy and I think a lot of that had to do is just I I didn't have enough trained observations I think I only had like 12 of them versus like I had over 75 enrollment form training sets of variations. So again, it's only as good as the training set. So the more variation that you give it in the training, the better it's gonna
+
+Speaker 6  18:57  
+do. 75 even seems pretty low. Are you saying that's as as few as it takes to get it to a point where we're up to.
+
+Speaker 2  19:03  
+I mean, ideally you would want it over 100, but again, this is a very manual process to go in and classify all these. So, but yeah, I mean,
+
+Speaker 6  19:15  
+in my head, I was thinking, oh, it would take hundreds to get these things trained, but you're saying just dozens could do it, huh?
+
+Speaker 2  19:21  
+Yeah, yeah. So, yeah. Go ahead.
+
+Speaker 5  19:26  
+How does it do with like on the form? Was there a field for capturing the presence or absence of a signature, like it? Yep. Okay.
+
+Speaker 2  19:36  
+It's there. Yep. Yeah. Patient,
+
+Speaker 6  19:40  
+patient, and provider signature both would be important.
+
+Speaker 2  19:43  
+Yep. Yep. Representative signature. It would. Oh, I see.
+
+Speaker 5  19:48  
+Okay. Yep. It
+
+Speaker 2  19:49  
+would be there, and it would say true or false. Or I mean, if there was a value there, it would say true. Is
+
+Speaker 1  19:57  
+this
+
+Speaker 5  19:58  
+file you're showing representative of like one fax that was sent through
+
+Speaker 2  20:06  
+the
+
+Speaker 5  20:06  
+system. How many pages was it? This one
+
+Speaker 2  20:10  
+is what four pages.
+
+Speaker 5  20:16  
+I guess, like we we've received 400 page faxes before. Like, what's the breaking point for for like able to split classify and extract? Wow, I'm assuming there's some of it.
+
+Speaker 2  20:30  
+That's a great question. Honestly, I don't know. I'd have to test that. I'd have so that's a good question. I I guess what I can do is in this stack of 800, just go through and just do a page count per each document. I would
+
+Speaker 5  20:44  
+love to know,
+
+Speaker 2  20:45  
+and then find ones that are just gigantic, and then go through that. Honestly, I don't. I don't know the answer to that.
+
+Speaker 5  20:54  
+Yeah, like 400 pages is an outlier, right? But it it does happen. But I could easily see us getting 20 pages, 25 pages, somewhat regularly.
+
+Speaker 2  21:05  
+Yeah.
+
+Speaker 6  21:06  
+Yep. I agree.
+
+Speaker 2  21:07  
+Yeah, I'd have to. I didn't think about that, but yeah, I can. I can go back and look at page count versus, I guess, classification and field level extraction accuracy. So, like, this is an example here where it is off. So, if you look at, let me hide these columns here and scroll up a little bit here. So, for example, like this prescriber information. So you can see right here, for example, the NPI. Okay, yep. So if you look at the MPI here, so the MPI is you can see visually it looks like 1164680039, and when we query it from Snowflake, you can see it matches. That's the Snowflake entry, right? But you can see the OCR LLM extraction is is pretty off. It's it's that's a pretty significant. You know, I mean. You know
+
+Speaker 6  22:28  
+what the what was the confidence score on that?
+
+Speaker 2  22:30  
+It was 95 on that one. So
+
+Speaker 6  22:34  
+I thought I thought that was what you said it to be the threshold. That's actually the confidence score that it returned for. Oh no no no,
+
+Speaker 2  22:40  
+that is the threshold. Yeah, sorry. Yeah, I have to go back and look at what that the the confidence score or what the actual confidence was on that one. But yeah, you can see right there, that was a big miss. And then like this one right here, you can see like group number here. Now the weird thing about Snowflake, and I still have to work with John or I forget his name. I think it was John, one of the architects in Snowflake, because you get multiple rows in Snowflake for some of these patient forms, and some of them have different information. So the way that this works, it if there's multiple values, say say for example RX group for this particular patient, it concatenates them all. Like these are all the you got to look at this say these are all the possible values that have been entered into Snowflake for this patient for this form if that's yeah you know because there there could be multiple patients for the same form that's been entered in
+
+Speaker 7  23:35  
+for that NPI did you look to see if there's a different NPI in this document, or a number that matches the number that came back somewhere else.
+
+Speaker 2  23:46  
+I did. I did not see one. Let's see.
+
+Speaker 5  23:53  
+Do you store the actual confidence score returned?
+
+Speaker 2  23:58  
+Not. No, I can though. I can do that.
+
+Speaker 6  24:03  
+I agree with you too.
+
+Speaker 5  24:05  
+Yeah, for sure.
+
+Speaker 2  24:06  
+Yeah. So Cliff, to answer your question, I I've I've reviewed this a couple times. I don't recall seeing it. I can certainly send you guys this as an example. Well, this is PHI. No, this is PHI. I don't think I didn't send it, but I don't. I don't see it. I think it's just a flat-out miss. Yeah. On this, but then like again, look at this right here for where was this? Oh yeah, okay. This group number. See right here. This is group number ID RX two zero XUI or I or one. You know, could be either one of those. You can see one of the fields extracted from Snowflake was this right here, which that looks to be the correct one, but you can see right here the LLM OCR did not did not extract this correctly. But again, it hits on over 90% of them, but you will see these misses like this. Now, the other thing that caught my eye in that requirements document was, and again, we can we we can certainly get there, but to get to where do I see this? This right here, 99% plus. So right as of right now, we are not there, but that doesn't mean we can't get there.
+
+Speaker 5  25:53  
+Well, I probably need to clean up the verbiage here. What the what I'm trying to say there is that when we pass the confidence threshold of an extracted field, that accuracy is 99% plus. So if we say that it needs to be 95% or more confident, then when it gives that confidence score, it's it's accurate damn near every single time. That's what the. It's not saying that you're extracting. Oh, okay. For critical
+
+Speaker 2  26:27  
+fields. So, do we have a list of those critical fields that are like? I know you have sections here. So, is it like each one of these sections, all the fields in those sections? Yeah, I think I need to
+
+Speaker 5  26:38  
+clean it up a little. It's really. This isn't really just about critical fields. I need to clean that part up. It's more just about when we pat when it when the system says I am 95 percent or more confident that this is the right value extracted from the form that it's right, right? Like if it gives an 80% confidence score and it's not right, that's okay. That's working as designed, from from my perspective. But when it's but when it thinks it's right, it should be right.
+
+Speaker 7  27:12  
+Okay, no, that's fair. What you're saying is whether it's 95 or some other number, what is the threshold that we should use where we can get it over 99% accuracy.
+
+Speaker 2  27:24  
+Yeah,
+
+Speaker 7  27:25  
+and then in those circumstances, you want to skip human review. But in other circumstances, when we aren't going to be 99% accurate, we're going to pass it to human review.
+
+Speaker 5  27:37  
+That is a much better way of saying it.
+
+Speaker 2  27:40  
+Okay. Yeah, I mean that's totally. I don't necessarily
+
+Speaker 6  27:45  
+hate the idea of it being critical fields either, because there are some fields that are less impact. Like there's going to be they're going to send clinical notes and all kinds of crazy stuff in some of these packages that that we don't necessarily directly inject into the system. So I'm less worried about some of that stuff.
+
+Speaker 2  28:01  
+Okay. Okay. So we
+
+Speaker 7  28:06  
+have what critical fields are by for each of the document types.
+
+Speaker 2  28:09  
+Well, that's what I just asked. I don't think we did.
+
+Speaker 5  28:13  
+We have the whole list of fields from your standard enrollment form as Appendix A on this document. We can like we can asterisk the critical ones. Obviously, name date of birth is way more important than I don't know. Vice. Pretty much
+
+Speaker 6  28:45  
+anything else. They all seem. They
+
+Speaker 5  28:47  
+actually all seem pretty important now that I'm reading them all.
+
+Speaker 6  28:51  
+Yeah, I think there's there's a there's probably some on here that we would. I don't know how we set that up in the system, but I do agree that there's some that like we need to be extra sure about these being correct versus others,
+
+Speaker 10  29:05  
+right?
+
+Speaker 6  29:06  
+And we could kind of play with moving some into that critical layer versus the others, and I'm sure we iterate on that over time.
+
+Speaker 2  29:13  
+Now, this is for enrollment forms only. Are we, are we just kind of? I mean, are we only? I don't want to say only, but are we primarily interested in enrollment forms at this point?
+
+Speaker 5  29:28  
+Primarily, for sure. Your enrollment forms are really where most of the data extraction is happening. Most forms, we are just receiving and attaching it to a case. So the classification part is really critical there.
+
+Speaker 2  29:42  
+Okay,
+
+Speaker 5  29:42  
+that's not to say we can't move into extracting data, but then you've when you've got an existing patient case, there's things you need to be careful about about what fields do I overwrite versus what fields cannot be overwritten. There's some things you have to be careful about there, but for an enrollment form for a debt due patient, it's a very clear cut. Like extract the data, create the records.
+
+Speaker 2  30:08  
+So really, these other the other form types are really that's more beneficial for the classification than the field extraction at that point. Since you're just right now,
+
+Speaker 6  30:16  
+yeah, yeah, because 90% of the time they're sending an insurance card with an enrollment form that already has only that's already yeah listed out on the form right. It's just they're a doctor's office. They're used to taking pictures of insurance cards. They send it. Well, that
+
+Speaker 2  30:27  
+brings up a good point. Another thing, and I wanted to ask your opinion on this. So what I've seen a ton of is they will leave this information here blank, but then they'll have a insurance card and other information attached to the scan.
+
+Speaker 7  30:51  
+Yeah.
+
+Speaker 2  30:52  
+So my question to you is that when we do, because one of the the things I've noticed about this process, it will list those as an insurance form classification, but it'll have the fields needed for the enrollment form.
+
+Speaker 5  31:10  
+Yeah, yeah, we'll have to build out some logic there. For and those are just those are just things we'll have to work through when we get to very granular detail level user story level requirements.
+
+Speaker 2  31:24  
+So yes, for that
+
+Speaker 5  31:26  
+example, I would want it to be aware that hey, these fields were blank on the enrollment form, but they gave me an insurance card, so I'm going to use that instead.
+
+Speaker 2  31:33  
+Or it could be they'll list like doc, or I don't know if it's the doctor or whoever, whoever scanned it in will list like a whole another just random page of information that should have been filled in in this space here, but never was. It was just attached. Yeah,
+
+Speaker 6  31:49  
+do anything but fill out the form sometimes. Yeah,
+
+Speaker 1  31:53  
+yeah. There's a ton of different business rules here. I mean, you can get in an enrollment form that's incomplete, and then 10 minutes later, get another enrollment form for the same patient that has that completed information. The document types are important, so if I have an existing patient and I get a new document type, but there's a lot of business rules behind that too. Like,
+
+Speaker 6  32:20  
+yeah,
+
+Speaker 1  32:21  
+depending on the information that's filled out on the form as it comes in, yeah, the original, the original, the original enrollment form. Like we want key pieces of data to be able to progress the case to the next thing. So,
+
+Speaker 2  32:36  
+you
+
+Speaker 1  32:36  
+know, obviously, automate kicking off a BI if we have all that information, is what we'd want to do, but there could be like some missing information, right? Like, like we need to chase down a consent to be signed by the patient. So if that piece is missing, we'd want to create some automation behind all the scenes for that stuff. So there's just a there's a ton of business rules.
+
+Speaker 2  33:00  
+Because one of the things I was looking at from a accuracy classification standpoint is, it's like, okay, well, it did classify this correctly, but the fields I need in the enrollment form are actually classified in another form type. Yeah,
+
+Speaker 6  33:16  
+that's why they just send 20 pages sometimes, just to like be like, well, we'll just throw everything and hopefully they've got everything they need. Yeah, kind of thing. But to answer, I think there's two important things to call out though. Like one, yes, enrollment forms and the copay documents are probably like the two most intensive like document and or data entry type forms that will probably be most focused on for IDP launch. So if that helps you focus your effort at all, those are probably two most important. And then two, the the document type is is also really impactful for a lot of downstream processes for like data sharing and stuff like that that comes into play. Like we can share some, or we want to send this document type with the triage, but we don't want to send this, or we want to share this one, but we don't want to share this one. So that's why we're so focused on some of those items too. Yes.
+
+Speaker 5  34:02  
+Give an example with a palace recently. We automatically filter out financial hardship forms, right? But because we don't have like an automated way of splitting these documents apart, a hardship form made its way in in a packet with an enrollment form, and that was an inadvertent way of making it through our privacy filters. So, like, not just classifying it, but also splitting it and giving us the ability to store them separately is exactly it's it's a compliance issue, honestly. Yeah,
+
+Speaker 6  34:39  
+that's why like you can pull the data and, like, you know, the the JSON or whatever you send to submission API, you could have all of it together in one, you know, just separated into arrays or whatever. But when it's the documents are saved in the system, they they need to be separate. Yeah,
+
+Speaker 2  34:54  
+yeah, totally good.
+
+Speaker 1  34:57  
+Which I think you kind of said that Josh is like, you got enrollment form and you got some insurance cards that were page two or whatever. As classifying the first one as enrollment form and the second one as insurance cards, then that's actually a good thing. Yep. Even if you combine the data.
+
+Speaker 2  35:16  
+Well, yeah, but that's either there. Therein lies the problem, though. Is is that when you query and try to do accuracy on enrollment forms, the information is actually blank. But it actually extracted the needed information, but it was in a different form, classified as something else. That
+
+Speaker 6  35:36  
+actually kind of leads to another piece that we really need all this to be auditable too. So if that's the case, like we would need to be able to trace that back in an audit and say the enrollment form didn't technically have it. It was you know another document we put it together. You know as part of yeah. I mean I saw that.
+
+Speaker 2  35:51  
+I've seen that quite a bit, where yeah
+
+Speaker 6  35:54  
+yeah
+
+Speaker 2  35:57  
+yeah Zach, cool, great feedback, guys. Again, we can post questions, whatever. I believe next steps would be to really kind of nail down that that field level confidence that the algorithm actually has, not just the threshold. The other thing I heard was extending out the classification to those other groups that were listed on, I think it was Appendix Appendix B for document type.
+
+Speaker 7  36:35  
+You have you have examples of those documents.
+
+Speaker 2  36:37  
+I would have to go search it. I the only the only document types I have are the insurance card, the copayment, and enrollment form. Everything else either gets classified as no data or other. If that makes sense.
+
+Speaker 1  37:00  
+This looks awesome. I need to drop though too. Okay, thanks. Thanks, thanks a lot, Josh. Appreciate it. Thanks, Cliff. Talk
+
+Speaker 7  37:06  
+to
+
+Speaker 2  37:07  
+you.
+
+Speaker 6  37:11  
+Thoughts?
+
+Speaker 7  37:14  
+Yeah. So I feel like I was asking. I was trying to ask them if they had examples of those documents. It sounds like they don't. You have to like reach out to other people in the org to see, or like follow up with them via email or something to try to see if they they have examples of the other documents. And I also, when I'm looking through their requirements, their requirements is really like has quite a few different things in it, and then today we even talked about things that aren't in those requirements. So we the I kind of feel like they need to turn the requirements into phases.
+
+Speaker 2  37:51  
+Okay.
+
+Speaker 7  37:54  
+Probably because otherwise it's just
+
+Speaker 2  37:56  
+well, that's kind of where I was getting to the question of, hey, it sounds like you guys are really focused on enrollment form, you know, and like field extraction for the enrollment form, and and basically everything else is classification problem. That yeah, and if that's the case, then that simplifies things into like you said, a phased approach. Now, the insurance card information, yes, we can OCR or whatever, but if we don't really care about so much about the information coming out of it, the fact that it's that it's just an insurance card itself attached to the facts, where where we have all the enrollment form information. To your point, maybe that's a phase one. You know, maybe phase one is just hey stated just like this field extraction for role informant everything else is classification.
+
+Speaker 7  38:49  
+Yep. The other thing I was thinking was so you were showing some examples where I got it wrong. What did the different models do in that circumstance? Did they all get it wrong the same way?
+
+Speaker 2  39:06  
+Yep.
+
+Speaker 7  39:08  
+Even that one with the NPI.
+
+Speaker 2  39:10  
+Yep. All three. Yep. Because if there was, because there's a there's a sequence of order. If there's a disagreement between them, it should concatenate. Like it should say, Claude. Claude said this one. Opus said this one. Whatever. So if there was a difference, it should, it should be separated by a comma.
+
+Speaker 7  39:32  
+I just find it hard to believe that like that NPI would be like so randomly different in a model produced by Anthropic. See, I think it's
+
+Speaker 2  39:45  
+I think it's an OCR. I think it's an OCR issue. I think it's not. I think it was an OCR issue. I think we got. No,
+
+Speaker 7  39:51  
+no, are these doing OCR and then going to the models, or are these going straight to the models?
+
+Speaker 2  39:56  
+Well, they're going straight to the model, but yeah.
+
+Speaker 7  40:01  
+Can you look into that more? I just feel like there's there's something there. Yeah, there's something that's probably not exactly the way that you think it is that's happening in these circumstances. If you think that the models are returning that same error for each of them,
+
+Speaker 2  40:16  
+that's fair. Yeah, I can definitely look at that.
+
+Speaker 7  40:20  
+Because then the other thing that I was going to say was, if like we could also use circumstances to adjust the confidence when the models disagree, or when the or when the model like some of the models produce null, and another produced value, right? Like in those circumstances, we would need to adjust the confidence there too, right? I don't know.
+
+Speaker 2  40:52  
+Yeah, yeah. Having model agreement or disagreement, I think is going to be one of a critical factor here too, because like
+
+Speaker 7  40:59  
+you need to just track that as a column.
+
+Speaker 2  41:02  
+Yeah, each each one has its own column. Yeah, I had that before, but then it's funny. I had it in there, but I removed it because I didn't. For business review, I didn't want them to get confused and open up that whole can of oh well, clot said this one and this one said nothing, and so I didn't want to kind of get into that, but yeah, if if you think it will help the business understand it better,
+
+Speaker 7  41:27  
+well, what I was saying was even like I think one of the key things that I might take away from this is if we're wrong sometimes, that's okay as long as we know when we're wrong,
+
+Speaker 2  41:42  
+and being the confidence level, or or or model of disagreement. Yeah,
+
+Speaker 7  41:50  
+yeah, exactly. So if we said like, hey, all three models agreed, like what is our accuracy rate in those circumstances at different confidence levels versus when like some models didn't produce a result and another one did produce a result. What's our confidence level in those circumstances, right? Like if we did that, then that would like maybe we can more fine tune like a grouping where we're like really positive it's accurate, and maybe that can still be a big chunk of it. And then even if we're human reviewing 15 20% of the thing records, that's still like a lot of labor savings. And if we're really positive on the other ones, like I think that's really key.
+
+Speaker 2  42:31  
+No, that's a good call out. Yeah, I agree. Yeah, we could use that as another brawn because you could still have a model say, "Oh, I'm 95% confident. Another model said, "Oh, I'm 95% confident, but they'd be different answers. So, again, that's a way to say, "Hmm, okay, you guys are not agreeing here. What you know that could be another another metric.
+
+Speaker 7  42:55  
+Okay. So, what were the big changes that you made last week on this?
+
+Speaker 2  43:00  
+Oh man, I made a lot. Went through. I retrained a ton. Obviously, through my, I did a lot of manual for the for the training for the page classification. I did a lot there over you know several days of classifying those. Looking at the difference between handwritten and versus typed accuracy, I wanted to make sure that those were separated out correctly. I beefed up those prompts a little bit more. The signature, I added that bit to it because I noticed that that was being missing, so I added that portion to it. I don't know. I did a lot. I can't remember everything I did. I can list all these out, but yeah, I've gone through a lot of iterations here. But oh, and created the endpoint because before this was just a process. Now I have this as an endpoint, where it's processing each document on its own through the endpoint. But that's the other. That's the other thing too. It. I don't know what the requirement here for a transaction standpoint is, but it just does one document at a time through the endpoint. So you send it one document, it sends you back the the response.
+
+Speaker 7  44:24  
+Okay, do you want to compile like what you view as your like next steps and email them to me and and
+
+Speaker 2  44:32  
+sure yeah I guess okay
+
+Speaker 7  44:34  
+and maybe include Alan
+
+Speaker 2  44:38  
+include Alan okay
+
+Speaker 7  44:39  
+yeah because Alan's like doing product stuff, so just keeping him in the loop.
+
+Speaker 2  44:44  
+Keep him in the loop.
+
+Speaker 7  44:45  
+Okay.
+
+Speaker 2  44:45  
+Yep, will do.
+
+Speaker 7  44:47  
+Thank you.
+
+Speaker 2  44:48  
+No worries.
+
+Transcribed by https://otter.ai
