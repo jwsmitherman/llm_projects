@@ -13,7 +13,7 @@ import json
 import time
 import hashlib
 import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from typing import Dict, Any, List, Tuple
 
 import pandas as pd
@@ -29,7 +29,9 @@ LLM_TEMPERATURE = 0.0
 LLM_MAX_TOKENS = 4000
 LLM_RETRIES = 3
 MAX_WORKERS = 8
-PROGRESS_EVERY = 200
+PROGRESS_EVERY = 20
+MAX_TRIPS = 100
+CANDIDATE_TRIPS = 500
 PROMPT_VERSION = "qa_v2"
 
 # COMMAND ----------
@@ -213,7 +215,7 @@ def extract_one(text_hash: str, text: str) -> Dict[str, Any]:
         "qa_count": 0,
         "dropped_ungrounded": 0,
         "error": None,
-        "processed_at": datetime.datetime.utcnow(),
+        "processed_at": datetime.datetime.now(datetime.timezone.utc),
     }
     if not text or not text.strip():
         return row
@@ -241,27 +243,50 @@ src = (spark.sql(f"""
         SELECT TripRequestId, RequestDate, ClinicalData
         FROM {SOURCE_TABLE}
         WHERE ClinicalData IS NOT NULL AND trim(ClinicalData) <> ''
+        ORDER BY RequestDate DESC
+        LIMIT {CANDIDATE_TRIPS}
     """)
     .withColumn("text_hash", F.sha2(F.col("ClinicalData"), 256)))
 
 src_pdf = src.select("TripRequestId", "RequestDate", "text_hash").toPandas()
-todo_pdf = src.select("text_hash", "ClinicalData").dropDuplicates(["text_hash"]).toPandas()
+todo_pdf = (src.select("TripRequestId", "RequestDate", "text_hash", "ClinicalData").toPandas()
+    .sort_values("RequestDate", ascending=False)
+    .drop_duplicates("text_hash"))
+trips_by_hash = src_pdf.groupby("text_hash")["TripRequestId"].apply(set).to_dict()
 
-print(f"Source rows          : {len(src_pdf):,}")
+print(f"Candidate rows       : {len(src_pdf):,}")
 print(f"Distinct texts       : {len(todo_pdf):,}")
+print(f"Target trips         : {MAX_TRIPS:,}")
 
 # COMMAND ----------
 
-results, errors = [], 0
+results, errors, submitted = [], 0, 0
+answered_trips = set()
 started = time.time()
+queue = list(todo_pdf[["text_hash", "ClinicalData"]].itertuples(index=False))
+
 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-    futures = [pool.submit(extract_one, r.text_hash, r.ClinicalData) for r in todo_pdf.itertuples()]
-    for i, fut in enumerate(as_completed(futures), 1):
-        res = fut.result()
-        results.append(res)
-        errors += res["status"] == "error"
-        if i % PROGRESS_EVERY == 0 or i == len(futures):
-            print(f"{i:,}/{len(futures):,} done | errors {errors:,} | {time.time() - started:,.0f}s")
+    in_flight = set()
+    while queue or in_flight:
+        while queue and len(in_flight) < MAX_WORKERS and len(answered_trips) < MAX_TRIPS:
+            h, text = queue.pop(0)
+            in_flight.add(pool.submit(extract_one, h, text))
+            submitted += 1
+        if not in_flight:
+            break
+        finished, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+        for fut in finished:
+            res = fut.result()
+            results.append(res)
+            errors += res["status"] == "error"
+            if res["status"] == "ok" and res["qa_count"] > 0:
+                answered_trips |= trips_by_hash.get(res["text_hash"], set())
+            if len(results) % PROGRESS_EVERY == 0:
+                print(f"{len(results):,} processed | trips with answers {len(answered_trips):,}/{MAX_TRIPS:,} | errors {errors:,} | {time.time() - started:,.0f}s")
+        if len(answered_trips) >= MAX_TRIPS:
+            queue = []
+
+print(f"{len(results):,} processed | trips with answers {len(answered_trips):,}/{MAX_TRIPS:,} | errors {errors:,} | {time.time() - started:,.0f}s")
 
 res_pdf = pd.DataFrame(results)
 
@@ -288,6 +313,7 @@ qa_by_trip = (answered.groupby("TripRequestId")
     .agg(RequestDate=("RequestDate", "max"), qa=("qa", merge_qa))
     .reset_index())
 qa_by_trip["qa_count"] = qa_by_trip["qa"].apply(len)
+qa_by_trip = qa_by_trip.sort_values("RequestDate", ascending=False).head(MAX_TRIPS).reset_index(drop=True)
 
 print(f"Rows with answers    : {len(answered):,}")
 print(f"Rows without answers : {int(((parsed_pdf['status'] == 'ok') & (parsed_pdf['qa_count'] == 0)).sum()):,}")
