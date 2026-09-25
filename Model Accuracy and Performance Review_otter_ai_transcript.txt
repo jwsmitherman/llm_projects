@@ -1,0 +1,151 @@
+Speaker 1  0:00  
+Like then the number, like the MPI was very different. You were saying all the models gave that same different MPI. Was that true?
+
+Speaker 2  0:08  
+For some of them, yes. For some of them, no. It depends on which one you're talking about. So, like for example, we can look up MPI here. Oh, this is just one document. Hold on. Let me find one. Okay, so like you see this right here. So if we look at this, this is across. All right, some of these are the same. Are they all different? Okay, it looks like. Okay, so yeah, it looks like we have. What is this? But again, these are the these are the the other models. So, well, I mean, we'll have to just see what they look like. But the value extracted here was this value here, you can see Claude Seven, or I'm sorry, Claude Five Opus. It looks like it got it right, or or at least matched. You can see GPT five, or I'm sorry, four was different, right? And you can see Claude Sonnet was the same, so you can see the two Claude models were the same. But here, like if you look at this line here, there was no value for Claude or for GPT four, but the two Claude models did provide something, and the OCR value, or the actual value, ended up being what the two clod models ended up getting. So here you have.
+
+Speaker 1  1:47  
+So can you just run the accuracy on what you have?
+
+Speaker 2  1:53  
+Yeah, that's. Yep, that's what's.
+
+Speaker 1  1:56  
+And do you have that for the like classification? as well.
+
+Speaker 2  2:04  
+Uh huh.
+
+Speaker 1  2:05  
+Okay. Cool.
+
+Speaker 2  2:06  
+Yep. So that's literally running right now. So we're 12345678, documents of 30 right now. So this should be, you know, 1015, minutes. I should. I should have
+
+Speaker 1  2:19  
+it. Okay. Cool. Um. All right. Anything else that we need to chat through?
+
+Speaker 2  2:28  
+Yeah. So, like this one here. So you can see, like GPT four is the one that typically has most of the disagreement.
+
+Speaker 1  2:38  
+Uh huh.
+
+Speaker 2  2:39  
+Whereas the two clod models tend to agree with each other. Like if you look at this one, well, this one you have all three agree.
+
+Speaker 1  2:52  
+And is that match what the document says?
+
+Speaker 2  2:56  
+Well, that's what we we'd have to go to the ground truth, and the ground truth here is yes. So this one matches this one.
+
+Speaker 1  3:08  
+The reason I'm asking, well, maybe maybe the issue that I we discussed before actually doesn't happen. I just thought it was weird if like it got the wrong. They all got the wrong number and they were aligned with each other, but different than the truth.
+
+Speaker 2  3:22  
+No, that's not what I'm seeing now. Okay. So what I'm seeing now is it's really kind of a mixed bag. Like sometimes GPT-4 will come back blank. The other two clawed models will come back with values. Those two values will match. Those two values match with the OCR match. That OCR match to the ground truth. Hey, everything works. And sometimes you have where you have two out of the three models may not match. Like one model may disagree, and then maybe one of the Sonoma models. I mean, like if we take a look at this one here, this is a good example. The two the two Claude models came back with the right value because if you look at the ground truth that came from Snowflake, that is the right value, right?
+
+Speaker 3  4:07  
+Okay.
+
+Speaker 2  4:07  
+But when you look at now again, not all not all values come back with ground truth. That means that when when I queried or when you query this, that means no data came back for this this this uh
+
+Speaker 1  4:21  
+oh. But where's your manually entered truth?
+
+Speaker 2  4:27  
+My manually well, again, we're iterating multiple like we're kind of past that point now.
+
+Speaker 1  4:38  
+So the accuracy that you're getting for me is that compared to your manual data entry?
+
+Speaker 2  4:43  
+I'm only looking at ground truth at this point from Snowflake.
+
+Speaker 1  4:50  
+Oh, but the dating Snowflake could change.
+
+Speaker 2  4:53  
+Uh, no. Again, okay. So the way you got to look at the ground truth from Snowflake, see how there's multiple values here.
+
+Speaker 1  5:02  
+Yeah, I get it. I get it. As long as
+
+Speaker 2  5:04  
+one of those values match to what the output is looking like, I consider that a match, right? So, for example, like this one right here, you see this.
+
+Speaker 1  5:15  
+I get it. I get it. I get it. Do you have the accuracy for the numbers that you entered for the data you entered manually,
+
+Speaker 2  5:23  
+I do. But those were on the older model or the other models.
+
+Speaker 1  5:28  
+Oh, can you send it to me anyway?
+
+Speaker 2  5:30  
+Yeah, I can do that.
+
+Speaker 1  5:32  
+Okay.
+
+Speaker 2  5:35  
+Let me find out which one that was. I was on this one here. So this was the one I did when I manually, but it but it doesn't break out the models. That's the problem. So field level accuracy for patient enrollment forms was 88.1% This was the field level accuracy.
+
+Speaker 1  6:36  
+Okay.
+
+Speaker 2  6:39  
+But again, this was I'd have to go back. How many documents was this? This was a total of 63 documents. I mean, you can use this. I mean, if you're under the gun, to I mean, because we're gonna actually be better than this. What about
+
+Speaker 1  7:05  
+classification?
+
+Speaker 2  7:07  
+Classification was patient enrollment form was 84% copay was 96. Insurance was 79. You don't have to worry about these because these are these are just kind of like other categories. So I would say somewhere between like 85 to 95% Let's see if I can find like a definitive. Overall accuracy, because the only categories we really care about are these three, and really, it's the patient enrollment forms. Really, are the main one. Is really the main one. I mean, actually, I mean, we care about all three, these three that I've highlighted here. But again, this was based off. That's the competence. That's the field level. Yeah, I I would view these as category, like field level or page level accuracy by category, because that's what's going to be most important.
+
+Speaker 1  8:41  
+Uh huh.
+
+Speaker 2  8:43  
+So I would I would roll with something like this, like page cat page classification depending on what category we're talking about ranges from 85 to 95% is kind of what I would say to that, and field level accuracy is somewhere between 88 to 90 something percent field level accuracy, based on individual of 63 documents manually evaluated documents.
+
+Speaker 3  9:22  
+Okay,
+
+Speaker 2  9:22  
+that's what I can tell you, like right now, if that works.
+
+Speaker 1  9:25  
+Okay. Cool. All right. Is
+
+Speaker 2  9:28  
+that is that helpful?
+
+Speaker 1  9:30  
+Yeah. Yeah. If you get the other stuff, send it. But then, also like, also respond to the other thing that I put in there about like kind of like the product features that we have so far. Like I just want to like have like that somewhere where we have the running list of like what's deployed and what isn't, or like I love what isn't, and then from an overall standpoint.
+
+Speaker 2  9:56  
+Yep.
+
+Speaker 1  9:56  
+Okay.
+
+Speaker 2  9:57  
+I'll get that to you. Yeah. As soon as this is done, I can give you I can give you all that info.
+
+Speaker 1  10:01  
+Okay. Good. Thank you.
+
+Speaker 2  10:02  
+Yep. It's running right now.
+
+Speaker 4  10:05  
+All right. Bye. All
+
+Speaker 2  10:06  
+right. Yep.
+
+Transcribed by https://otter.ai

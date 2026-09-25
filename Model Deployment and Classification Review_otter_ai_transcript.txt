@@ -1,0 +1,634 @@
+Speaker 1  0:00  
+Curious when when you said okay ping when ready was that in response to one of my messages or just when you were finishing up like
+
+Speaker 2  0:08  
+no like yeah I I had gotten back to you after you it says back in business after oh I said okay ping me when ready and then I never heard anything from you?
+
+Speaker 1  0:22  
+Oh, interesting. Because I said back in business at 11 or 1155, so about an hour before your message, and then I replied to your message like the penguin ready right after. Yeah, I mean they
+
+Speaker 2  0:40  
+eventually came through, but it wasn't it wasn't anytime soon after that. So there may have been a little bit of delay. I don't know. Oh,
+
+Speaker 1  0:48  
+interesting. Okay, yeah, that that was kind of what I thought might be going on. So, like I said, I wasn't sure with all my system updates and stuff that went through today if things were being weird. I've definitely seen this before with with teams. Unfortunately, one of the other teams I worked with messages came through like a day later.
+
+Speaker 2  1:14  
+No worries. Anyways, we can continue this. Let's see. We're trying to think, where did we leave off? We had
+
+Speaker 1  1:24  
+left off right around. We had talked a little bit about the models and the model deployment, the U.S. versus global standard ones that we had gotten sidetracked on. I realized I did a little bit more poking around after that. There's actually quite a few more models. If you click expand a little connected resources above, I have a bunch of newer models than are in the one below. So there you can see we've got a couple of Sonnet US specific ones.
+
+Speaker 2  1:59  
+Okay, so these are the ones I can use here instead.
+
+Speaker 1  2:01  
+Yeah, and then if you expand the central U.S. above that, there should be a global. So one one more row up below the limited use. Here's no right above the. Yep, there left,
+
+Speaker 3  2:21  
+left.
+
+Speaker 1  2:24  
+It says connected resource the central U.s1. Jason M H N.
+
+Speaker 2  2:30  
+Oh, okay.
+
+Speaker 1  2:31  
+Yeah, there's a GPT five two that's U.S. specific as well because I know that you had mentioned that in some cases GPT was coming back with like empty responses, whereas the other ones were coming back with stuff.
+
+Speaker 2  2:44  
+Yep. No, this is very helpful. Thank you so much.
+
+Speaker 1  2:48  
+That said, those are still all older than kind of the latest and greatest. So there are More data zone standard ones, like we can get Sonnet five, Opus five five, GPT six. Like there's there's a whole host of additional ones that are data zone standard. The thing is that without being without more permissions, you can't tell which like area they're actually deployed in, and so that's why we have that weird central U.S. East U.S. When I went and I went to try and deploy some of those Clog and GPT models to the original resource at the bottom. It said, "Oh yes, you can do U.S. standard, but the clot is only available in the East US two region, and so they get put in a weird like auto generates. That's why like it's got JSON dash random numbers dash thing as the endpoint. Like I'm just you know full of myself and wanting to name things after. So my point is that the deployments are actually just a little bit weird, though at least those ones are, in fact, ensuring that we keep the data processing in the U.S. Same API keys work across all of them. It's really just the endpoint is different.
+
+Speaker 2  4:34  
+No, this should be an easy change for me. So,
+
+Speaker 1  4:40  
+and I did shoot Matt Weber a question about permissions and stuff. So if we can, I mean, I know that with that 99% accuracy, they're going to want fancy new new models in there as well, I think.
+
+Speaker 2  5:01  
+Yep.
+
+Speaker 1  5:04  
+I don't know. I just sent you a direct link to the page I was looking at in Foundry that shows you the list of what is available with the Data Zone standard. I don't know if that will actually work as a direct link. Yeah, there we go. So this at least is a first pass of what might work. You can filter down the like. There's a bunch of different regions over on the left. So some of these might be data zone standard, but only be available in India or China or EU. Like I didn't filter them to specifically like clicking through to find exactly which.
+
+Speaker 2  5:54  
+Have you ever used DeepSeq before?
+
+Speaker 1  5:57  
+I have not used that one specifically. Some of those Chinese open weight models, I have heard decent things about.
+
+Speaker 2  6:12  
+It looks like it is Data Zone US East or US East too. Interesting. Okay, cool. Yeah,
+
+Speaker 1  6:24  
+I think East U.S. too is one of the really big regions. So it seems like most things are. I'm just clicking through on my page the the regions that look like their U.S. based ones, and just quickly, it doesn't knock out too many models, but most of these seem to. It seems like they've gotten a lot better with model availability than they did six or eight months ago
+
+Speaker 2  7:05  
+when
+
+Speaker 1  7:05  
+I last looked at this because up until I want to say March April something like that none of the Claude models were available with data zone standard
+
+Speaker 2  7:20  
+and now now we have several.
+
+Speaker 1  7:23  
+Yep. So there's yeah, we got much better options than we used
+
+Speaker 2  7:27  
+to. Yep.
+
+Speaker 1  7:28  
+Fabled is not on this list yet, though.
+
+Speaker 2  7:31  
+Yeah. No. And no Gemini. Obviously. Well,
+
+Speaker 1  7:35  
+I'm not terribly surprised that Gemini isn't on Azure.
+
+Speaker 2  7:40  
+Yeah. Not surprised. Cool, all right. Oh, appreciate you doing that. That's awesome. Yeah,
+
+Speaker 1  7:48  
+sure. I think the the newer GPTs, I think I've heard decent things about. I haven't used them myself, but I think five six and six
+
+Speaker 2  8:00  
+are pretty good. Five two is pretty good.
+
+Speaker 1  8:03  
+Well, five two. I mean, that's pretty old at this point. Like they're not even offering that for new. I guess it is still on the list for new deployments, but that's yeah a bunch of versions behind at this point. But before I forget, I did want to just highlight one thing I noticed looking through this list is that there's a new Mistral image-to-text model in there that might be see a Mistral document AI.
+
+Speaker 2  8:32  
+This one,
+
+Speaker 1  8:34  
+yeah, I didn't do any more other than click on this page a little while ago, but it looks it looks interesting potential for helping with some of your classification stuff and data extraction.
+
+Speaker 2  8:55  
+Okay, so I can get with I can get with Matt and see if he can deploy it right.
+
+Speaker 1  9:05  
+Yeah.
+
+Speaker 2  9:06  
+I mean, because it looks like it's pretty safe zone here, right?
+
+Speaker 1  9:11  
+Yeah. I I used to have the permissions to go and deploy stuff, so I had asked him to see if he could hook me back up, and if that's the case, if he can just like renew the permissions I had without a whole lot of headaches, then I can help manage some of these as well.
+
+Speaker 2  9:33  
+Okay, cool. I will certainly ask him.
+
+Speaker 1  9:38  
+Sweet, but at least that gives you a couple more models to play with as well.
+
+Speaker 2  9:43  
+Yeah.
+
+Speaker 1  9:43  
+So I know that that.
+
+Speaker 2  9:44  
+This was with the access. Was this with the access you currently have?
+
+Speaker 1  9:49  
+No, that was the with the access that I used to have. That's what I'm saying.
+
+Speaker 2  9:52  
+Yeah. Yeah. Okay. So these are these are the ones that you. So these are actually pretty. Oh, you did these back in okay back in July.
+
+Speaker 1  10:03  
+Yeah, that was I must I didn't realize my permissions were expiring but yeah I was just looking at the availability of some of the models for how we might use them with PHI and stuff. So and even then, like those are those are old models at this point.
+
+Speaker 2  10:25  
+I guess the question. Okay, so it depends on how they're deployed. So we're using right now Cloud Sonic Five, but we're using the global standard. So we need to we just need to move that over to the data standard one.
+
+Speaker 1  10:39  
+Right, which means that you have to actually delete that deployment and then
+
+Speaker 2  10:43  
+redeploy,
+
+Speaker 1  10:43  
+create a new one. Yeah. That's why I was trying to stick like U.S. in the the name of them.
+
+Speaker 2  10:52  
+Right. Okay. Cool. I could definitely work with Matt on that one.
+
+Speaker 1  10:56  
+Yeah, and it should be that you shouldn't have any communication issues like the VM that you're you're using is going to be South Central, I think, as the the region, but it should connect to the other one effectively over the internet, no problems. But because you are going cross region, it's just something to watch out for in case you do any getting errors. I would expect it, but you know they're always changing network stuff and permission things. So
+
+Speaker 2  11:30  
+okay, it's all like you know,
+
+Speaker 1  11:34  
+and like I said, the endpoint is the same. The API or sorry, the endpoint is different. The API key is the same, and all that jazz.
+
+Speaker 2  11:43  
+Yeah, that should be a pretty easy update for me. All I have to do is just go in and one one
+
+Speaker 1  11:50  
+other thing that we might need to do at some point when bringing this more to like customer like once once this gets a little bit more productiony. Right now, without adding an extra service in Azure, you really don't get any insight to how many tokens are being used or like or have any ability to basically keep from using too many tokens or anything like that. There's no guardrails,
+
+Speaker 2  12:26  
+right? Exactly.
+
+Speaker 1  12:28  
+So, if somebody asks for that at some point, just be cognizant that that's probably a little bit of a bigger lift. I had looked into it once briefly, and it's some extra Azure service that you have to provision, and it's somebody with the right permissions to do, and read up a bunch of documentation. It seems like it was a bit of a thing. So, if somebody says, you know, I just want I want the numbers and the metrics by Friday, and how much it's going to cost, like that might not be attainable.
+
+Speaker 2  13:01  
+Gotcha.
+
+Speaker 1  13:03  
+So I mostly mention it so you don't accidentally commit yourself to something that sounds like it should be easy and turns out to be epic.
+
+Speaker 2  13:13  
+Um.
+
+Speaker 1  13:14  
+But anyways, that's my mini model soapbox. No, no, no. I'm listening my TED talk.
+
+Speaker 2  13:18  
+It is extremely useful and beneficial. Appreciate it. Okay. Okay, I think I went over the classification bit, right? You're good there. Yeah, and
+
+Speaker 1  13:34  
+and maybe just to make sure that I'm just to repeat back kind of what I understood there. You're you have this this ground truth CSV where you've got the individual pages lit with like particular labels on them. You're bringing in a document. You're splitting it down to each page. Each page is individually getting classifier. You're basically going through the classifier, and that gives you your inference results through the trained model.
+
+Speaker 2  14:13  
+Yeah, and the models are saved here. The supervised models. Oh wait, yep, right here. The pickle. The
+
+Speaker 3  14:23  
+pickles. Yep.
+
+Speaker 2  14:25  
+Nearest neighbor, longista version, random forest.
+
+Speaker 1  14:28  
+The how are you handling kind of feature extraction or embeddings for for those guys?
+
+Speaker 2  14:36  
+Let's see. What do you mean handling?
+
+Speaker 1  14:41  
+So, like, what you mentioned, kind of like using some tree-based models. What are the features going into those? Like, are those handcrafted features, or like, how are how are you doing the prediction?
+
+Speaker 2  14:56  
+Well, I took a whole bunch of labels of documents, OCR documents from PDFs by page, and again, so the green is like by page by document, and each one of those had one of the three categories of labels, right? Right.
+
+Speaker 1  15:18  
+We said the green. Are you sharing a thing that's green?
+
+Speaker 2  15:24  
+Can you not see my screen?
+
+Speaker 1  15:27  
+All all I see is the. Oh, there we go. I was just going to say it saw a different page.
+
+Speaker 2  15:34  
+Yeah. So basically, you have the file name, you have the page, and then the category, and it's labeled, and so based on the OCR'd text that gets tokenized, is that what you're asking? Like I guess I'm not.
+
+Speaker 1  15:51  
+So you're just you're using the the the whole tokenized text. The whole
+
+Speaker 2  15:56  
+token for that page, yeah.
+
+Speaker 1  16:00  
+Gotcha, and so is so like are you are you pulling out doing any kind of feature engineering? No. Of that? No.
+
+Speaker 2  16:12  
+This was a quick and dirty, just really simple classification model. I didn't I didn't elaborate or any provide any bells or whistles on it.
+
+Speaker 1  16:26  
+Gotcha. So what what are the what are the tree exactly like? What is what is the split happening There.
+
+Speaker 2  16:42  
+Which one?
+
+Speaker 1  16:44  
+Like I feel like it's been a minute, but I don't know how to go and take just effectively what is a string of all of the tokens of all of the text in the document and throw that into a tree-based model without doing some sort of feature extraction.
+
+Speaker 2  17:09  
+Let's see. I mean, it basically it's it does tokenize it. So like, if you go in here, so hopefully I can answer your question a little bit better. No,
+
+Speaker 1  17:22  
+all good, and I appreciate you going into the the details.
+
+Speaker 2  17:26  
+But like for the training, so this is the page classifier. So this will read in the CSV, and oh, I guess the other question I wanted to kind of pick your brain to is I need to get this checked into a repo, and I submitted a ticket. In fact, I need to follow up on that ticket. Let's see
+
+Speaker 1  17:54  
+to get a new repo created.
+
+Speaker 2  17:56  
+Yeah, and I wasn't really. I don't think there's been any movement on this thing? Let me just double check. And I was I was gonna ask you how did you get yours created?
+
+Speaker 1  18:10  
+I put in a ticket and then I kept harassing a bunch of people. And question is, is who did I harass? Because I had the same problem that you did.
+
+Speaker 2  18:27  
+So thank you. Okay, need Azure repo. And see, I just got this. So this was submitted, and I talked with Matt about this, and he said to assign it to him, and I've sent him this ticket. So let me follow back up with Matt.
+
+Speaker 1  18:50  
+Yeah, I would just hang him again. It it should be somebody in DevOps that helped with that. If it wasn't him that helped me, it might have been Max Reyes. Reyes, I don't actually know how to pronounce his last name.
+
+Speaker 2  19:16  
+Matt's the really the only guy. I Matt and John here. So John's kind of like my IBP or IDP. He's the Azure architect, so he's the guy who sort of has set me up with the documents and you know where they're at and all that kind of stuff. And then I've been working with primarily Matt on getting stuff set up. So that's about it. Those are the only two guys I really have worked with.
+
+Speaker 1  19:45  
+Gotcha. Yeah, I get the impression that Matt does a lot of things.
+
+Speaker 2  19:54  
+So, but outside of just submitting a ticket, like I did here, that's that's all you really did.
+
+Speaker 1  20:03  
+Well, I I did that, and then I just harassing people and teams. And like I said, I I think that it might have been Max that helped me out at the time. But if Matt said to assign it to him, I'm sure that he'll take care of you. I suspect that it's just because he's got a gajillion things that everybody bugs him about. It might have just fallen through the cracks. That that unfortunately is something that I have seen a couple of times. But unfortunately, I can't see it. I mean, I think it was just that it was really old emails that were more than six or eight months ago last I made a repo. So those, I think, have disappeared from my inbox at this point.
+
+Speaker 2  20:50  
+Oh, no worries, no worries. But
+
+Speaker 1  20:54  
+anyways, it's it's not you; it's the process.
+
+Speaker 2  20:58  
+Yep, no worries. So I'm just gonna kind of go through. I mean, this is kind of like there's really. I mean, there are features, but it gets sort of embedded in in a sort of like tokenized vector, if you if you will. But I can send you the script if you want to mull over
+
+Speaker 1  21:24  
+it. Yeah, I mean, I would be interested in that at some point. I mean, I'm I'm happy to wait till you push the the repo up, like especially if that happens soonish.
+
+Speaker 2  21:38  
+Yep.
+
+Speaker 1  21:39  
+But yeah, I would I would want to understand a little bit more exactly how you're classifying the pages. I think that especially as you add more categories, that's going to be kind of important. Did you ever hear About the, I think it was kind of a somewhat semi-classical machine learning fail, where somebody tried to go and predict whether or not people were would would end up in prison or had been to prison or whatever. Does that sound familiar at
+
+Speaker 2  22:20  
+all? Oh, sorry, I was captivated. Just made it to their board today. So, hopefully, it's soon. I'm sorry. Something about a classical machine learning.
+
+Speaker 1  22:30  
+Yeah, yeah. Basically, somebody tried to predict whether or not people would end up in prison or had been to prison or something like that, based off of pictures. And it turns out that the model just ended up the feature after somebody did like a bunch of analysis on kind of the neural network was just whether or not they were wearing a collared shirt,
+
+Speaker 2  22:50  
+and that's all that determined from. Well,
+
+Speaker 1  22:53  
+I mean, they they got some decent sounding or you know better than totally random results, and I worry that without knowing too much about exactly what features are used to distinguish some of these papers, that you could run into similar challenges. Like basically, it could key off of like, okay, well, all of the, you know, benefits form of this type, because one office uses you know new fax machine versus old fax machine, it keys off of features that tell you more about what fax machine type it is than the actual document stuff.
+
+Speaker 2  23:41  
+Right.
+
+Speaker 1  23:42  
+Be it like you know, I recognize that you're using text and stuff, but you know, maybe it impacts how it OCRs certain things, or like basically just there's there's things, and so mostly just kind of a cautionary tale to make sure you know what what features are being used because no,
+
+Speaker 2  24:00  
+no, I
+
+Speaker 1  24:00  
+guarantee that's going to be a question that Cliff's going to ask at some point.
+
+Speaker 2  24:03  
+Yep, and really the classification bit of this was kind of thrown together pretty pretty quickly and last second. So I knew I knew there was going to be some gaps in it. So I just had to. We did the
+
+Speaker 1  24:15  
+same thing with the CNS 15 101. I mean it was a fairly simple classification. It it was going to be initially BMS 1500 explanation of benefits, and then I think one or two other.
+
+Speaker 2  24:30  
+By the way, I think that project is being resurrected for for the explanation of benefits again, or for that project. I think Cliff had mentioned to me that it might be, or it's probably getting resurrected. So, but for, but we need to add explanation of benefits. Yeah, yeah.
+
+Speaker 1  24:50  
+I mean that was that was on the roadmap, and that was going to be the next thing that we did when they they pulled the plug. And so, like the the architecture and the code is there. It we just have to do kind of exactly what I was just talking about the what are the features that we use to you know pull things out and figure out whether or not it is or is not that particular document type. So if I remember correctly, what we were doing is after the text was extracted. I think that we were looking for certain key phrases and basically turning those into features and leveraging that to predict the document type. So, like if you saw 1500 and CMS and a couple of other things. That way, we would say, oh yeah, that that looks like a CMS 1500. Whereas if you see EOB or explanation of benefits or other things like that, that cluster of terms ended up pointing towards explanation of benefits, or and basically what we switched it to at the time was just a other category because we just lumped everything that wasn't CMS 1500 to that time because at the time they were only interested in that. But we did have like blank forms and other people fax us all kinds of garbage.
+
+Speaker 2  26:27  
+Oh yeah, you should see some of these forms. I was gonna get it. We sort of got it cut off because we were short on time for the the different nuances. But you take some of these forms right here. Let me find one. The the actual enroll, so you'll get a scan of enrollment forms plus other information, and what they'll do is they'll leave parts of the form blank, but then attach other information that's supposed to be supplementing whatever they were supposed to fill out in the form. So where that becomes problematic is the page classification. So those pages are not being classified as enrollment forms, but they have the enrollment form information in them. Let me see if I can find an example. Like so, for example, oftentimes this prescriber information they will, I've seen well they'll leave blank right here, and then the doctor will have like just a random page attached down here of the information of himself and the, the prescriber and all this kind of stuff, so all this
+
+Speaker 1  27:44  
+pain in the ass.
+
+Speaker 2  27:45  
+Yep. So they purposely did not fill this information out, but it would be somewhere else. But and again, where that becomes like hugely problematic is is like, when you're when you talk about when you try to you know categorize these, you know like enrollment form or whatever. The issue is, is that the information that you need in that enrollment form isn't there from the classification standpoint, but it is in that submission.
+
+Speaker 4  28:14  
+Well,
+
+Speaker 1  28:17  
+kind of to build on that that frustration. We were seeing with the other one where they were supposed to send one fax one patient. We were seeing it where they would send one fax many patients. Then how do you guarantee the association of one form, kind of like what you're talking about to the the prescriber information. You know, let's flip it and say, okay, it was the patient information. They filled out one form, so you have form page of random material form for a second patient. One in the middle. Have you make sure to associate it with the right form? You get into all sorts of other. Oh, thanks. And
+
+Speaker 2  29:07  
+to add another caveat to that, so they'll do that for one scan or one PDF. It might have five different patients in it, and one or two of those patients, they may have left blank that information and just submit or attached supplemental information to that patient in additional pages, but it may not be adjacent to that page, or it may be five pages down. Yep, like it's a hot mess.
+
+Speaker 1  29:38  
+It is,
+
+Speaker 2  29:42  
+And that that happens. I want to. I don't want to say it happens like majority of the time, but it happens enough of time. It's it's over for what I've observed. It's at least you know 15 20% of the time,
+
+Speaker 1  29:55  
+right? And so that's when you say the the 99% accuracy when a human can't figure out shit 99% of the time, we have to be careful with what the requirements actually are. So, hence the the many caveats that you put on that number.
+
+Speaker 2  30:14  
+Yep.
+
+Speaker 1  30:18  
+So, anyways, we are on the same page with all of that being a massive, massive
+
+Speaker 2  30:23  
+headache. Yep. So I've also got this grouped into. I don't know if you saw this, but one of the requirements here was to partition out whether the field was handwritten or not. So. Oh,
+
+Speaker 1  30:36  
+interesting.
+
+Speaker 2  30:37  
+Yep. So one of the things I thought you might find interesting here is if we took a look at a few examples. Because
+
+Speaker 1  30:49  
+who who cares whether it's handwritten and and why?
+
+Speaker 2  30:52  
+We care because one of the requirements is to measure our ability and accuracy. Because again, you got to realize this is a spawn of we build it, but people have already started evaluating other vendors for this, and other vendors have already claimed that their handwritten accuracy is less than the text, which which you would expect, right? But they are being told certain percentages of how accurate they are for handwritten text, so it's a mandatory requirement for us in this process to evaluate accuracy both from a handwritten standpoint and a non-handwritten standpoint.
+
+Speaker 1  31:37  
+Gotcha. So that way we get a bit of closer comparison to other vendors.
+
+Speaker 2  31:41  
+Yep. Yep.
+
+Speaker 1  31:43  
+Okay, I'm tracking. That makes sense.
+
+Speaker 2  31:47  
+Yep. So let me show you. So
+
+Speaker 1  31:50  
+how is the handwritten? See,
+
+Speaker 2  31:56  
+I knew you were going to go there, and that's why I brought it up. So yeah, so again, it's a it's a page class classification. Now, here, or it's not a page classification; it's a field by field classification. This is where it gets really tricky, but so there's there's multiple prompts that these LLMs. So the LLM is determining whether it's handwritten, if that field is handwritten or not, before it does, or as it's doing its extraction, right? In here, there is a process that.
+
+Speaker 1  32:38  
+So actually, one one quick thing, just to make sure I'm following, are you submitting the PDF to the LLM, or are you just doing sending the text to the LLM, or both?
+
+Speaker 2  32:52  
+I am sending the extraction
+
+Speaker 1  32:54  
+for some of the yeah stuff.
+
+Speaker 2  32:57  
+Right. Yeah. So the LLM extraction is being done via the the the the actual PDFs.
+
+Speaker 1  33:12  
+So PDF goes to LLM,
+
+Speaker 2  33:16  
+but then but see it calls these type of things, like it uses it as an image. It converts it as an image.
+
+Speaker 1  33:26  
+Gotcha.
+
+Speaker 2  33:30  
+And that is how, because then once it's an image, then it can determine whether it's handwritten or not, right? And again, once this code, it sounds like I should be able to upload this here too. So I'll PR you on a couple of things, or at least obviously give you access to this, so you can peruse and and you can you can see how like the LLM JSON extraction works, document intelligence extraction works, the field extraction report. Or this is sort of a final step, and then page classification we already talked about. The other thing here, I don't know if I talked about this. Is so now this is not this is not for new documents that have come in. This is just to evaluate ourselves, but in Snowflake, we have the ability to go in and why am I not seeing my favorites bar anymore?
+
+Speaker 1  34:53  
+I just dropped you a link because we do have a Azure Vision Studio, which would just be like computer vision, or there's some things there that might be potentially useful. We were looking into that as well, but Azure had shuffled around some features from cognitive services to vision, and we do have a production resource that was created, and so maybe there's something useful you can do with
+
+Speaker 3  35:20  
+it. I
+
+Speaker 1  35:20  
+didn't investigate it more, so just figured I'd toss that out there.
+
+Speaker 2  35:26  
+No, that's great. I don't know if you remember. So you remember those pharmacy ARX identifiers that are embedded in those documents, right? This query. So what this does is it's hooked up to Snowflake, and so once it sort of runs, before it runs, before it sort of generates this report, well, it'll generate this report. But then right here, where you see this ground truth right here, this is using that query to query those these IDs here, and then use and sending the and saving those as a as a file, and then there's an LLM that does a sort of a fuzzy matching field by field comparison of the ones that are found in Snowflake versus the ones that are found here, because we do have records of some of these patients for these documents that have already been hand hand entered in and stored in Snowflake, the problem here
+
+Speaker 1  36:31  
+is, and I've got maybe another problem that you're you're potentially likely to run into. Yep.
+
+Speaker 2  36:35  
+So right here, the problem is is that this is only saved at this this patient RXID number level, and sometimes because of they call it record ID or contract ID or something like that, there could be multiple. A patient may have filled out multiple forms of these with different information. So, for example, you can see how the OCR extracted the policy number right here. Well, for this that that that patient number in Snowflake, there are two possible policy numbers that the the patient has submitted in different forms. So to do ground truth, all we're doing is, or at least what I'm doing is, does this value even fall into one of the possible choices, right? In this particular case, it does not. Like you can see right here, it, it, sure. This value obviously does not fall within either one of those. But then you take a field like this one, and this is a straight up OCR mess up. In fact, let me just kind of show you what this one looks like. Is this handwritten? I believe this is handwritten. Yes. Let me show you what this one looks like. So we get a ton of stuff like this, right? So you can see the policy number does look like Y Y q1 one, you know, whatever, whatever, whatever. So it looks like if I just highlight this row. Oh, I'm sorry. I was looking at well that same image. So for that policy number, it the only
+
+Speaker 1  38:31  
+number looked close to some of the ones there. Yeah, or one of the ones there.
+
+Speaker 2  38:35  
+Yeah, but you can see right here, the actual policy number. It doesn't still doesn't meet either one of those ones that are on file for that for that record, so we have that kind of problem. So maybe who knows? Maybe someone just flat out entered in the wrong number. Who knows? But like, if you look like RX group number, if you look at this one, so you can see the RX crew number RX two maybe that's a zero XU maybe that's a one maybe that's an an I who knows whatever that is well you can see from the OCR results that it's it it it's missing and it it it missed some things now because of multiple submissions by this patient, we can see that obviously it's not this one. It's not this one. It could be this one, but it's in fact it's it's actually this one, right? Because if you look at, let me see if I can get it right here. So if you look at this RX two zero XU one one I, it's this one right here. That's the one that's supposed to be there, right? And you can see from an from an OCR or field level extraction from the LM, it did not get it correct.
+
+Speaker 3  40:03  
+Yep.
+
+Speaker 2  40:06  
+So yeah, we definitely need to explore like different methods to improve stuff like this, because we can't miss on that kind of stuff, especially like NPI number too, like MPI numbers in here somewhere. Yeah, we we have to get that right. So there's a few fields where we have to get right. That the the current state right now, especially for handwritten stuff like this, it does. I don't want to say it misses a lot, but it it like for example this MPI, it got incorrect. So right here, you can see this is this is what it thought the MPI was. This is what came back from Snowflake, which does match what's in here. This is the MPI 1164680039. You can see LLM was way was way off.
+
+Speaker 1  40:59  
+Well, yes, way off in the numbers, but I can see how the data extraction misinterpreted some of those numbers. If you squint at it, their sixes do kind of look a bit like fours. Yep. Did I tell you about the problem that we were having with the word "same" in the CMS dynamic fields?
+
+Speaker 2  41:29  
+No, I don't believe so. It doesn't really so
+
+Speaker 1  41:32  
+on on the forms. There were a couple places where sometimes you had to go and put multiple names. So basically, you had the patient name, and then you had the insurance information name. And so it would be like, okay, if it's me as the patient and me as the insurance, they would write Jason for the patient, and then under the insurance name, they would just write the word same.
+
+Speaker 2  42:01  
+Oh God! Oh my God! So we
+
+Speaker 1  42:06  
+ran into a couple different problems because, like, from a ground truth perspective, you wanted to make sure that you were extracting exactly the the right information for for the forms, and so ground truth. We made the decision to go and say, okay, well, if we want data extraction to be truly just straight data extraction without interpreting or hallucinating things, we wanted the ground truth to say JSON for the first for box one and the word same for box 12. Whereas otherwise, before we kind of put some constraints on the LLM, it was just automatically going and saying, okay, well it's Jason for box one and Jason for box 12, and so you have to think about okay, what does ground truth mean? Does ground truth mean what the value is for real in the database, or does it mean what it is for real on the form? And we went with the route of making sure that it said exactly what it said on the form, so that way, if there was a data issue, we could separate a problem with data extraction as its own thing that is siloed then from the data reconciliation and cleanup step, which might, I think, match kind of what you're talking about, because first you can extract okay, what does it exactly say in for page one, and then you have supplementary information on some rando page that was associated with it, that then we could do data extraction there, and then fusion as a shared depth. That's kind of how I was thinking about it with the 1500s. So that way we could make each step kind of atomic and independent. So that way, if we need to switch a model out, the the the data extraction bit can be totally a black box, whereas the reconciliation can maybe be a smarter or a dumber, or you know different types of models could be subbed in to target that problem most specifically.
+
+Speaker 2  44:44  
+I got you.
+
+Speaker 1  44:46  
+That was just how we were thinking about it, but really, the data, like these, are all different ways of approaching some of the same data quality issues that we've touched on. I really like the the pulling from Snowflake to to help with what is what is ground truth, I think that as we build out kind of a golden data set, doing some sort of semi-supervised data set generation might be might be good. What we did is we embedded in the all of the PDFs. They were split out into individual pages, and so each PDF got a ground truth JSON that got associated with it. And our goal then was to generate the exact same JSON. When we were testing, you know, improvements and stuff. But once we generated the JSON, then we'd scroll through the JSON, we'd scroll through the document, and use our Mark One human eyeballs to see did did this form actually reproduce right over there?
+
+Speaker 3  46:00  
+Did it
+
+Speaker 1  46:01  
+hallucinate something that what didn't exist in the box that was still technically accurate with what we might have in a database? Like it separated some of those types of issues. It was a little bit more tedious, but we were at least able to accelerate that somewhat by having the LLM do most of the work up front, creating the the document structure, getting 75% of all the fields right, and then we just, like I said, made that second pass to tidy up any issues, and then we could start evaluating. And because you're running with Opus this week, and the Opus model that's there next week might not have the same guardrails, or might be slightly different than what we had.
+
+Speaker 2  46:52  
+So how do you
+
+Speaker 1  46:54  
+next week?
+
+Speaker 2  46:55  
+Yeah. So because these models do change pretty frequently.
+
+Speaker 1  47:03  
+Yeah.
+
+Speaker 2  47:04  
+How do you account for that? Like, how do you how do you maintain some sort of stability?
+
+Speaker 1  47:16  
+That I mean, maintain stability. I don't know how much control we have over that realistically, but understanding drift that we could at least account for. And so, what I was advocating for was every mr. into the repo. Every time that somebody changed something, we would run basically a report on the ground truth and say our field level accuracy was 86% in this mr. and then we could look back and say, okay, well, last mr. it was 85% So yes, this this PR is good because our field level accuracy went up by 1% But also that then allows us to go and say, here's a line in the sand. We know that at commit hash 12345, we got 86% So that way, if we run into an mr. next week and accuracy goes down, but we thought we made a good PR. We can say, okay, well, I just ran this report on the the mr. Let me go back to the main branch and rerun it, and then we can look at the same commit and say, okay, well, our accuracy changed with the same commit. How much did it change? Is that something that we're worried about? Because some of these stuff isn't perfectly deterministic either. So that's kind of how I was thinking about it from a tracking perspective. In a best case scenario, we'd have a lot more kind of infrastructure around observability, regularly running this automated, and there's a gajillion different things that we can do. But at this level of infancy that we are with some of these efforts, I think that we just have to think of what's the bare minimum we could do to keep some of our sanity. And so, to me, that was have a standardized report or standardized metrics that we could run on each commit, and at least then have those as some data points to look back if we need to do any troubleshooting.
+
+Speaker 2  49:36  
+No, all all very good takes here. I was looking at the thing that you had sent here for the for the Visual Revision Studio here. Let me see if I can.
+
+Speaker 1  49:54  
+Yeah, and I'll admit I haven't clicked into that resource in a while. I'm 100% sure that there were document-specific options with this, but I only saw the face stuff there now. So it might just be one of those things that's buried in the documentation somewhere.
+
+Speaker 2  50:19  
+So does this mean that's what we already have available?
+
+Speaker 1  50:25  
+I have a different list there. There's a one that's a production resource.
+
+Speaker 2  50:34  
+You have a different list here. So I
+
+Speaker 1  50:36  
+have CVOCR Prod o1.
+
+Speaker 2  50:41  
+Hmm. Um. I doubt I have access to do this.
+
+Speaker 1  50:48  
+I can't actually click the thing.
+
+Speaker 2  50:51  
+Dev test.
+
+Speaker 3  50:55  
+Huh.
+
+Speaker 2  50:59  
+Content understanding. So,
+
+Speaker 1  51:01  
+anyways, maybe that resource is just kind of half baked. I'm trying to figure out, like, what do
+
+Speaker 2  51:11  
+I ask Matt if I want to be able to use this? What do I need to ask him?
+
+Speaker 1  51:18  
+I think before asking him anything, I think we should look at the documentation and see: Is there anything like
+
+Speaker 2  51:26  
+worthwhile? Is it
+
+Speaker 1  51:27  
+still worthwhile to even sink time into? Because since since that resource was originally put together, Azure's moved a bunch of shit around into different source like things that used to be cognitive services moved to like Vision Studio, which at the time was called Computer Vision. Like the names changed twice since this resource was created, and who the hell knows whether the features that used to be there are still even in the same resource?
+
+Speaker 2  51:58  
+Yep.
+
+Speaker 1  52:00  
+Because like it, like I said, it only says face here on this page now, which we aren't doing.
+
+Speaker 2  52:06  
+Okay, cool.
+
+Speaker 1  52:09  
+So yeah, it might be a nothing burger. So just needs a little bit more research into the documentation for for that. But I do know that Azure in general was coming out with a number of new OCR capabilities that might be able to, if any of them turned out to be anything useful, they might be able to augment what you've got.
+
+Speaker 2  52:33  
+Interesting. Yeah, I'll definitely explore this, and I'll shoot you my findings.
+
+Speaker 1  52:41  
+Sounds good. Yeah, like I said, it's you know since this web gotten shut down a while ago, like some of some of my knowledge of what which Azure resource to use has become obsolete, so I can poke around things as well to see what if anything jumps out at me.
+
+Speaker 2  53:01  
+Okay.
+
+Speaker 1  53:03  
+Anyways, I know he's gotten a little bit more sidetracked from some of the the code stuff that you were you were showing.
+
+Speaker 2  53:10  
+Oh no! Did you want to continue? I mean,
+
+Speaker 1  53:14  
+I'm I'm good to keep going a bit longer if there's more that you want to to talk through.
+
+Speaker 2  53:18  
+Uh, yeah. I mean you pretty much get the gist of it. And again, once I kind of get this in a repo, which they just issued out the ticket, it was assigned. So looks like that's going to happen pretty soon. But you've, I mean, you pretty much have seen pretty much all I have have going on. So again, it's classification, very basic classification. It goes through the LLM field page-by-page extraction for fields. It then bumps that up and extracts the patient ARX ID, queries all the available ARX IDs that are are in the, you know whatever it's trying to pull from, query Snowflake populates that that template or that report and basically the final output is this thing here. So that's it at this point. Gotcha.
+
+Speaker 1  54:19  
+So just a couple of other things, you know, just to pick your mind a little bit. What is the long-term vision for what a production deployment of this looks like? I recognize still kind of early on in the building phase, but I think having that as a north star to to help.
+
+Speaker 2  54:41  
+Yeah. So the problem is, yeah, when Cliff and I try to nail these guys down on that, apparently there's a whole bunch of different. Now again, maybe you understand. You know, I know I've been here since November of last year. I don't know a whole lot of the about the internal systems and processes SSRX uses, and I I know very little about that if anything at all, and so they when they start spouting out, it's going to feed into this process and this system or this process and this system, it's going to use it like they mentioned like four or five different other ones, and I don't. Cliff seemed to know what they were. I had no clue what what what they were talking about. To be honest with you,
+
+Speaker 1  55:30  
+and I think what you're talking about could also be a little bit of a red herring because it doesn't. That doesn't necessarily say how the production deployment of stuff actually happens, and that was one of the things that burned us with the CMS 1500 thing. Is people were complaining about the latency in terms of how quickly the documents were processed, but that's because we weren't allowed to, from a deployment perspective, connect to certain things. So basically, the Salesforce app had to be the one that pulled out the PDF and then sent it to our endpoint only after The user who was already waiting for the stuff clicked the button. So, in order for us to get a PDF, the user had to open the PDF, click a button. Yeah.
+
+Speaker 2  56:31  
+Oh, they actually did mention that as a as something that they did not want happening. Again, they actually did mention that. Now that you now that you mentioned that they didn't mention that as a don't want to do that again kind of thing,
+
+Speaker 1  56:46  
+right? Yeah, but everybody was on the same page of they didn't want it to happen again. But the whoever needed to be in the conversations from a technical perspective and allowing certain resources to talk to other resources, like it, it becomes both like a computer networking and a orchestration of different systems.
+
+Speaker 2  57:08  
+Exactly, and that's exactly what I told them here. So they have like this this thing called hub programs. I don't again. I'm just telling you what I know, which is very limited. Okay, when they were out evaluating other vendors like Salesforce, like Salesforce was like top on their list. Salesforce gave a great demo, all this kind of stuff, and that's where we were kind of getting a lot of our ideas on the the build process here, on because they were introducing like a confidence level. They had a good they had a UI where you could navigate, and you know one of the the cool things that they liked about it is because it could integrate into some now according to Zach, some of the systems they wanted already in Salesforce, but the problem that they didn't want to go with Salesforce or one of the biggest problems with Salesforce is their lack of integration into some of the other systems they were wanting in the hub programs. Now, what does that mean? I have no idea, but apparently there's other programs out there that Salesforce could integrate into. So I try to lay it out architecture of, hey, you have these documents that come in. Let's say blob storage. They come in. We process them. Either a process either gets triggered through some sort of triggering event of some kind or whatever. But the process gets triggered, and they get they they get registered within a snowflake layer of of transactions, right? And these document and that Snowflake layer would have the locations and everything else where these artifacts are located. So therefore, the hub then could just query Snowflake and obtain any of the information from the application layer standpoint, locations of the results, original files, because okay. So this is the way it was explained to me: is when we're extracting all this information from these these scanned. It's not just enrollment forms, but this this scanned submission, right? Some of these hub applications need copayment. Some of these applications need insurance information. Some of these applications need X, Y, Z. So that list of these form classifications-that's where this comes from. From these these hubs, these applications that sits and accesses this information from the hub programs. Some of the that some of them may not may not need enrollment forms. Some of them may only need prior authorization information. Like it's a very cherry picky. Hey, I only want this type of information. So my thought was, you load a master data sort of metadata mapping in a snowflake of where all this information is after the process has been run, and then these applications just simply query or ping to get what they want and need, right? Sure.
+
+Speaker 1  1:00:11  
+Yeah, what what you're saying makes sense to me. I agree, at least at the time, and I recognize we were moving very fast with the CMS 1500 stuff, we couldn't kind of get out of our own way to get the integration of the. We we couldn't get somebody to land the PDF in in blob storage or get the connection to Snowflake. So the endpoint that I ended up setting up. Really, only took document in JSON output, like totally.
+
+Speaker 2  1:00:49  
+Well, you guys were integrating only into Salesforce too, directly. That was one of the other problems, right? That yes, I mean that was instead of instead of the same coin, like right instead of like Salesforce, but we didn't like. Yeah. Instead of like Salesforce, they hit a button in Salesforce. It runs your job, and then Salesforce should really just be querying a output layer, not not your not your application feeding into Salesforce. It should just go to some sort of abstraction layer.
+
+Speaker 1  1:01:24  
+Yep. Yes, that that that was what we wanted, but somewhere there needs to be, you know, orchestration or architecture that you know myself and Steve didn't have access to, or we didn't have the right people, or there weren't resources to do it. Like I don't know exactly, like if you know somebody gave me ownership account of like over the whole Azure account and said go build this thing, I could. But with the policies and the different silos and stuff, getting to what you described, we just didn't have the timeline or resources for it, so I'm not saying that that's something then that you should shy away from or anything. I absolutely agree with everything that you said. Just be aware that we did run into just kind of a challenge of getting out of our own way to accomplish some of those things, and so there may be bureaucracy and things involved with making some of those computer connections, like this app deployed application to blob storage. Those kind of connections might be a little bit more challenging, or take more time to set up than you might otherwise think.
+
+Speaker 2  1:02:45  
+True that. So
+
+Speaker 1  1:02:49  
+mostly, mostly just you know, warning you of some of the speed bumps that we we were surprised by. Yeah, I'm I'm I'm going to
+
+Speaker 2  1:03:00  
+continue to push on that because I do not want to build separate integration points within this this processor into 100 different different applications. I'm like, it should just go to one layer, and then that hub can just decide what information it wants.
+
+Speaker 1  1:03:19  
+Yeah, and you may end up splitting it out to be different services, like one service for your classification, one service for data extraction. Like thinking, thinking on that and how it might get deployed at some point is helpful as well. But I like what where your your head's at the right spot of like doing exactly what you said, integrating with sales with Snowflake, having a common point, that that is all all well and good. We probably need to think about containerization and exactly how to deploy this kind of thing in the future, because that was all very new to people as well. Just even like the whole, I'm making a service to reach out to an LLM endpoint, and we're sending PHI over API requests or stuff like that. Was this was this was the first Python application I think that had been deployed to production, and so that, you know, just it was new, so it was a little bit more of an adventure.
+
+Speaker 2  1:04:28  
+I got you. Cool. Well, Jason, thank you so much for the input here. I'm.
+
+Transcribed by https://otter.ai
