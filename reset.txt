@@ -1,0 +1,2 @@
+   rm -rf ~/Library/Application\ Support/Code/Service\ Worker
+   rm -rf ~/Library/Application\ Support/Code/Cache ~/Library/Application\ Support/Code/CachedData
