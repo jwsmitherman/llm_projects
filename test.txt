@@ -1,18 +1,42 @@
-select table_schema, table_name, column_name, data_type
+select FRM_NBR, FRM_DESC from eciscor_prod.ecelis2.frm_cd where FRM_NBR rlike '86[45]';
+select FORM_NUMBER, CONV_FORM_NUMBER from eciscor_prod.ecc3conods_mod.ref_forms where FORM_NUMBER rlike '86[45]';
+select FORM_NUMBER, count(*) from eciscor_prod.ecc3conods_mod.case_info where FORM_NUMBER rlike '865' group by 1;
+select FORM_NUMBER, FORM_TYPE from eciscor_prod.eccpms.form_number_ref where FORM_NUMBER rlike '865';
+
+
+select table_name, column_name, data_type
 from eciscor_prod.information_schema.columns
-where lower(column_name) rlike 'spons|spnsr|i86[45]|affdvt|affidavit|joint|hshld|household'
-   or lower(table_name)  rlike 'spons|spnsr|86[45]|affdvt'
-order by table_schema, table_name
+where table_schema = 'ecelis2'
+  and table_name rlike '^(pers|prty|case_prty)'
+  and lower(column_name) rlike 'prty_id|pers_id|_nm|brth|ssn|aln'
+order by table_name
 
 
-select table_schema, table_name, column_name
-from eciscor_prod.information_schema.columns
-where table_schema in ('ecc3conods_mod','ecelis2','eccpms','ecglobal_casefiling','ecglobal_formreview','ecglobal_casecontent')
-  and lower(column_name) rlike 'form_?(typ|nbr|num|cd|id)|frm_'
+select count(*) as rows,
+       count(distinct receipt_number) as receipts,
+       count(ssn) as with_ssn,
+       count(distinct ssn) as distinct_ssn,
+       count(distinct case when ssn is not null then ssn end) filter (where true) as sponsors
+from eciscor_prod.ecc3conods_mod.r2i864
+
+
+select frm_nbr, role_type_description, count(*), count(SSN)
+from eciscor_prod.coe.sponsorinfo1
+group by 1, 2 order by 3 desc
 
 
 
-select <form_col>, count(*) as n
-from eciscor_prod.<schema>.<table>
-where <form_col> rlike '86[45]'
-group by <form_col>
+select
+    concat('c3_', r2i864_id)  as sponsor_record_id,
+    'c3'                      as source_system,
+    receipt_number,
+    'I-864'                   as form_type,
+    first_name                as sponsor_first_name,
+    middle_name               as sponsor_middle_name,
+    last_name                 as sponsor_last_name,
+    dob                       as sponsor_dob,
+    a_number                  as sponsor_a_number,
+    ssn                       as sponsor_ssn,
+    us_citizen                as sponsor_us_citizen
+from eciscor_prod.ecc3conods_mod.r2i864
+qualify row_number() over (partition by r2i864_id order by dwh_upd_dt desc) = 1
