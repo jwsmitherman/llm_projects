@@ -1,29 +1,18 @@
-Plain task statements, no results or metrics. Row 25 (Nurse Navigation Patient Insights):
-G25 — Week of 8/10 "Analyzed nurse navigation call data and established baseline for call outcomes."
-H25 — Week of 8/17 "Reviewed override drivers and diversion volume. Validated data quality."
-I25 — Week of 8/24 "Added call-drop and clinical driver analysis. Built findings presentation for review."
+select table_schema, table_name, column_name, data_type
+from eciscor_prod.information_schema.columns
+where lower(column_name) rlike 'spons|spnsr|i86[45]|affdvt|affidavit|joint|hshld|household'
+   or lower(table_name)  rlike 'spons|spnsr|86[45]|affdvt'
+order by table_schema, table_name
+
+
+select table_schema, table_name, column_name
+from eciscor_prod.information_schema.columns
+where table_schema in ('ecc3conods_mod','ecelis2','eccpms','ecglobal_casefiling','ecglobal_formreview','ecglobal_casecontent')
+  and lower(column_name) rlike 'form_?(typ|nbr|num|cd|id)|frm_'
 
 
 
-Row 27 — Medical Necessity. Each cell below is ready to paste; use Alt+Enter between lines.
-
-G27 — Week of 8/10
-
-Built order-entry scoring model against CMS medical necessity criteria
-Classified transport orders as meets criteria, does not meet, or needs review
-Next: incorporate facility training content and SME guidance into criteria
-
-H27 — Week of 8/17
-
-Added facility training content and Dave/Jen SME guidance to scoring criteria
-Stood up Genie space for self-service questions on scored orders
-Next: SME validation of inferred criteria and scoring weights
-
-I27 — Week of 8/24
-
-Prototyped point-of-order prompting to close documentation gaps before submission
-Tested on simulated data pending live denial history
-Next: Jen and Michelle to validate criteria and weights
-Next: Vic and Robin to deliver MUSC denial extract
-
-Two notes. I kept "Genie space" since Dave will recognize it, but swap to "self-service reporting" if the audience is wider than the data science team. And I'd flag the two dependencies in I27 explicitly rather than burying them — they're the only things standing between the prototype and a real accuracy number, and 10/31 is the committed date.
+select <form_col>, count(*) as n
+from eciscor_prod.<schema>.<table>
+where <form_col> rlike '86[45]'
+group by <form_col>
