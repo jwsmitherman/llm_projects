@@ -1,42 +1,52 @@
-select FRM_NBR, FRM_DESC from eciscor_prod.ecelis2.frm_cd where FRM_NBR rlike '86[45]';
-select FORM_NUMBER, CONV_FORM_NUMBER from eciscor_prod.ecc3conods_mod.ref_forms where FORM_NUMBER rlike '86[45]';
-select FORM_NUMBER, count(*) from eciscor_prod.ecc3conods_mod.case_info where FORM_NUMBER rlike '865' group by 1;
-select FORM_NUMBER, FORM_TYPE from eciscor_prod.eccpms.form_number_ref where FORM_NUMBER rlike '865';
+select count(*) as rows,
+       count(nullif(trim(dob), '')) as dob_filled,
+       sum(case when regexp_replace(ssn, '[^0-9]', '') rlike '^[0-9]{9}$' then 1 else 0 end) as ssn_9,
+       sum(case when regexp_replace(ssn, '[^0-9]', '') rlike '^[0-9]{7,8}$' then 1 else 0 end) as ssn_short,
+       sum(case when a_number rlike '^A[0-9]{8,9}$' then 1 else 0 end) as anum_prefixed,
+       sum(case when a_number rlike '^[0-9]{8,9}$' then 1 else 0 end) as anum_digits_only
+from eciscor_prod.ecc3conods_mod.r2i864
+
 
 
 select table_name, column_name, data_type
 from eciscor_prod.information_schema.columns
-where table_schema = 'ecelis2'
-  and table_name rlike '^(pers|prty|case_prty)'
-  and lower(column_name) rlike 'prty_id|pers_id|_nm|brth|ssn|aln'
+where table_schema = 'ecc3conods_mod'
+  and table_name not rlike 'backup|bkup|copy|_[0-9]{8}$'
+  and lower(column_name) rlike '^(person_id|dob|birth_date|date_of_birth|ssn|first_name|last_name|a_number|receipt_number)$'
 order by table_name
 
 
-select count(*) as rows,
-       count(distinct receipt_number) as receipts,
-       count(ssn) as with_ssn,
-       count(distinct ssn) as distinct_ssn,
-       count(distinct case when ssn is not null then ssn end) filter (where true) as sponsors
-from eciscor_prod.ecc3conods_mod.r2i864
+select * from eciscor_prod.ecc3conods_mod.case_info where FORM_NUMBER = 'I865' limit 5;
+select * from eciscor_prod.ecc3conods_mod.case_relationship where FORM_NUMBER = 'I865' limit 10;
+select p.* from eciscor_prod.ecc3conods_mod.petapp p
+where p.FORM_NUMBER = 'I865' limit 10;
 
 
-select frm_nbr, role_type_description, count(*), count(SSN)
-from eciscor_prod.coe.sponsorinfo1
-group by 1, 2 order by 3 desc
-
+select r.FRM_NBR, count(*) as n
+from eciscor_prod.ecelis2.bnft_req b
+join eciscor_prod.ecelis2.frm_revs r on b.FRM_REVS_ID = r.FRM_REVS_ID
+where r.FRM_NBR in ('I-864', 'I-864EZ', 'I-865', 'I-134', 'I-134A')
+group by 1
 
 
 select
-    concat('c3_', r2i864_id)  as sponsor_record_id,
-    'c3'                      as source_system,
-    receipt_number,
-    'I-864'                   as form_type,
-    first_name                as sponsor_first_name,
-    middle_name               as sponsor_middle_name,
-    last_name                 as sponsor_last_name,
-    dob                       as sponsor_dob,
-    a_number                  as sponsor_a_number,
-    ssn                       as sponsor_ssn,
-    us_citizen                as sponsor_us_citizen
-from eciscor_prod.ecc3conods_mod.r2i864
-qualify row_number() over (partition by r2i864_id order by dwh_upd_dt desc) = 1
+    concat('elis_', s.SPNSR_AFFDVT_SUPT_ID) as sponsor_record_id,
+    'elis'                                  as source_system,
+    s.BNFT_REQ_ID_PKT_ID                    as receipt_number,
+    'I-864'                                 as form_type,
+    n.FRST_NM                               as sponsor_first_name,
+    n.MID_NM                                as sponsor_middle_name,
+    n.LAST_NM                               as sponsor_last_name,
+    b.BRTH_DT                               as sponsor_dob,
+    coalesce(s.SPNSR_ALN_NBR, p.ALN_NBR)    as sponsor_a_number,
+    s.SPNSR_SSN                             as sponsor_ssn,
+    p.BRTH_CNTRY_CD                         as sponsor_country_of_birth
+from eciscor_prod.ecelis2.spnsr_affdvt_supt s
+left join eciscor_prod.ecelis2.pers p          on p.PRTY_ID = s.SPNSR_PRTY_ID
+left join eciscor_prod.ecelis2.pers_nm n       on n.PRTY_ID = s.SPNSR_PRTY_ID
+left join eciscor_prod.ecelis2.pers_brth_dt b  on b.PERS_BRTH_DT_ID = p.PERS_BRTH_DT_ID
+qualify row_number() over (
+    partition by s.SPNSR_AFFDVT_SUPT_ID
+    order by n.ACTV_PERS_NM_IND desc, n.PERS_NM_EFFTV_DT desc,
+             b.PRIMARY_BRTH_DT_IND desc, s.dwh_upd_dt desc) = 1
+limit 20
