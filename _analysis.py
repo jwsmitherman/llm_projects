@@ -61,19 +61,7 @@ THRESHOLD_LINES = {"0.90": 0.90, "0.95": 0.95, "0.98 (current)": 0.98}
 # Policies: current = 0.98 everywhere; top_down = stricter of the two systems; bottom_up = looser of the two;
 # custom = bottom_up but CPMS vs CIS2/ELIS stays at 0.95; flat_x = one threshold for every pair.
 
-def script_dir():
-    try:
-        return Path(__file__).resolve().parent
-    except NameError:
-        pass
-    try:
-        nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-        return Path("/Workspace" + nb_path).parent
-    except Exception:
-        return Path.cwd()
-
-
-RESULTS_DIR = script_dir() / "results"
+RESULTS_DIR = Path("/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/sponsor_analysis/results")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 RUN_STAMP = datetime.now().strftime("%Y%m%d_%H%M")
 CHARTS = {}
