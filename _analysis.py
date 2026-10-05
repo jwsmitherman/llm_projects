@@ -13,8 +13,8 @@
 # - SSN is treated as ground truth for "same sponsor" (the business confirmed SSN is the only
 # reliable sponsor identifier).
 #
-# How to run: Run the cells top to bottom. Charts display inline and are saved, with every
-# table, to results/ next to this notebook.
+# How to run: Run the cells top to bottom. Each chart displays inline and is saved as a PNG to
+# results/ next to this notebook as soon as it is drawn; the Excel workbook is saved there at the end.
 #
 # Copy each section (between the ==== lines) into its own notebook cell and run them in order.
 # ================================================================================================
@@ -76,16 +76,15 @@ def script_dir():
 RESULTS_DIR = script_dir() / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 RUN_STAMP = datetime.now().strftime("%Y%m%d_%H%M")
-TMP_DIR = Path("/tmp") / f"sponsor_i865_{RUN_STAMP}"
-TMP_DIR.mkdir(parents=True, exist_ok=True)
 CHARTS = {}
 TABLES = {}
 
 
 def save_chart(fig, name):
-    path = TMP_DIR / f"{name}.png"
+    path = RESULTS_DIR / f"{name}_{RUN_STAMP}.png"
     fig.savefig(path, dpi=130, bbox_inches="tight")
     CHARTS[name] = path
+    print("chart saved to", path)
     plt.show()
 
 
@@ -550,22 +549,25 @@ TABLES["config"] = config
 
 from openpyxl.drawing.image import Image as XLImage
 
-xlsx_tmp = TMP_DIR / f"sponsor_i865_status_quo_{RUN_STAMP}.xlsx"
-with pd.ExcelWriter(xlsx_tmp, engine="openpyxl") as writer:
-    for sheet, df in TABLES.items():
-        df.to_excel(writer, sheet_name=sheet[:31], index=False)
-    ws = writer.book.create_sheet("charts", 1)
-    row = 1
-    for name, path in CHARTS.items():
-        ws.cell(row=row, column=1, value=name)
-        img = XLImage(str(path))
-        img.width, img.height = img.width * 0.6, img.height * 0.6
-        ws.add_image(img, f"A{row + 1}")
-        row += int(img.height / 20) + 4
+def write_workbook(path):
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        for sheet, df in TABLES.items():
+            df.to_excel(writer, sheet_name=sheet[:31], index=False)
+        ws = writer.book.create_sheet("charts", 1)
+        row = 1
+        for name, chart_path in CHARTS.items():
+            ws.cell(row=row, column=1, value=name)
+            img = XLImage(str(chart_path))
+            img.width, img.height = img.width * 0.6, img.height * 0.6
+            ws.add_image(img, f"A{row + 1}")
+            row += int(img.height / 20) + 4
 
-out_dir = RESULTS_DIR / f"sponsor_i865_status_quo_{RUN_STAMP}"
-out_dir.mkdir(parents=True, exist_ok=True)
-shutil.copy(xlsx_tmp, out_dir / xlsx_tmp.name)
-for path in CHARTS.values():
-    shutil.copy(path, out_dir / path.name)
-print("saved to", out_dir)
+
+xlsx_path = RESULTS_DIR / f"sponsor_i865_status_quo_{RUN_STAMP}.xlsx"
+try:
+    write_workbook(xlsx_path)
+except OSError:
+    local_copy = Path("/tmp") / xlsx_path.name
+    write_workbook(local_copy)
+    shutil.copy(local_copy, xlsx_path)
+print("workbook saved to", xlsx_path)
