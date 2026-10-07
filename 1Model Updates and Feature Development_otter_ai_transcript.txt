@@ -1,0 +1,718 @@
+Speaker 1  0:00  
+So time of day model. We had a dry run yesterday. I think everything was good. I wasn't there for the second half, but there was no notes on the chat, so I think we're good. So time of day model is good. I know I reviewed size, so I implemented concurrency to kind of improve our runtime because of the added features and the individual running that we had, so I approved that PR today. So we're probably merging that as well. So that's from the time of day model. The direct outcome features are going as planned. We're still running a little behind on the tables that we need to pull in from raw. D hasn't been able to, or at least till yesterday, we didn't have them in base, or we were in the process of getting them into the base. But we do have 10 features that aren't built yet. But the remaining 2723, or like 25 of them between that range, we already have in dev, so we can look at those features in the patient dynamic feature table in base. So once the time of day model gets wrapped up, we can start with the procedure of pushing the direct outcome model once phones back. Okay. Also, so I know you were speaking about the email time of day model cliff. So I'm using Kevin's repo to kind of figure out the features that we could use. So I can get all that later if you had something else to cover.
+
+Speaker 2  1:33  
+No, I think the only other thing to cover was to catch up with Josh on. Oh, we can. I mean, I guess we can catch up with Joshua next steps. That's the only other thing ahead. So
+
+Speaker 1  1:53  
+we can do that, and then we can get to this if that's what we want.
+
+Speaker 3  2:01  
+Actually, why don't we just finish this first topic first? Perfect.
+
+Speaker 1  2:17  
+Is my screen visible?
+
+Speaker 4  2:19  
+Yeah.
+
+Speaker 1  2:20  
+All right, perfect. So I used Helen's chat. I gave it some background about how our models work, and so it's like a stepwise implementation. So like once the first session is done, the second section probably uses already create features to move forward, so like we have click within 24 hours, which is click within 24 hours of delivery, and we know how to calculate it from which columns that we have. So CA is communication analysis table, and we have these columns that already exist. Then we would have click before next, which is click before the next email superseded it. We have the same. We have the columns there to calculate. So I was actually running this today. I could actually put all of this in the Excel that we have, the model of features, and then we could have like an even more in-depth discussion.
+
+Speaker 2  3:35  
+What's the hazard model duration?
+
+Speaker 1  3:38  
+So hazard. So this is kind of the description for the click latency. So, what it is is that is the data between the first delivered date time and the first click date time, the hours.
+
+Speaker 4  3:59  
+Okay. So that's a model that detects like the first instance of the of of the the click. I've never I've never heard of that model before.
+
+Speaker 1  4:11  
+Oh no, this is not the model. This kind of this is the description that they gave.
+
+Speaker 4  4:16  
+Oh okay.
+
+Speaker 1  4:18  
+This is the description for this feature. Yeah. I see. Just kind of like an AI generated
+
+Speaker 2  4:22  
+description. Yeah,
+
+Speaker 1  4:24  
+yeah. So W is for time of day. So this will become morning, early afternoon, late afternoon.
+
+Speaker 4  4:58  
+What's the empirical Bayes rate usable at lower end. What does that
+
+Speaker 1  5:04  
+mean? Empirical base rate click rate shrunk. I could actually ask this. I'm not sure what this one is.
+
+Speaker 4  5:17  
+Oh, okay. So this would be the probability.
+
+Speaker 1  5:27  
+I think it's using the base to him somewhere, but it
+
+Speaker 2  5:39  
+says cohort click rate. So the
+
+Speaker 4  5:43  
+way I'm interpreting this, it's like an A prior statistic. So you have like the cohort populated statistic versus the individual rate statistic. I guess is what that rate click is for that time of day.
+
+Speaker 1  6:01  
+That's what I'm thinking. So it's probably the total clicks. Like
+
+Speaker 4  6:07  
+why do you have what? That alpha? Why alpha set at five? I'm assuming within a 95% confidence interval, because you're you're you're taking that population's.
+
+Speaker 5  6:22  
+Oh. Oh,
+
+Speaker 2  6:25  
+I see.
+
+Speaker 4  6:32  
+Anyway, I'm not sure. I'm just guessing, but that's what it appears to be. Maybe
+
+Speaker 2  6:37  
+I'll explain it more.
+
+Speaker 3  6:44  
+We could get to the. I could actually like just drop them in the chat later to get proper descriptions once we're done looking through all of them. I do have an idea here. Earlier, some of these features are talking about the when the email with what part of the day the email was delivered on and whether the email has been clicked at all, but there's a different thing which is what time during the day are people clicking the emails?
+
+Speaker 1  7:17  
+Wouldn't this be the clicks, clicks on emails delivered?
+
+Speaker 3  7:21  
+That's clicks on emails delivered in day part W, where W might be morning, for instance. But that email might have actually been clicked in the afternoon or evening.
+
+Speaker 1  7:33  
+Oh no! So when we say clicks, there will be three features, which would be clicks morning, clicks early afternoon, clicks late afternoon.
+
+Speaker 4  7:42  
+Yeah, because that's what the W means, right? Yep.
+
+Speaker 3  7:44  
+Oh no, that says emails delivered in W.
+
+Speaker 4  7:48  
+Oh. Oh,
+
+Speaker 1  7:50  
+okay.
+
+Speaker 4  7:51  
+Okay, so if they were delivered, okay, so if they're delivered in the morning, and they clicked on it, it doesn't tell you if they clicked on it in the afternoon or evening. That that's what you're saying, right?
+
+Speaker 3  8:05  
+Yeah, yeah. I mean, that's other information.
+
+Speaker 4  8:16  
+Hmm. So maybe that's a new feature.
+
+Speaker 1  8:25  
+Yeah, I think so. Okay, so that would be W clicks on emails delivered in W, kind of a description.
+
+Speaker 4  8:35  
+No, it'd be a different W.
+
+Speaker 3  8:39  
+It would be emails delivered whenever, were they clicked in the morning? Emails delivered whenever, where they clicked early. Okay, so there wouldn't be
+
+Speaker 1  8:49  
+a W here. It would just be static W.
+
+Speaker 4  8:52  
+Yeah,
+
+Speaker 1  8:53  
+on emails delivered. It
+
+Speaker 4  8:55  
+just be it would be basically duplicated three. It'd be three additional variables, right?
+
+Speaker 3  9:00  
+Probably more because people can click off hours,
+
+Speaker 4  9:04  
+or four. No,
+
+Speaker 1  9:05  
+but our buckets are kind of different. So it's our buckets are 12 to three, or like 12 to four for early afternoon, and then four to let's say midnight, and then midnight to morning. I think that. Okay, so it covers the whole. It covers the whole. Yeah, it covers the entire 24. Yeah,
+
+Speaker 2  9:25  
+I see. Okay.
+
+Speaker 1  9:32  
+So this is gonna be something we need to. I'm just gonna make a note that.
+
+Speaker 4  10:01  
+You might open rate. I'm
+
+Speaker 1  10:03  
+actually gonna get like deeper descriptions for these ones.
+
+Speaker 3  10:13  
+Yeah, maybe a name that is better for some of them. I mean, maybe.
+
+Speaker 4  10:17  
+Yeah, you're gonna have that same problem on that open rate
+
+Speaker 1  10:21  
+one. Nope.
+
+Speaker 4  10:24  
+So this is saying how many people was sent. Well, that would be the same statistic then than the other three then, right? Because if I send it in the morning, how many? What's the open rate of how many people basically click? When we say open, we're saying clicked, right?
+
+Speaker 3  10:45  
+No, no, no. So, way it works is open is any email can track if it's opened. However, some servers do not report opens, so it depends on
+
+Speaker 4  11:03  
+the
+
+Speaker 3  11:03  
+help client that the patient has whether or not opens get reported. For click, somebody may open an email and still not choose to click the links. Right.
+
+Speaker 4  11:15  
+Okay, I see what you're saying. In
+
+Speaker 3  11:16  
+addition to that, some people there aren't click links to click anyways. In some emails, except for like really random ass links that like are people really clicking to find the like prescribing information at the bottom of the email. You know what I mean, like as opposed to like a really a big call to action link. You know the other thing is we should probably remove opt-out clicks from clicks.
+
+Speaker 1  11:50  
+We can do that. Yeah.
+
+Speaker 4  11:52  
+Well, based on what you just described, then. So if I'm reading this, so if an email was sent with no link, but that email is included in the count of the click rate shouldn't that be removed?
+
+Speaker 3  12:06  
+Yeah, I mean it's a good point, which is, I mean it's not as clean cut as that because it's not like there's ever going to be no link. It's just that there's no big call to action link. There's like still like I mean we you can you have all the emails, right,
+
+Speaker 1  12:22  
+OIS? In the communication analysis table, we do, but I'm not sure where the data of those emails are.
+
+Speaker 3  12:28  
+Yeah, let me get you that.
+
+Speaker 4  12:30  
+Because wouldn't that that would cloud the statistic, right? So if I send an email with no link in it, but it's included in the denominator of click rate, that's going to skew it, right? Yeah. Do we have a table that says whether or not the email has a clickable link in it? I mean, we should be
+
+Speaker 3  12:53  
+able to make that from because someday we'll probably click the links on all the emails. But but we can actually make that anyways from the email content. Let me find that.
+
+Speaker 4  13:07  
+Do you have like templates of all the emails, OIs?
+
+Speaker 1  13:10  
+No, I do not.
+
+Speaker 4  13:12  
+Because I was thinking you could just send those to chat or to Claude, and they could figure out how many real quickly have links in or not.
+
+Speaker 2  13:24  
+Okay. Can you go to here? In our folder structure, you can go to this path.
+
+Speaker 1  13:35  
+Which one are we? Which repo is this under?
+
+Speaker 2  13:45  
+I put it in chat. It's not in our repo. It's in our um.
+
+Speaker 3  13:55  
+It's in our AI next best action folder.
+
+Speaker 2  14:04  
+Like on SharePoint. All right, maybe you can also get to it here. Yeah, there you go. Wonder if actually no one would be SharePoint. Okay.
+
+Speaker 4  14:17  
+If you go to shared, well, are you in that meeting? No, go go go back go back to go back. No, no, no. Go back to the chat. Go go to your chat. Now go to. You should have a channel here somewhere. Why are you not seeing channel? They figure
+
+Speaker 6  14:45  
+it out. Should be
+
+Speaker 1  14:45  
+in their teams.
+
+Speaker 4  14:46  
+Yeah, there should be. You should see our
+
+Speaker 2  14:51  
+best action. Wait, click see your teams.
+
+Speaker 4  14:56  
+Yeah, right there. So there should be one, huh? Oh, teams. Huh. Okay. Well. Yeah. It should be under channels, and there should be a next next mix action
+
+Speaker 1  15:14  
+one. Oh, I'm in other parts. Oh, you know. Yeah, I just added you. Okay. Is it under Alexion? Organic. Organic. The second one down. Yeah, like that.
+
+Speaker 4  15:33  
+And then if you go to Shared at the top, there you go. Now you should be able to find it.
+
+Speaker 2  15:38  
+So go down. There's like all our material, wait where it was. Our head of emails, yeah.
+
+Speaker 1  15:49  
+Which one
+
+Speaker 2  15:54  
+is it? So it's that one and that one. So yeah, if you like open the whole, I think it should just continue. It it'll be a big document.
+
+Speaker 4  16:10  
+What is he hoping? What is he hoping to get on this
+
+Speaker 2  16:12  
+one? Should be able to help you. Sorry. If you get confused about what's what, Stephen should be able to help you. Gotcha. Yeah.
+
+Speaker 4  16:32  
+Interesting.
+
+Speaker 2  16:33  
+So if you look here at the top,
+
+Speaker 3  16:41  
+there might be like call to action emails. If you go down a little bit, there's okay. So first of all, there's that stuff at the top, like view web version, important safety information, prescribing and patient information; those are probably in every email. I would have a guess, and those are all links.
+
+Speaker 1  17:08  
+Okay, but
+
+Speaker 3  17:09  
+if you scroll down, so I guess everything will have some links on it. But if you scroll down, some of these are going to have more call to like that. Learn more. That learn more button is going to be a link that's like really prominent. So it's really telling the person, "Hey, click this, as opposed to those more minor links. And then if you keep going down at the bottom here, I guess they put the whole ISI in it. But there's yeah, somebody might click privacy policy or unsubscribe, right, like that. It and then if you keep going, some of them though aren't going to have that big learn more link or or the equivalent. They're not going to have. And I think that was just the mobile versus the desktop version that we were looking at.
+
+Speaker 1  17:55  
+Gotcha. This is probably the mobile on the left.
+
+Speaker 3  17:58  
+Yeah, yeah, yeah.
+
+Speaker 4  18:00  
+So OIs are each so when an email goes out, I'm assuming there's some sort of like transaction ID of some kind, right?
+
+Speaker 1  18:09  
+Yep, we have the communication. So
+
+Speaker 4  18:11  
+yeah, or that communication ID. So in that communication ID, does it say what email co or ID?
+
+Speaker 1  18:18  
+It does most definitely give us a communication type.
+
+Speaker 4  18:23  
+But is that tied tied direct tied directly to? You can point it directly to one of the email formats that Cliff just showed.
+
+Speaker 3  18:33  
+Yeah, sure. Because yeah, yeah. Let me go back to the email. I'll show you where.
+
+Speaker 4  18:39  
+Because if you can do that, then you can just ask you can just ask Claude to categorize each of these whether they have a call to action.
+
+Speaker 3  18:47  
+See at the bottom there, C 25 US Viv H Y T 24 0074 v2. That's the that's the communication ID.
+
+Speaker 1  18:58  
+Yep, that's our communication ID format as well. US V Y V
+
+Speaker 4  19:06  
+So what I was thinking is, is that you could take this, send it in Claude because there's other links that may not be what we care about, but if there's links that we care about, like call to action or whatever, Claude should be able to extract that out and classify to say, hey, this communication ID has a call to action link, right?
+
+Speaker 1  19:28  
+Correct. Yeah, that we can do that. So, Cliff, just to be clear, like the this code that we have, it's common for all welcome calls, right?
+
+Speaker 3  19:38  
+Welcome emails.
+
+Speaker 1  19:40  
+Yep.
+
+Speaker 3  19:41  
+I mean, why don't we look at GMG? I think GMGs could have a different code than CIDP.
+
+Speaker 1  19:50  
+Okay. Oh no, that's okay. But for CIDP, all welcome calls will have dips.
+
+Speaker 3  19:55  
+Yeah, yeah. Because this is just this is like the code associated with this exact email content.
+
+Speaker 1  20:02  
+Okay. Does it change with the year? Because I know there's 2025.
+
+Speaker 3  20:05  
+So it can. So there's different ways they can change it. They can make minor updates, and they can just change it from B2 to B3, B4, etc. Does our does does it have the B whatever in our?
+
+Speaker 1  20:20  
+I'll have to have a look at that.
+
+Speaker 3  20:26  
+So when they make minor updates, they change the V. They could also, in theory, do a complete overhaul, and then the entire like email code might change.
+
+Speaker 1  20:38  
+But.
+
+Speaker 4  20:54  
+Do we track on these communications when they're sent out? What what type of server? Because you mentioned like certain servers don't, I don't know. Like track when an email is opened, kind of. Do we have that detail? Like I'm just trying to think of a way. Like, how would you even like? Because if the statistic is going to be flawed based on that, then why report it at all, right?
+
+Speaker 3  21:34  
+So, yeah, I mean, I guess the thing is, certain servers don't track when it's open, right? And I think it's worth looking into which those are and what fraction. But
+
+Speaker 2  21:53  
+I don't know. Like it depends on how prevalent that is. Yeah, that's what I'm saying. Like
+
+Speaker 4  21:58  
+if 50% of them don't report, then I would say, what's the use of that? I wouldn't trust that statistic.
+
+Speaker 3  22:04  
+Well, it's still useful for the other people. That I guess the trick is we don't know who reports for and who it doesn't. But it still is a signal for the people that we got stuff back for, right?
+
+Speaker 4  22:21  
+Okay.
+
+Speaker 2  22:24  
+I don't know. It's
+
+Speaker 3  22:28  
+maybe we could say, have they ever opened the email? Any emails?
+
+Speaker 4  22:32  
+Yeah.
+
+Speaker 3  22:33  
+And maybe that needs to be a a feature. Now I think the trick with that is, I think like somebody could open their email on their they could have their emails pushed to like their phone's mailbox like with Pop or iMac or something right and I don't know if those would then report differently than like if they opened it on Gmail. I don't know. I think that's worth looking into. I think we need to do more research on in what circumstances we get opens back from the web, like or Claude should be able to research that for us, because then maybe we need the domain name of the email. Like if their email ends in gmail.com, maybe that's different than if it ends in a different. I don't know how that relates versus like the client that they use to access the email. Although I imagine a lot of people with Gmail to use the Gmail client to access it.
+
+Speaker 4  23:45  
+Yeah. Well, it'd have to go through the same SMTP proto or server. So the client doesn't really. I don't think the client would matter, right?
+
+Speaker 3  23:59  
+Well, what if they're using POP or IMAP? Does it matter then?
+
+Speaker 4  24:02  
+I don't think it does. Because the response, like the community. Well, I mean, maybe it does. I don't know.
+
+Speaker 3  24:09  
+I don't know.
+
+Speaker 4  24:09  
+Yeah, maybe it does.
+
+Speaker 3  24:11  
+I'm just speculating because then you open it. Does the IMAP push it open back to Google? Let the client push it back through that connection to Google that you open. I mean, it must. It must because. Yeah, that's
+
+Speaker 4  24:23  
+one thing. Like it has to, right? Because the the protocols are the protocols. The clients are just obeying the protocols set by the SMTP communication. But I could be wrong. I don't know. But
+
+Speaker 3  24:38  
+way that it tracked whether you opened the email was there was a small invisible image that had a unique ID, and when it called to the server to load the image, I don't. I but that might be obsolete information.
+
+Speaker 4  24:54  
+I see what you're saying though. If they opened it, would it actually would be the client because they wouldn't it wouldn't send a request back to the to the server.
+
+Speaker 3  25:03  
+I don't know. We just gotta research this more. The
+
+Speaker 4  25:09  
+def. Oh my gosh! You're
+
+Speaker 3  25:11  
+out of out of things to focus on because you're like waiting for them to get your server back up. Maybe you can like research all of this stuff.
+
+Speaker 4  25:19  
+Yeah, I do have a ticket open for it. So, oh, let me let me tag you on that ticket. I don't think I shoot. Oh, here we go.
+
+Speaker 3  25:35  
+Okay, why don't Josh? Why don't you research that stuff today and see if you could sort it all out?
+
+Speaker 4  25:39  
+Yep. Uh, I guess that's what I get for opening my mouth, huh? No, it's fine. Okay, how do I tag you in this ticket chair? There we go. I will add Clifford and why is that? And Jason. Share. All right, you and Jason are on that ticket now. I really hope I didn't break it, because I am running all those models local, or not the models, but I'm running that whole process locally. On sometimes I run through the whole 800 PDFs, and using all four models, even on like 50 documents, does take you know 510 minutes to process. So I hope I hope I didn't crash it.
+
+Speaker 2  27:06  
+You're getting them to run non-locally, right?
+
+Speaker 4  27:10  
+I'm sorry.
+
+Speaker 2  27:11  
+You're you're getting to run like in the cloud as opposed on the VM, right? Or no?
+
+Speaker 4  27:16  
+Well, it's an API. It's just making the call to the API, to the model APIs. Is that what you're asking?
+
+Speaker 3  27:26  
+Yes. The the
+
+Speaker 4  27:28  
+code itself is is running on that local VM, so it's not in a Docker. It's not anything. It's running all the code and all the logic is being run on that VM. Okay. Yeah, I mean that's how we did the other one, but eventually it does need to be Dockerized and pushed up as an actual endpoint.
+
+Speaker 2  27:52  
+Okay.
+
+Speaker 4  27:53  
+And I was able to check in that code, so Jason, I did get the repo up and going, so Jason's tag in it as well, so he's reviewing it.
+
+Speaker 2  28:06  
+Okay.
+
+Speaker 1  28:09  
+All right, Oise, did you get more? Yes. So another thing was, so the communication type. I'm not sure if we're saving that because it isn't in any of the base tables, the code that we saw in the email, but we do have it in lovable for some reason. So, so we see. Let me just. The screen is visible, right?
+
+Speaker 2  28:34  
+Run communication type is that is that code?
+
+Speaker 1  28:40  
+Yeah. So this communication type column in communication event does not exist in the base table.
+
+Speaker 3  28:51  
+You know what you can also do? This is what you should do. You should get flawed to make an ontology of tags for the email contents. Okay. Good. And then once you have an ontology of tags for the email contents, you can make a score that. Oh, this is going to be more relevant for email content than time of day. Actually, when we get ready to do email content, this is going to be more important for that. But I'll keep explaining it now, because then you can make a score for how similar content is to earlier content, and you can see if people like this if it was a clickable earlier content if they clicked on it or not, and then from that you can then like use that to say are the new emails we're going to send more or less similar to that. Whether or not that works with clicks depends on whether the email it like emails have those big call to action clicks though, so that may not this may not work for that. You can also do it with opens, but with opens it's only going to be relevant with the subject line and doing tags on the subject lines. But yeah, this this is not for enel time of day actually. But you know what I mean by ontology, right? Or you want me to explain it? Oh, I got
+
+Speaker 6  30:39  
+it. Okay.
+
+Speaker 3  30:40  
+So I think we have some example like where we were drafting ontologies a while ago, but we never finished it. Let me get it. Okay, let me let me run over some things with you folks, and let's actually record this so that we can show phone later. Here.
+
+Speaker 2  31:42  
+Okay. Let me see if I can find it.
+
+Speaker 3  31:55  
+So this was actually how we were going to do modular content and track the content for modular content, which this is something that's coming up too. Which is you have locations, and then you have different content blocks that can go in those locations. And then we were going to track the type, like okay. So let me just walk through this quickly. Oh, and here's the content tagging system. Yeah, this is very draft, but at least this will be a start to think about it. So let's start with the tagging system. Actually, so so this is what the content block attaches, like the tag attaches to. We were going to have a table like this type of entity it attaches to, so like content means a full email message content or whatever. It could be something other than email the full content content block would be a subcomponent of that, so that could be the content block could be like a specific like image or a specific, you know, top block of text, or it could be a specific talking point, which is what we use for live calls, right? So those are content blocks, and so then each content block will have an ID associated it, just like the whole email has a Viv ID. And then we can categorize and tag those. So let's talk about that. So we were drafting out a possible content block content tagging system here. So so yeah, like type of content applies to anything with text or verbal communication. So then you could have tone of language, subject matter. So like you, and this is just like we were just you can see we're just starting this, but like tone of language, we might have different tone of languages, like you know, is it urgent? Is it like some other tone of language that, in like the way that the the text is written, then there could be subject matters. Like, what's the subject matter? Like, is this blog talking about side effects? Is it talking about how to organize your medications, like what is the subject talking about? Then images, like we could have different images. We could tag those images. Are people being active? Are people like? Is it multiple people? Like there could be multiple tags associated with with images. The the even the layout of of an email could have tags associated with it. This circumstance, all our emails are the same layout, so it doesn't even really matter to tag it. But like in some circumstances, it might right like like it. It was some customers in the past, we had some emails that were like full HTML and some that were like a plain text. It almost looked like a person wrote it, as opposed to looking like a produced HTML email. Maybe people respond differently if it looks like somebody wrote the email to them versus like a full HTML email. And then here, so then up here, we were just talking about how different content, like how we would track all the different content blocks that are associated with locations. So, like physical
+
+Speaker 4  35:39  
+locations or like locations on the email.
+
+Speaker 3  35:45  
+Locations on the email. So like what like so in the past when we've done because we have done modular content before, we did it for Janssen Sorelto, and the way it worked was we took a there was an email template, and so that email template had an had a content ID just as the way that that same Viv content ID that you saw, right? But then there were empty locations, like the subject line was a location, the pre header was a location. The pre header is that text that it shows you next to the subject line before you open the email, which actually pre header is another thing that affects clicks. Both the subject line and the pre header affect clicks because, like, depending on your email client, Google shows you some more information to the right of the subject. So then we had in the email different locations like throughout the email, and everything just has like location one, location two, location three, etc. Right? We like supported up to 25 locations or something, right? And then within those locations, there would be different content. So each email template could like there would be like maybe location three was where images were, and there would be like different images we could choose from, and like location four was like a text block, but for that email, that particular version of the email for that text block, there were only like two or three options, right? And maybe the subject line had two or three options. Is the content classified
+
+Speaker 4  37:18  
+in any way, like for identifier? So like if location one had content ID five, do we did we or is it just any content?
+
+Speaker 3  37:30  
+So the way it worked was each email, there was a grid that went through the medical legal review process. Grid had an email ID,
+
+Speaker 4  37:40  
+right,
+
+Speaker 3  37:41  
+and then it would for that email ID. It has these locations, right? And for each of those locations, here are the approved contents in each of those locations. But you
+
+Speaker 4  37:52  
+don't know since there's no specific like content ID, you don't know what type of content it is in that box until you go go search it, right? It's not grouped like saying, like you said, like an image or okay, content. They
+
+Speaker 3  38:08  
+were never mix and matching. Like there wasn't wouldn't be a location where sometimes it contained an image and sometimes it contained text.
+
+Speaker 4  38:14  
+Okay, so once the content was there, that's its spot. Is what you're saying. So, like, if if location three on that email was an image, you're saying location three, no matter where you put it anywhere else, will always be an image. Be an image. Is that what you're saying? No,
+
+Speaker 3  38:33  
+no, no. For that particular email template, location three was always an image because the way that they built the HTML, it would screw up the HTML if they swapped it out with something other than an image.
+
+Speaker 7  38:46  
+Okay. At
+
+Speaker 3  38:47  
+least with this customer. Okay. Okay. Like, and then, and then below that image was a text block, and then below that there was actually an optional text block that we could leave blank, and then it wouldn't show up. Right. Okay. We could put something. I was just
+
+Speaker 4  39:06  
+simply asking, like, was content was was the content indexed in any way where you could like tie the location to the a content ID. But you're saying once a okay, so that that was my question.
+
+Speaker 3  39:19  
+But but but that location, okay, you could tie the combination of the email. Okay.
+
+Speaker 4  39:27  
+Okay. So in that location, you're permitted to use this type of content. Okay.
+
+Speaker 3  39:32  
+For that template. For a different template.
+
+Speaker 4  39:34  
+Got it.
+
+Speaker 3  39:35  
+Maybe the the location because the location is just like one through 20. Yeah. Because that was going to be my
+
+Speaker 4  39:40  
+concern. Is is like, okay, how do you know what the the con? I mean, in this one it could be an image, in this one it could not be an image. Like, but if you don't have any kind of content ID, then how do you know?
+
+Speaker 3  39:51  
+Yeah, you have to combine the template ID, like which is that VIV number, with the location number, and that combination allowed particular. But that's just going to tell you
+
+Speaker 4  40:03  
+what's allowed. And there, at the end of the day, until you go and look at what was actually sent, you still wouldn't know exactly what was actually used.
+
+Speaker 3  40:13  
+Oh, so so in in this circumstance, what we would do is when we targeted, we wouldn't just say use this content like overall template, we would then have additional fields for, or I think we did it as a separate. I don't remember if we just did additional fields in the table, or I think yes, what we ended up doing: additional fields for like all the content, all the locations, and what content IDs were sent. So because we were the ones that were targeting it, we had tracked what was all the content that was
+
+Speaker 4  40:42  
+okay. Okay, and that makes sense. Okay, sorry, I went off the gravy train on that one.
+
+Speaker 3  40:53  
+So that is so yeah. So then we had have we were saying okay we'll track it this way content to content location options we were just saying we need the system needs to know what different locations are allowed in different what different contents are allowed in different locations this isn't about tagging this is just about like network based tables understand this that we had been drafting, and that's based on template
+
+Speaker 4  41:23  
+two, right? The email template. Yeah, yeah. So yeah, so section three of email template one might only be an image, but template two, section same section ID might allow text blocks.
+
+Speaker 3  41:43  
+Yeah, yeah, yeah, yeah, yeah. So, well, this is the content ID. So this would be the VIB number with the specific version that has locations, and this is saying, yeah, whether it's an image text block or whatever. And then coming down here, this one would say for this content ID at this location one where it's allowed to be an image. These are the exact images that are allowed to be there.
+
+Speaker 4  42:09  
+I got you.
+
+Speaker 3  42:11  
+We probably should have named this something different than Alaso content here, like Alaso content block content or something like that, right? So, but that wasn't the main reason I wanted to chat about this. I wanted to chat about just like tagging in general of content, which even without modular content is still relevant. So yeah, let me do one more thing. Search. Oh, this is how we got to this. Yeah. Okay. Fine. But, anyways, I found it over here, which was the this was where we had been brainstorming this to some degree, but anyways, so we could develop this. This is something probably next steps after we get like because we we need to make this ontology in order to then start saying hey for the different emails, like when we're choosing content, this will help us with that.
+
+Speaker 4  43:30  
+Okay,
+
+Speaker 3  43:33  
+that's what I had there. Anything else? Anything else relevant for the recording? If not, we can stop it.
+
+Speaker 4  43:58  
+Okay. All
+
+Speaker 3  44:08  
+right. What else to chat through?
+
+Speaker 4  44:13  
+For for me, just next steps. Again, once the VM's back up and going. So I did. I worked with Matt to get the Mistral model deployed for the OCR and LLM reasoning, so I did test that. Unfortunately, the results that I ran last night are still in the VM, so I don't know what those results are. So once I'm able to get in those, I'll be able to get that. I think I already told you about the 1500 form classification, and then also for testing the latency. Really, at the end of the day, I don't think. I mean, once this is kind of once we're kind of through the the EDA portion of this, we probably just want to pick one, maybe two models at most, just because it does add a significant amount of time as you add these models to the processing.
+
+Speaker 3  45:11  
+Okay.
+
+Speaker 4  45:12  
+So,
+
+Speaker 3  45:16  
+well, I mean, time is okay. It's more about cost.
+
+Speaker 4  45:22  
+I thought there was a comment on latency. I could have swore I saw in the business requirements something about latency. Yeah, that has to be. Yeah, there was a there was a latency requirement. I think. Can
+
+Speaker 3  45:33  
+you push back on that because that doesn't make any sense to me because it's all supposed to be preprocessed. Can you make some comments in the chats with Zach. Yeah, so that understand that requirement.
+
+Speaker 4  45:44  
+Okay. Yep. Okay. Yeah. So if latency is not an issue, again, accuracy is going to be way better when, even when you use like, because I looked at them individually, and from an individual standpoint, the best one was Claude Sonnet, but still it was hitting around. I want to say like it was 80 something percent. So when you aggregate them all, because like like I said, sometimes it comes back with a blank, and then the other one does, like Opus doesn't, right? And so when you combine them all together, it's hitting around 96% right? And that's what you want. Yeah, you want a higher percentage, so it definitely is more advantageous for us to run more models, for sure.
+
+Speaker 3  46:31  
+Yeah, that makes sense.
+
+Speaker 4  46:42  
+And that's pretty much it. Yeah, just I need to get into the VM. I added the CMS 1500 categories. Oh, the other thing too. I need to work, and I'm not really sure who to work with because I've asked Zach this. All those other categories they mentioned. Let me pull it up. There were some ones that they were hoping to see, but I have no data on them at all. So it's like, how can you classify something if I have no basis For that, let's see. Let me share. So these were the categories. So we already talked about. Let me just put a star by the ones I already have. This is there, but I've listed as supplemental patient information, which I can change, so it's sort of there. But the one that they were wanting was this hardship form. They specifically called that one out. And a lot of these, like I said, like this copayment document, I had to manually insert those. The rest of these, I have zero information on.
+
+Speaker 3  48:26  
+I mean, message that to Josh, get him to prioritize which ones are important, and if they're important, then you know you can work with those other people who. Yeah, he
+
+Speaker 4  48:35  
+specifically mentioned this one as being important, so I don't have that one. Yeah,
+
+Speaker 3  48:39  
+I would reach back out to those other people that helped you get access to the other forums to see if they can get you that one.
+
+Speaker 4  48:46  
+Mm-hmm. Like I wouldn't even know how to make that one up, to be honest.
+
+Speaker 3  48:49  
+No, yeah, yeah, that's fine. Just get copies of our actual ones. And then the other thing is, we're gonna need to do a bake off against
+
+Speaker 4  48:59  
+Salesforce or or Milshoe or whatever.
+
+Speaker 3  49:02  
+Yes. Yeah, yeah. So maybe you can actually get that set up too.
+
+Speaker 4  49:07  
+Okay.
+
+Speaker 3  49:07  
+So like, what, like, you should probably get some documents that your like system has never used in any way. You know, like, so that it's like really.
+
+Speaker 4  49:18  
+But wouldn't they use the same exact documents?
+
+Speaker 3  49:21  
+Yeah, and they will. Yeah, yeah. And then what we'll do is we'll do it with them live, so that they can't do any training outside of that. They're gonna screen share with us. Like we'll
+
+Speaker 4  49:29  
+send it. Like we'll we'll we'll post them like in some shared folder that will only allow them access when the meeting starts.
+
+Speaker 3  49:37  
+Yeah, yeah, and it'll need to be. Well, we can't. It'll be tricky because we need to do it in a way that allows them to receive PHI from us. I mean, we have. That's what I was trying to say. Is
+
+Speaker 4  49:48  
+like maybe we have like a shared folder or something where we send them the link, but we don't give them access to it until. Well, how would you do that? Yeah, because then they could download it on their machine.
+
+Speaker 3  50:00  
+They their migration. But I guess it's ours, so maybe they should just. No, but what I was thinking is, is that
+
+Speaker 4  50:11  
+you give access to our like we create a blob container in our Azure subscription.
+
+Speaker 3  50:16  
+I see what you mean.
+
+Speaker 4  50:17  
+But the problem is, they're not going to be able.
+
+Speaker 3  50:22  
+No, they should have an API that we just hit against. So we should. Oh, okay. Yeah. Yeah. Like I don't know. You're going to have to coordinate with them on this, like how we can set this up as a live test. I would start the email chain with them and Zach and me and try to coordinate that.
+
+Speaker 4  50:42  
+Yeah, because the only way to make it secure as it is today is through that blob storage.
+
+Speaker 3  50:50  
+No, but we could send it via an API call if we needed to. Like, let let's just like discuss with them how to do a live run through with them, like where we get them the PHI in a live way.
+
+Speaker 4  51:05  
+Okay.
+
+Speaker 2  51:08  
+Okay.
+
+Speaker 1  51:09  
+Yep.
+
+Speaker 3  51:11  
+Yeah. So, so kick off that exploration with them, and then also like getting those forms that you need, and then yeah. What else?
+
+Speaker 4  51:22  
+Uh. I think that's it. I mean, I pretty much got everything baked in and retrained. I retrained it based on those new categories I was I mentioned in the in the the chat there. Instead of just being like other data, like a form cover, form prescription information, insurance card. Oh, the other thing too. I did notice. Oh, okay, two things. So one, you remember them talking about, hey, I get this bundle of scanned documents. Some of them may be different patients in there, right? And we never really kind of discuss that. So I'm I need to build that that process in. So once once the OCR and the LLM has extracted all the information, then we need to do like a patient, almost like a record linkage per page, type of scenario. That's based on name, date of birth, whatever, whatever, whatever.
+
+Speaker 3  52:18  
+Right, right. It's a
+
+Speaker 4  52:20  
+it's a record linkage problem with individual page because that patient's record maybe three pages down, who knows? So
+
+Speaker 3  52:28  
+yeah, okay, perfect.
+
+Speaker 4  52:31  
+So I am going to be working on that, and then the other problem is the orientation of some of these documents, like they're not always in that. Sometimes they're 90 degrees. Sometimes they're not. You know, and the problem with that is it's on a per page basis. So, you know, enrollment form might be in this orientation. The next page may be enrollment form in this orientation. Then insurance cards like this,
+
+Speaker 3  53:02  
+and the LLM isn't able to correct for that.
+
+Speaker 4  53:05  
+Um, I have not seen the best results when the orientation is bad or when the orientation is different, because I would say majority of the time, what ends up happening, it's the insurance card that's scanned in. They will, it's always in a different. I would say 40 to 50% of the time, the insurance card is in a different orientation.
+
+Speaker 3  53:28  
+So can you can you look at our old code? I thought in the old code we did something to correct for orientation.
+
+Speaker 4  53:37  
+Okay, I'll have to look at that. It might
+
+Speaker 3  53:39  
+be wrong. I might be wrong, but see if there's something there. If not, you might need to build in another process that identifies orientation and corrects for it, or something
+
+Speaker 4  53:48  
+per page. Yeah, yeah.
+
+Speaker 2  53:51  
+Okay.
+
+Speaker 4  53:56  
+But yeah, that's where I'm at right now.
+
+Speaker 2  53:59  
+Okay. Well. Um. right. Keep plugging away at that.
+
+Transcribed by https://otter.ai
