@@ -1,0 +1,6 @@
+Week of 9/28
+Completed behavioral health and repeat caller analyses on 150,003 nurse navigation calls. About 1 in 6 calls involves behavioral health, roughly 26,000, with anxiety the most common. About 1 in 5 calls is a repeat from someone who called before, and half of those come back within 30 days. Both decks delivered for stakeholder review.
+Week of 10/5
+Met with Noah, Shelli and Mukund on why the behavioral health volume differs from the nurse-recorded count. The two measures answer different questions: the notes capture behavioral health wherever it appears, the triage pathway records only the main reason for the call. Rich provided Seattle data for comparison. Built the comparison into the analysis.
+Week of 10/12
+Compared both measures on Seattle, 16,305 calls. The nurse-recorded count is 2,677 and the note-based count of behavioral health as the main reason is 2,057, so the recorded field is not undercounting in Seattle. Seattle accounts for roughly 38% of all behavioral health coded calls on 11% of volume, so recording practice varies by market. Next steps: clinical review of the categories, and a decision on which figure to use externally.
