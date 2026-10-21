@@ -1,31 +1,4 @@
-$h = "aif-app-tmp-cus-dev.services.ai.azure.com"
-
-"--- DNS ---"
-Resolve-DnsName $h -ErrorAction SilentlyContinue | Select-Object Name,Type,IPAddress
-
-"--- TCP 443 ---"
-Test-NetConnection $h -Port 443 | Select-Object RemoteAddress,TcpTestSucceeded
-
-"--- proxy ---"
-"HTTPS_PROXY = [$env:HTTPS_PROXY]"
-netsh winhttp show proxy
-
-"--- plain HTTPS ---"
-try { (Invoke-WebRequest "https://$h/" -UseBasicParsing -TimeoutSec 15).StatusCode }
-catch { $_.Exception.Message }
-
-
-
-$tok = az account get-access-token --scope https://ai.azure.com/.default --query accessToken -o tsv
-curl.exe -s -o NUL -w "http %{http_code}`n" -X POST "https://$h/anthropic/v1/messages" `
-  -H "Authorization: Bearer $tok" -H "content-type: application/json" `
-  -H "anthropic-version: 2023-06-01" `
-  -d '{\"model\":\"claude-sonnet-5-5\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'
-
-
-
-
 az cognitiveservices account list -o table
 
-az cognitiveservices account show -n aif-app-tmp-cus-dev -g <rg-from-above> `
-  --query "{public:properties.publicNetworkAccess, endpoint:properties.endpoint, acls:properties.networkAcls}" -o json
+az cognitiveservices account show -n aif-app-tmp-cus-dev -g <rg> `
+  --query "{public:properties.publicNetworkAccess, acls:properties.networkAcls}"
