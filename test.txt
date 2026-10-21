@@ -1,52 +1,31 @@
-select count(*) as rows,
-       count(nullif(trim(dob), '')) as dob_filled,
-       sum(case when regexp_replace(ssn, '[^0-9]', '') rlike '^[0-9]{9}$' then 1 else 0 end) as ssn_9,
-       sum(case when regexp_replace(ssn, '[^0-9]', '') rlike '^[0-9]{7,8}$' then 1 else 0 end) as ssn_short,
-       sum(case when a_number rlike '^A[0-9]{8,9}$' then 1 else 0 end) as anum_prefixed,
-       sum(case when a_number rlike '^[0-9]{8,9}$' then 1 else 0 end) as anum_digits_only
-from eciscor_prod.ecc3conods_mod.r2i864
+$h = "aif-app-tmp-cus-dev.services.ai.azure.com"
+
+"--- DNS ---"
+Resolve-DnsName $h -ErrorAction SilentlyContinue | Select-Object Name,Type,IPAddress
+
+"--- TCP 443 ---"
+Test-NetConnection $h -Port 443 | Select-Object RemoteAddress,TcpTestSucceeded
+
+"--- proxy ---"
+"HTTPS_PROXY = [$env:HTTPS_PROXY]"
+netsh winhttp show proxy
+
+"--- plain HTTPS ---"
+try { (Invoke-WebRequest "https://$h/" -UseBasicParsing -TimeoutSec 15).StatusCode }
+catch { $_.Exception.Message }
 
 
 
-select table_name, column_name, data_type
-from eciscor_prod.information_schema.columns
-where table_schema = 'ecc3conods_mod'
-  and table_name not rlike 'backup|bkup|copy|_[0-9]{8}$'
-  and lower(column_name) rlike '^(person_id|dob|birth_date|date_of_birth|ssn|first_name|last_name|a_number|receipt_number)$'
-order by table_name
+$tok = az account get-access-token --scope https://ai.azure.com/.default --query accessToken -o tsv
+curl.exe -s -o NUL -w "http %{http_code}`n" -X POST "https://$h/anthropic/v1/messages" `
+  -H "Authorization: Bearer $tok" -H "content-type: application/json" `
+  -H "anthropic-version: 2023-06-01" `
+  -d '{\"model\":\"claude-sonnet-5-5\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'
 
 
-select * from eciscor_prod.ecc3conods_mod.case_info where FORM_NUMBER = 'I865' limit 5;
-select * from eciscor_prod.ecc3conods_mod.case_relationship where FORM_NUMBER = 'I865' limit 10;
-select p.* from eciscor_prod.ecc3conods_mod.petapp p
-where p.FORM_NUMBER = 'I865' limit 10;
 
 
-select r.FRM_NBR, count(*) as n
-from eciscor_prod.ecelis2.bnft_req b
-join eciscor_prod.ecelis2.frm_revs r on b.FRM_REVS_ID = r.FRM_REVS_ID
-where r.FRM_NBR in ('I-864', 'I-864EZ', 'I-865', 'I-134', 'I-134A')
-group by 1
+az cognitiveservices account list -o table
 
-
-select
-    concat('elis_', s.SPNSR_AFFDVT_SUPT_ID) as sponsor_record_id,
-    'elis'                                  as source_system,
-    s.BNFT_REQ_ID_PKT_ID                    as receipt_number,
-    'I-864'                                 as form_type,
-    n.FRST_NM                               as sponsor_first_name,
-    n.MID_NM                                as sponsor_middle_name,
-    n.LAST_NM                               as sponsor_last_name,
-    b.BRTH_DT                               as sponsor_dob,
-    coalesce(s.SPNSR_ALN_NBR, p.ALN_NBR)    as sponsor_a_number,
-    s.SPNSR_SSN                             as sponsor_ssn,
-    p.BRTH_CNTRY_CD                         as sponsor_country_of_birth
-from eciscor_prod.ecelis2.spnsr_affdvt_supt s
-left join eciscor_prod.ecelis2.pers p          on p.PRTY_ID = s.SPNSR_PRTY_ID
-left join eciscor_prod.ecelis2.pers_nm n       on n.PRTY_ID = s.SPNSR_PRTY_ID
-left join eciscor_prod.ecelis2.pers_brth_dt b  on b.PERS_BRTH_DT_ID = p.PERS_BRTH_DT_ID
-qualify row_number() over (
-    partition by s.SPNSR_AFFDVT_SUPT_ID
-    order by n.ACTV_PERS_NM_IND desc, n.PERS_NM_EFFTV_DT desc,
-             b.PRIMARY_BRTH_DT_IND desc, s.dwh_upd_dt desc) = 1
-limit 20
+az cognitiveservices account show -n aif-app-tmp-cus-dev -g <rg-from-above> `
+  --query "{public:properties.publicNetworkAccess, endpoint:properties.endpoint, acls:properties.networkAcls}" -o json
