@@ -1,0 +1,106 @@
+Speaker 1  0:01  
+Cool. Okay. Is there? So, I don't know much about that that product. Is there like documentation I can read up on, or is there like a certain product owner? Let me.
+
+Speaker 2  0:16  
+Yeah. So, you're gonna like work with Alan Sheely on this, so I'm going to introduce you to him.
+
+Speaker 1  0:25  
+Okay.
+
+Speaker 2  0:26  
+But in the meantime, can we also like, I guess, put a bow on the documentation for our IDP work? Yeah. So that makes it easy for us to go back to
+
+Speaker 1  0:40  
+it. Sure, yep.
+
+Speaker 3  0:42  
+Okay,
+
+Speaker 1  0:43  
+we can do that. So as far as like continuing improving the classification, that doesn't need to be done or anything like that.
+
+Speaker 2  0:51  
+No, but if you could like maybe like put a document together with like where everything is, okay, what the status is, like all of that stuff for IEP,
+
+Speaker 1  1:00  
+Yeah.
+
+Speaker 2  1:00  
+Then that will be great, and then we'll then we everybody will remember where things are when we get back. Because basically, what we're doing is we're going to use a third-party vendor
+
+Speaker 3  1:11  
+for one
+
+Speaker 2  1:12  
+customer that needs it very quickly.
+
+Speaker 1  1:15  
+I see. Yeah, makes sense.
+
+Speaker 2  1:16  
+But just for that customer, and then like maybe four or five months from now, or whatever. I don't know. Yeah, we
+
+Speaker 1  1:25  
+just we just we need to hurry it up with for the specific client. I got you.
+
+Speaker 2  1:30  
+Yeah, I don't even know if Zach knows this yet. Oh wow! Lynn told this, so so anyway, and and this might all change again in a little bit if like the pricing comes back ridiculous. So who knows? But probably we're just gonna do the route that I just said. Okay. So so yeah, maybe I don't know. When can you get that stuff done? Like all wrapped up? Like tomorrow? Oh
+
+Speaker 1  1:58  
+yeah. I'll push. Honestly, here's what I'll do is because we we built a repo for this, so that'll be included in the. I'll just include a. I don't know if if a read well read me might not be the best thing. I mean, there will be a read me in the in the code base, but I'm just trying to think from an. Do we have a project folder for this in Teams somewhere? Let me see. Not sure if we do or not, because then I could just stick it there, and people can look at. You could probably create one. So I'm under IDBT team here, and then they got. Let me share my screen. So what I can do is I can put together a business-friendly version of it and post it here, with all the other requirements here, and then in that document we'll also mention some of the technical aspects of like you know where the Git repo is, the latest check-in, and then what's out you know what's been done and what's outstanding.
+
+Speaker 2  3:03  
+Okay, cool. And maybe you can even include your like accuracy metrics, where that is, or accuracy.
+
+Speaker 1  3:08  
+Yep. But you feel like right here would be a good spot.
+
+Speaker 2  3:13  
+Yeah, I think that's fine. And and then you'll reference where everything is from like the servers and everything, though.
+
+Speaker 1  3:19  
+Yep. Exactly.
+
+Speaker 2  3:22  
+Okay. Cool.
+
+Speaker 1  3:25  
+So when's this new thing kicking off, though? Is that like next week kind of deal?
+
+Speaker 2  3:30  
+I mean, there's some contractors that are already working on
+
+Speaker 3  3:34  
+it, but
+
+Speaker 2  3:34  
+we need transit. We're going to try to transition away from the contractors to internal team, And so, so that's part of what would have you work on. I don't know if which of the two would have you work on. Whether it's the like, because the the one project is like there's the call center, and it's going to transcribe it live and extract a lot of information and like give recommendations or like oh you miss talking about this and stuff like that based on the program documents to the the human representative.
+
+Speaker 1  4:10  
+The
+
+Speaker 2  4:11  
+other project is we have all our documents and processes that we've gone through to like onboard customers. We want to make a more streamlined process that leverages that, but then also whatever's happening with a particular customer, and like as we bring them through the onboarding process, have that flow all the way into what needs to be coded, but like make sure that we're not. Yeah, that would be a very
+
+Speaker 1  4:34  
+like almost like an agentic workflow that you would need based on where the. It's almost kind of like AI next best action, like except like you have different AI agents doing certain tasks at certain points in that customer lifecycle for onboarding.
+
+Speaker 2  4:51  
+Yeah, and yes, but also I think a lot of what the agents are going to be doing is like yes, doing certain tasks, but also like reviewing what humans have done, or like what things were provided by the customer. So it'll be like a big hybrid of humans and agents.
+
+Speaker 1  5:10  
+Yeah, very cool. Yeah, I'm I'm I'm down. Yeah, I'm excited for that work. Whenever it whenever. So when do you think all this is happening? So obviously I can get I can get IDP totally wrapped up by tomorrow, and have that all pushed and documented and ready to go. But you think like next week, if you complain me to some people, sorry, baby, yeah, yeah,
+
+Speaker 2  5:36  
+like probably next week I'll I'll introduce you to Alan. I'll send a message to him now, and I'll just mention to him that you're kind of wrapping up documentation on the IDP, so it's easy to start again in the future, and you can kick stuff off with them on Monday.
+
+Speaker 1  5:52  
+Sweet, awesome.
+
+Speaker 2  5:54  
+Okay, awesome.
+
+Speaker 1  5:55  
+Sounds cool. No, I appreciate Cliff.
+
+Transcribed by https://otter.ai
