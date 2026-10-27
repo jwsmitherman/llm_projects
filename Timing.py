@@ -5,7 +5,13 @@ from datetime import datetime
 import requests
 import pandas as pd
 
-AUTH_TOKEN = "PASTE_STAGING_BASIC_TOKEN"
+OAUTH_URL = "https://oauth-preprod.uscis.dhs.gov/uaa/oauth/token"
+OAUTH_CLIENT_ID = "svc-oauth-pcisui-preprod"
+OAUTH_CLIENT_SECRET = "PASTE_OAUTH_SECRET"
+OAUTH_SCOPE = ""
+OAUTH_CLIENT_AUTH = "auto"
+
+BASIC_AUTH_TOKEN = ""
 OPENSEARCH_AUTH_TOKEN = ""
 
 PSS_URL = "https://pcis-search-service-staging.apps.k8s.uscis.dhs.gov/search"
@@ -14,15 +20,8 @@ APIGEE_URL = ""
 APIGEE_KEY_HEADER = "x-apigee-apikey"
 APIGEE_KEY = ""
 
-APIGEE_TOKEN_URL = ""
-APIGEE_TOKEN_CLIENT_ID = ""
-APIGEE_TOKEN_CLIENT_SECRET = ""
-APIGEE_TOKEN_SCOPE = ""
-APIGEE_TOKEN_HEADER = "Authorization"
-APIGEE_TOKEN_PREFIX = "Bearer "
-
 CLIENT_ID = "default"
-TEMPLATE_YAML = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/search-default.yaml"
+TEMPLATE_YAML = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/query_templates/updated_20260903/search-default.yaml"
 PROD_LOGS_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/prod_logs"
 RESULTS_DIR = "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results"
 REUSE_RAW_CSV = ""
@@ -68,8 +67,9 @@ def env_verdict(text):
         return True, "non-production marker present"
     return False, "no non-production marker; add the host to EXTRA_NONPROD_HOSTS only after confirming it is non-production"
 
-if not is_set(AUTH_TOKEN):
-    raise RuntimeError("AUTH_TOKEN is not set.")
+TOKEN_ENABLED = is_set(OAUTH_URL) and is_set(OAUTH_CLIENT_ID) and is_set(OAUTH_CLIENT_SECRET)
+if not TOKEN_ENABLED and not is_set(BASIC_AUTH_TOKEN):
+    raise RuntimeError("Set the OAuth client (OAUTH_URL, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET) or BASIC_AUTH_TOKEN.")
 
 LAYER_URLS = {"opensearch_direct": OPENSEARCH_SEARCH_URL, "pss_direct": PSS_URL, "apigee_internal": APIGEE_URL}
 active, skipped, env_rows = [], [], []
@@ -83,12 +83,14 @@ for name, url in LAYER_URLS.items():
         raise RuntimeError(f"REFUSED {name}: {url} ({why}). This notebook runs against non-production only.")
     active.append(name)
 
-TOKEN_ENABLED = is_set(APIGEE_TOKEN_URL)
 if TOKEN_ENABLED:
-    ok, why = env_verdict(APIGEE_TOKEN_URL)
-    env_rows.append({"layer": "apigee_token", "url": APIGEE_TOKEN_URL, "allowed": ok, "reason": why})
+    ok, why = env_verdict(OAUTH_URL)
+    env_rows.append({"layer": "oauth_token", "url": OAUTH_URL, "allowed": ok, "reason": why})
     if not ok:
-        raise RuntimeError(f"REFUSED token endpoint: {APIGEE_TOKEN_URL} ({why}).")
+        raise RuntimeError(f"REFUSED token endpoint: {OAUTH_URL} ({why}).")
+    ok, why = env_verdict(OAUTH_CLIENT_ID)
+    if why == "production marker present":
+        raise RuntimeError(f"REFUSED OAuth client '{OAUTH_CLIENT_ID}': it carries a production marker.")
 
 if "opensearch_direct" in active and not OPENSEARCH_SEARCH_URL.rstrip("/").endswith("_search"):
     raise RuntimeError("OPENSEARCH_SEARCH_URL must end in _search. A PSS URL in this slot returns empty 200s.")
@@ -97,7 +99,10 @@ for name in ("pss_direct", "apigee_internal"):
         raise RuntimeError(f"{name} URL points at an OpenSearch _search endpoint; it must be the PSS /search contract.")
 if "apigee_internal" in active and not is_set(APIGEE_KEY) and not TOKEN_ENABLED:
     active.remove("apigee_internal")
-    skipped.append(("apigee_internal", "no Apigee key or token endpoint set"))
+    skipped.append(("apigee_internal", "no Apigee key or OAuth client set"))
+if "opensearch_direct" in active and not is_set(OPENSEARCH_AUTH_TOKEN) and not is_set(BASIC_AUTH_TOKEN):
+    active.remove("opensearch_direct")
+    skipped.append(("opensearch_direct", "no OpenSearch token set"))
 
 if not active and not REUSE_RAW_CSV:
     raise RuntimeError(f"No layer is runnable: {skipped}")
@@ -186,8 +191,10 @@ def timed_request(url, method, headers, body):
     return r
 
 JSON_HEADERS = {"Content-Type": "application/json", "Accept": "application/json", "Connection": "close"}
-PSS_HEADERS = dict(JSON_HEADERS, Authorization=basic(AUTH_TOKEN))
-OS_HEADERS = dict(JSON_HEADERS, Authorization=basic(OPENSEARCH_AUTH_TOKEN if is_set(OPENSEARCH_AUTH_TOKEN) else AUTH_TOKEN))
+PSS_HEADERS = dict(JSON_HEADERS)
+if is_set(BASIC_AUTH_TOKEN):
+    PSS_HEADERS["Authorization"] = basic(BASIC_AUTH_TOKEN)
+OS_HEADERS = dict(JSON_HEADERS, Authorization=basic(OPENSEARCH_AUTH_TOKEN if is_set(OPENSEARCH_AUTH_TOKEN) else BASIC_AUTH_TOKEN))
 APIGEE_HEADERS = dict(PSS_HEADERS)
 if is_set(APIGEE_KEY):
     APIGEE_HEADERS[APIGEE_KEY_HEADER] = APIGEE_KEY
@@ -434,14 +441,19 @@ def pss_body(f):
     if ids: b["identifiers"] = ids
     return b
 
-def get_token():
+OAUTH_MODE = {"mode": OAUTH_CLIENT_AUTH}
+
+def _token_call(mode):
     data = {"grant_type": "client_credentials"}
-    if is_set(APIGEE_TOKEN_SCOPE):
-        data["scope"] = APIGEE_TOKEN_SCOPE
-    cred = base64.b64encode(f"{APIGEE_TOKEN_CLIENT_ID}:{APIGEE_TOKEN_CLIENT_SECRET}".encode()).decode()
-    h = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json",
-         "Authorization": "Basic " + cred, "Connection": "close"}
-    r = timed_request(APIGEE_TOKEN_URL, "POST", h, urlencode(data))
+    if is_set(OAUTH_SCOPE):
+        data["scope"] = OAUTH_SCOPE
+    h = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json", "Connection": "close"}
+    if mode == "basic":
+        h["Authorization"] = "Basic " + base64.b64encode(f"{OAUTH_CLIENT_ID}:{OAUTH_CLIENT_SECRET}".encode()).decode()
+    else:
+        data["client_id"] = OAUTH_CLIENT_ID
+        data["client_secret"] = OAUTH_CLIENT_SECRET
+    r = timed_request(OAUTH_URL, "POST", h, urlencode(data))
     tok = None
     if not r["error"]:
         try:
@@ -450,6 +462,21 @@ def get_token():
         except Exception:
             r["error"] = "token response was not JSON"
     return r, tok
+
+def get_token():
+    return _token_call(OAUTH_MODE["mode"])
+
+if TOKEN_ENABLED and not REUSE_RAW_CSV and OAUTH_MODE["mode"] not in ("basic", "body"):
+    errs = {}
+    for mode in ("basic", "body"):
+        r, tok = _token_call(mode)
+        if tok:
+            OAUTH_MODE["mode"] = mode
+            break
+        errs[mode] = r["error"][:200]
+    else:
+        raise RuntimeError(f"OAuth token call failed in both client-auth modes: {errs}")
+    print(f"OAuth token call works with client credentials sent as: {OAUTH_MODE['mode']}")
 
 def _conn(r):
     v = [r.get(k) for k in ("dns_ms", "tcp_ms", "tls_ms") if r.get(k) is not None]
@@ -472,10 +499,10 @@ def call_layer(layer, f):
         url = PSS_URL if layer == "pss_direct" else APIGEE_URL
         h = dict(PSS_HEADERS if layer == "pss_direct" else APIGEE_HEADERS)
         row["query_source"] = f"PSS contract, clientId={CLIENT_ID}"
-        if layer == "apigee_internal" and TOKEN_ENABLED:
+        if TOKEN_ENABLED:
             auth, tok = get_token()
             if tok:
-                h[APIGEE_TOKEN_HEADER] = APIGEE_TOKEN_PREFIX + tok
+                h["Authorization"] = "Bearer " + tok
         if auth is not None and auth["error"]:
             r = {k: None for k in PHASES}
             r.update({"status": None, "error": "token call failed: " + auth["error"], "text": ""})
@@ -639,7 +666,9 @@ def _lg(layer, col):
 attr = pd.DataFrame({"gap_s": sorted(by_gap["gap_s"].dropna().unique())}) if len(by_gap) else pd.DataFrame(columns=["gap_s"])
 for l in ("opensearch_direct", "pss_direct", "apigee_internal"):
     attr[f"{l}_ttfb_penalty_med"] = attr["gap_s"].map(_lg(l, "ttfb_penalty_med"))
-attr["apigee_internal_auth_penalty_med"] = attr["gap_s"].map(_lg("apigee_internal", "auth_penalty_med"))
+attr["pss_direct_token_penalty_med"] = attr["gap_s"].map(_lg("pss_direct", "auth_penalty_med"))
+attr["pss_direct_e2e_penalty_med"] = attr["gap_s"].map(_lg("pss_direct", "e2e_penalty_med"))
+attr["apigee_internal_auth_penalty_med"] =attr["gap_s"].map(_lg("apigee_internal", "auth_penalty_med"))
 attr["apigee_internal_e2e_penalty_med"] = attr["gap_s"].map(_lg("apigee_internal", "e2e_penalty_med"))
 attr["pss_over_opensearch_ms"] = num(attr["pss_direct_ttfb_penalty_med"]) - num(attr["opensearch_direct_ttfb_penalty_med"])
 attr["apigee_e2e_over_pss_ms"] = num(attr["apigee_internal_e2e_penalty_med"]) - num(attr["pss_direct_ttfb_penalty_med"])
@@ -711,6 +740,16 @@ if "pss_direct" in active:
     add("PSS direct", f"Median cold penalty: {fmt(s)} for gaps under {IDLE_AFTER_S:g}s, {fmt(l)} for gaps over. "
         + (f"Above the OpenSearch layer's own penalty by {fmt(None if l is None or o is None else l - o)}, which is the share attributable to the service itself (JVM, connection pool to OpenSearch, pod idle behavior)."
            if o is not None else "OpenSearch direct was not measured, so the PSS penalty cannot be split from the OpenSearch penalty."))
+    if TOKEN_ENABLED:
+        tc, tw = med_where("pss_direct", "cold_auth_ms", long_), steady_val("pss_direct", "auth_total_med")
+        tp_s, tp_l = med_where("pss_direct", "auth_penalty_ms", short), med_where("pss_direct", "auth_penalty_ms", long_)
+        ec, ew = med_where("pss_direct", "cold_e2e_ms", long_), steady_val("pss_direct", "e2e_med")
+        share = None if tw is None or ew in (None, 0) else round(100 * tw / ew)
+        add("ICAM OAuth token", f"Token call before each search ({OAUTH_URL}, client credentials sent as {OAUTH_MODE['mode']}): "
+            f"{fmt(tc)} after gaps over {IDLE_AFTER_S:g}s versus {fmt(tw)} warm. Token cold penalty: {fmt(tp_s)} for short gaps, {fmt(tp_l)} for long gaps. "
+            f"Warm, the token call is {'n/a' if share is None else f'{share}%'} of the token-plus-search time. "
+            f"Token plus search end to end: {fmt(ec)} cold after long gaps versus {fmt(ew)} warm. "
+            f"This is the authentication line item the architecture diagram estimates at about 2,000 ms, measured without Apigee.")
 if "apigee_internal" in active:
     l = med_where("apigee_internal", "e2e_penalty_ms", long_)
     p = med_where("pss_direct", "ttfb_penalty_ms", long_) if "pss_direct" in active else None
@@ -718,8 +757,7 @@ if "apigee_internal" in active:
     ss = None if steady_val("apigee_internal", "total_med") is None or steady_val("pss_direct", "total_med") is None else steady_val("apigee_internal", "total_med") - steady_val("pss_direct", "total_med")
     add("Apigee internal", f"Median end-to-end cold penalty after gaps over {IDLE_AFTER_S:g}s: {fmt(l)}. "
         f"Above the PSS direct penalty by {fmt(None if l is None or p is None else l - p)}; a material value here answers yes to whether Apigee has its own cold start. "
-        f"Steady-state proxy overhead (warm Apigee call minus warm PSS call, both on fresh connections): {fmt(ss)}. "
-        + (f"Token call: {fmt(a_c)} after a long idle gap versus {fmt(a_w)} warm." if TOKEN_ENABLED else "Token endpoint not configured, so ICAM/OAuth token time is not included."))
+        f"Steady-state proxy overhead (warm Apigee call minus warm PSS call, both on fresh connections): {fmt(ss)}.")
 conn_txt = "; ".join(f"{r['layer']} {fmt(r['conn_med'])} (DNS {fmt(r['dns_med'])}, TCP {fmt(r['tcp_med'])}, TLS {fmt(r['tls_med'])})" for _, r in steady.iterrows()) if len(steady) else "n/a"
 add("Connection setup", f"Fresh-connection cost per call, warm median: {conn_txt}. A caller that opens a new connection per request, as a cold Lambda does, pays this on every call.")
 if len(clean):
@@ -754,7 +792,7 @@ runinfo = pd.DataFrame([{"field": k, "value": str(v)} for k, v in [
     ("template_yaml", TEMPLATE_YAML), ("template_status", TEMPLATE["status"]), ("prod_logs_dir", PROD_LOGS_DIR),
     ("cases_available", len(cases)), ("timing_mode", "requests (proxy present)" if PROXIED else "socket phases"),
     ("ca_source", CA_SOURCE), ("opensearch_cluster", CLUSTER), ("search_idle_after_s", f"{IDLE_AFTER_S:g} ({IDLE_SRC})"),
-    ("token_step", "enabled" if TOKEN_ENABLED else "not configured"), ("raw_csv", REUSE_RAW_CSV or RAW_CSV)]]
+    ("token_step", f"enabled, {OAUTH_URL}, client {OAUTH_CLIENT_ID}, credentials as {OAUTH_MODE['mode']}" if TOKEN_ENABLED else "not configured; Basic auth"), ("raw_csv", REUSE_RAW_CSV or RAW_CSV)]]
     + [{"field": f"url_{r['layer']}", "value": f"{r['url']} ({r['reason']})"} for r in env_rows])
 
 out = os.path.join(RESULTS_DIR, f"ColdStart_layers_{RUN_TS}.xlsx")
