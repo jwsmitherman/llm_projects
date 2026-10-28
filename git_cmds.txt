@@ -1,18 +1,8 @@
-set SRC=C:\Users\josh.smitherman\Downloads\med-nec-service-fixes\med-nec-service
-set REPO=C:\Users\josh.smitherman\OneDrive - Global Medical Response\Documents\git\GMR.TMP.AI.MedicalNecessity
-dir "%SRC%\app\config.py"
+echo %REPO%
+findstr /C:"stub_override_allowed" "%REPO%\app\config.py"
+findstr /C:"ENGINE = os.environ" "%REPO%\app\config.py"
 
 
-copy /Y "%SRC%\app\config.py" "%REPO%\app\config.py"
-copy /Y "%SRC%\app\routers\evaluate.py" "%REPO%\app\routers\evaluate.py"
-copy /Y "%SRC%\azure-pipelines.yml" "%REPO%\azure-pipelines.yml"
-copy /Y "%SRC%\tests\test_evaluate.py" "%REPO%\tests\test_evaluate.py"
 
-
-cd /d "%REPO%"
-python -m pytest -q
+git update-index --really-refresh
 git status
-git add -A
-git commit -m "Address review findings: stub flag, stub override, startup command, leg count"
-git push
-git show --stat HEAD
