@@ -1,0 +1,340 @@
+Speaker 1  0:09  
+Yeah, September, October here, beautiful. Yeah.
+
+Speaker 2  0:11  
+Well, welcome aboard, man. Yeah, I was just beautiful out there. Did a lot of alcohol throughout my life. So
+
+Speaker 1  0:16  
+nice, awesome, super cool. Yeah, it's uh, it's hard to beat, but um, the the nice thing about San Francisco is there's certainly proximity there.
+
+Speaker 2  0:22  
+Yeah, well, I know you had a chance to meet a few people on the call the other day, but you might meet some new faces on this one. And currently, we have Pat Lupo, who kind of is a senior leader on our operations side of the business. Pat, if you're there, you are muted. But Pat spent some good time on the country a few times, and then obviously Anita heads up the AI transformation team here. Awesome, great. Nice to meet you both.
+
+Speaker 3  0:39  
+Good to meet you,
+
+Speaker 1  0:40  
+Patrick. Nice to meet you. By the way, Anish from New York.
+
+Speaker 3  0:42  
+Anish, yeah, I've seen you. I've seen your name in all the teams channels.
+
+Speaker 1  0:45  
+Yes, I think that I have the same about you. So good reminding me, yeah.
+
+Speaker 3  0:49  
+Seen your demos.
+
+Speaker 1  0:51  
+Patrick, what team is that I on your head?
+
+Speaker 3  0:54  
+That would be that would be the Chicago Bears.
+
+Speaker 2  0:55  
+Okay, you guys are both Chicagoans. I
+
+Speaker 1  0:57  
+wanted to confirm that. I grew up in Barrington, Illinois, so like 30. Yeah, right. Yeah, it's it's an okay time to be a Bears fan for once. Yeah, from the last like 20 years, I think that was the yeah the one good time. I didn't I didn't have a QV. Yeah.
+
+Speaker 4  1:09  
+Team, good afternoon.
+
+Speaker 3  1:11  
+Hey. Hey, Kathleen. Hi.
+
+Speaker 2  1:15  
+I know we're a few minutes after, but Kathleen just gone through intros. But on the line from DeFico, you have Cole and Anish. You are kind of spearheading a lot of the initiatives there, alongside a few other folks, Cole and Nish, Kathleen, very prominent leader in our operations team, familiar with BizNows. We spent some time yesterday reviewing the demo and gave her an overview of what you guys have been working on, what we're working towards. So I think she had a good understanding of what's going on, but love to dive deeper today, see how progress is, and you know, have some helpful discussion. And obviously, as a full disclaimer, this call is being recorded. You should have seen that on the weigh-in. But let me know if anyone has questions. But if Anish, I'll turn it over to you.
+
+Speaker 1  1:41  
+Sweet. Well, great to meet you, Kathleen and Patrick. I think that you know, from we from Deployco side, I could we could do a quick intros. We have another engineer who recently is joining named Zabav, who might come in in the next 510 minutes. But I would love to do like some quick intros, kind of learn about you, learn about your goals, because I think it's it's great to put a face to the name, especially on the operation side. And then yeah, happy to dive into whatever. Like I think I'm happy to give another a demo, happy to walk through some slides, but also just happy to answer any questions. So it just depends on what would be most useful. All right, but yeah, maybe I can quickly introduce myself. So I'm Anish. I'm basically an engineer on the OpenAI deployment company side. I've been here for about a month. Before this, I was a founder working on AI for ad monetization, and I've been in the ML engineering and product space for like eight to 10 years. I like to think that I have a lot of empathy with AssistRX because I'm a patient of a very specialty dermatological product that I always spend about. I actually literally this week spent about two days just calling in to understand insurance benefits, authorization, savings cards, a whole bunch of stuff. So really, really love the work that AssistRX does. And also we have been kind of sitting side by side, not just in building and designing products, but you know, really trying to understand what case managers do, what CSRs do, what the team like does on a day-to-day basis, and so, yeah, really kind of excited to learn and work with y'all. And I'm I'm what's called a Ford deployed engineer. You can kind of think about me as like the product and technical lead for what we're building for Delderma and what we're hopefully gonna you know hopefully what could get rolled out to other programs. There's another use case we're working on, which we're calling program implementation, and that's kind of the operations workflow that you might have also seen demos or chats about. I'm not sure if Nanki, who's kind of helping lead up, is able to join today. But if you have any questions there, you can toss them to me and Cole, and happy to give them overview there. So that's a bit about me. Yep, Cole, toss it to you, and then we'll hear from you guys. Great, thanks, Nish. Yeah, nice to meet everyone. I'm Cole. I'm a Ford Point engineer as well. My previous experience spans health tech in my previous job, which was creating accessible care for patients to online dietitians, and then also providing the services to enable them to have their own private practice. And then prior to that, I was working at a company called Lease AI, where we built an AI leasing agent and also worked in healthcare as well, so I have healthcare experience in both my previous roles. Really excited about making just the patient experience more accessible, easier for people to do, because I think American healthcare makes that difficult. So I think anything we can do to make it better is is really exciting. But yeah, that's that's all done. Kathleen Patrick would love to.
+
+Speaker 4  4:00  
+Yeah, Pat, did you want to go first?
+
+Speaker 3  4:02  
+Sure. So, public for SVP Mission Solutions and Operations responsibility for all of the client programs in our hub, ensuring that we maintain highest levels of service and quality, and then as part of that, lead the oversight for workforce management and QA.
+
+Speaker 5  4:21  
+So, just for clarity, everything you guys are doing it falls in fast jobs.
+
+Speaker 4  4:27  
+Yeah. Yeah. Well, Kathleen Chacon, I'm Vice President of Patient Solutions, and I oversee the five verticals that really support the patient solutions and making sure that there's operational excellence in what we do. Probably most known for making like my teams oversee the compliance, I guess you would say for for operations. So I oversee process documentation, which manage the documents that the agents use, whether it's the work instructions, the PRD, job aids, etc. I also have oversight into product safety, and those are the the that's the team that oversees the compliance with all of the regulatory requirements we must deliver on for each contract, each customer. Man, there's a lot there's a lot, but there's also quality assurance, workforce management, and so on. So excited for the work that you all are doing. Really, I know we're always considering the patient at the forefront, but I also want to consider the agents. So efficiencies and maintaining compliance is going to be critical for us and what we do.
+
+Speaker 3  5:10  
+So from a from a hub standpoint, we have a matrix organization. We have sort of top down. We have verticals that run the programs, and then Kathleen is the horizontal that cuts across all the programs at an enterprise level, with her workforce management, QA, process writing, and other capabilities.
+
+Speaker 1  5:26  
+Very, very nice. Okay, and then one random question. So, with Liddy Beth and her team for like Galderma, would that fall under you, Gal Kathleen, or is that Pat? Yeah,
+
+Speaker 3  5:33  
+that falls under under me. So that's a that's a vertical. Okay, so we have there's a client vertical, which is Galderma, and we have four other client verticals.
+
+Speaker 1  5:40  
+Got it. Okay, that's really nice. Yeah, to know. And Kathleen, I love that you were finding additional things that are under your umbrella as we talked. I'll toss it over to Bib to do a quick intro, and then maybe we can kick off the discussion with talking about the call center use case, talking about what we've done so far, and maybe see. I'd also love to know like how we can better collaborate because as we've gone pretty far into the delivery, I think it would be great to know like you know, what is a better way of of connecting everything? Given that we've mostly been talking to folks in the org itself, so this is great to have this trend.
+
+Speaker 5  6:06  
+And you should think it would be good to go through a demo because I think both Kathleen and Pat have seen a version, and so just to get some initial feedback on that.
+
+Speaker 1  6:13  
+Yeah, yeah.
+
+Speaker 5  6:14  
+As part of that
+
+Speaker 4  6:15  
+one. And as we're having the conversation, I also oversee the tech stack that we use within operations. So Verint Technology is what we're using today, so I want to make sure that that's also part of the discussion. If there's any integration that can take place to help enhance the the delivery of this tool.
+
+Speaker 1  6:28  
+Okay, yeah, sounds great. Maybe if you want to do a quick intro, we were just talking.
+
+Speaker 6  6:31  
+Yeah, sorry, I was a little late to the call. Hey guys, my name is Viv. I'm a forward deployed engineer at Deployco, and as you can see, actually in this like little thing that has not mirrored that I now see, but yeah, I'm super excited to work with with folks from the Sistar X, and excited to help you in any way that I can.
+
+Speaker 1  6:48  
+Cool. And so it's funny. Bib was actually just talking to a case manager as we. That was why he was late. He was doing actually a shadow. So we're doing a few of these each week as well. So maybe I can like quickly introduce. So basically, Kathleen and Pat, the way that OpenAI deployco and we the way that we collaborate with partners like AssistRX is we do a process called a scope of work and what you can kind of think about that is that for the last few months we spent a lot of time trying to understand the problem we're solving for agents as deeply as possible. I know there's a lot of problems and so what I'm going to talk about and what we might demo might seem like an oversimplification of certain things, but I think that this is just kind of a good guiding point for how we went from understanding the problem, understanding what reps are going through, into you know the product that we're building. But yeah, so kind of just this is one of the things that I think we've gotten a lot of context into is that reps right now are juggling a ton of sources on a lot of call. So Salesforce guidance documents, call guides, Teams, all while talking to a patient on the line, or potentially an HCP, or potentially pharma, potentially doing work off the call, or doing a lot of work off the call as well. And so the the vision for this kind of project and this work that we're doing is to give the agent, as they're going through things, the ability to automatically know what to do in certain cases, and to be able to do some of their operations, especially with the CRM, significantly faster. So, yeah, kind of just this is the way that we think about the problem: is that reps are going through a lot of calls, and we want to build something that makes their lives easier and works in real time on the call itself, so they get the most value out of it. So one of the things that we did like to start, and again, this is like a very small sample of data. So you know, this is kind of just anchoring in how we deploy or thinking about KPIs and what we're trying to do. We've taken a look at a sample of like calls from Baron and basically measured like, okay, how much time was put on hold, and how what was the QA you know scorecard for Galderma especially. So all this analysis is just based on the Galderma program, but you can kind of think about these as the two metrics that we took like a lot of time looking into to see if these are the things that hopefully at the conclusion of this product and the pilot that we'll talk about, we're able to actually have like a little bit of a metric impact in. So we're working with Kevin and actually in Vinitha as well on like solidifying these baseline measurements. But I would say that the way that we think about this is like reducing hold time, increasing like patient case completions at patient completion on calls and satisfaction overall, and then given how deep the QA process is already, just trying to work closely with QA ops to see like what can we do to improve a lot of these different dimensions, so that as a result, you know, if you were to measure the QA card of reps using this process versus not, this average number would increase. So there's a lot like that can be broken down into that, but just wanted to introduce that as a way that I'm thinking about. Yeah,
+
+Speaker 3  9:00  
+I guess I guess one question the average the average call time I mean it does seem long but if it probably makes sense the are you also pulling in the wrap up time
+
+Speaker 1  9:12  
+no so this actually doesn't factor in call wrap up or case notes writing that is something that we're addressing in the product as well because I think that's I think that's one of the biggest areas of opportunity, frankly, of dead time and or lack of productivity is around that that ramp up time. And then, yeah, I think I'm curious on your perspective here, but that that QA score as an average looks awful. It does. Yeah. So what I had heard from I think I forgot during ELT the last year that we did was that this is because of a new QA process. It seems like it has done. Yeah.
+
+Speaker 3  9:39  
+Yeah. So I would. Yeah. I would okay so yeah it's also the
+
+Speaker 5  9:44  
+time it's also the time frame Pat I think this is up to like 80 now in the last stats I saw so I was gonna say this is a small
+
+Speaker 1  9:49  
+sample yeah
+
+Speaker 3  9:50  
+it's when we launch the the new customized version of Galderma okay
+
+Speaker 1  9:54  
+yeah so definitely not trying to scare anyone with these numbers just a small sample for us to help like baseline into what we're doing yeah
+
+Speaker 5  10:00  
+for for what Pat mentioned, like the admin time, the additional notes, etc. Do you have access to that? Like, is that?
+
+Speaker 1  10:07  
+I don't have access to that data. Um, frankly, I should do. I that should be that should be in the dataset. I yeah, I could work with you guys um to get it. But to to be the nice thing about like I think when when you see the demo, the nice thing is I think we kind of are handling that case pretty easily. Um, but any data there would be helpful
+
+Speaker 3  10:21  
+as well to know how much
+
+Speaker 1  10:21  
+time we're saving. So we're basically going to demo like an automated recap feature on Google. Yeah,
+
+Speaker 4  10:26  
+and we can have WFM send over the latest reporting. Sorry,
+
+Speaker 3  10:30  
+because they put themselves they put themselves into a status when they're doing the write up, and then they take themselves out of that when they're ready to receive the next call. So there should be defined time blocks that we can target.
+
+Speaker 1  10:41  
+Okay, nice. So I think
+
+Speaker 5  10:42  
+Anish, like the full list of metrics that you guys have right now, I think let's let's shoot those over to Kathleen and Pat to see what are we missing, and then I think as we go through the demo, if there's additional baselines that we think could be helpful here, that would be great too.
+
+Speaker 1  10:53  
+Yeah, yeah, and I think that from our perspective, whatever the best reporting flow is, whatever the best source of data is, we'll just look to you for guidance on that. And I think maybe Anita, you could that might be a U.S. in terms of like helping drive like this is the kind of place we should get data from, but but yeah, I think kind of just getting into what we're building. So that's kind of leads to the the focus of this like product, which is really a copilot for call center agents. So one one thing is we're internally using this name, AI, AI accelerated agent support. I think Alex or AI powered or accelerated. I think one thing that actually we we should talk about is how we should best discuss like framing this for reps themselves. I actually don't think that we have a concrete idea of like a naming scheme or what would help them understand that this is like a program that's meant to assist during their operations. But the internal use name we've been using so far is called AI powered agent support. So the pilot that we have planned as we're building this product is actually happening. We're planning it pretty soon. It's in November 30th. So I think that this goes with a lot of caveats. There's a lot of gates that we're trying to pass in terms of productionization, stability, compliance with you, and then you know obviously discussing with you. But the idea is that we start with the Alderma, put this in front of 20 to 50 reps or 20 CSRs that are staffed there. And if case man if CSRs are having a good time with it, given that they're handling the most patients, we would expose it to case managers as well. So one one kind of caveat about this initial scope of the pilot, we're not planning to expose this to nurses quite yet because there's like clinical sort of boundaries that we essentially just don't want to add that risk right now. And we're mostly focusing on the call itself, so both inbound and outbound calls, but not so much yet for like kind of the work that's being done by let's say CMs on Salesforce independently of the calls. But we can discuss how there's actually uses the product that can help during that work. It's just like a little bit of a different flow. Okay, so I think even before getting into the product, I wanted to just also raise like this pilot timeline. This is aggressive. This is something that we're working really hard towards. But I wanted to know if there's. I think one of the one of the things that would be great to understand is like what what is like what is the operations risk because we've mostly been talking about the technical and product risk. But I'd love to know like just seeing this timeline for a new product. Is there anything that like yeah comes in your head?
+
+Speaker 3  12:36  
+Mostly operational considerations for starting the pilot november 30, so after obviously after the holidays, so we can do any training. Then we've got a plan for people being out of the office probably the five days prior to that. So making sure that we're doing all the training kind of early mid November, and then when people are back, I think Thanksgiving falls. There's like one day maybe,
+
+Speaker 1  13:01  
+yeah. This is like right after.
+
+Speaker 3  13:03  
+Oh yeah, 30th is Monday.
+
+Speaker 7  13:04  
+Yeah.
+
+Speaker 3  13:04  
+So people people are going to be out Thursday, right? I guess. Yeah, I mean, I just that's fine. I mean, as good as long as the training's done ahead of that week, and people know that when they come in on the Monday, they're going to be operating with this new tool. From a from a workforce management QA perspective, we'll need to put some flags in the system before those agents, so that we can understand, so that we can give them the right dispensation. But also, as our evaluators are scoring those agents' calls, because we do, yeah, they get they each get scored eight times a month. The evaluator will need to know that that's an agent that's using this particular tool. Yeah,
+
+Speaker 4  13:46  
+I would agree with that. I'd add Pat that I think it make it would be helpful to connect with Kevin because they just sent out re-enrollment notices. I actually sent them out on the 15th of October, so we should expect to start getting those re-enrollment responses over the course of the next couple of months, and so they expect some volume, both on offline work as well as call volumes.
+
+Speaker 3  14:04  
+This is this is for Riva. Yes. Okay. Yeah. For
+
+Speaker 4  14:07  
+Del Derma.
+
+Speaker 7  14:08  
+Okay. Yeah. So it's true.
+
+Speaker 1  14:09  
+Patrick and Kathleen, like, what what do you think? Is there someone I should we should connect with to help like nail down these timelines and what the enablement handoff would look like? We're not expecting a huge enablement process. Like, the product should be pretty easy to use. But I'd love to know like if there's a way that we can just work with someone to make sure that we're doing everything that we need to.
+
+Speaker 4  14:23  
+Yeah, I mean, Pat, Anita, if you're if you're comfortable, I think Alexander and I can work with Kevin on what that looks like for operations and just making sure that we have those considerations for the re-enrollment work as well as the holiday consideration in mind, right? Because we anticipate higher strength before and after holiday.
+
+Speaker 5  14:37  
+Yep, I think that makes sense. And then what I think we we just need to like plan overall. Like when we roll this out, what does it look like? How many agents? How do we scale over time? What are your metrics that you're going to be looking at to make those decisions? Like all of that. And if you guys can take that on, that'll be fantastic.
+
+Speaker 2  14:49  
+Sure.
+
+Speaker 1  14:50  
+Yeah. And I think worth noting is like we also happy to provide a lot of like thoughts in terms of the you know what what kind of measuring the success from the product analytics perspective. So Alan and I have been talking about baking in a product analytics tool into this, so that we can get really deep understanding of usage and adoption, and then would be great to just basically tie that to whatever to the QA process that is already running. Okay, so let me get all that out of the way, and then maybe just kick off a demo. All right, does everyone able to see this? Okay, so this is a fully synthesized demo. It's only visible to me. I'm just doing it without like doing a synthetic version of this, just so that you can see what like the UX looks like. So the first thing I want to call out is this is going to be a website or like a web app, basically. So the agent would log in through Entra authentication. We're actually building a direct widget into Cisco Jabber, Cisco finesse as well. That would open up this site in a new tab, and then it would hopefully, if they're already logged in through Entra, it should automatically log them in. One of the things I want to call it is the reason it looks like this, this copilot, is because we kind of imagine that this would actually take up a third of the screen, or like a specific subset of the screen. I know that agents use a ton of different monitors, and I know I've actually like it's been really fast, like interesting to see how different agents have been arranging their current like work setups. The way that we kind of see this product functioning is similar to what they're doing with sticky notes now, where this might be something they kind of that sits next to them as they're using Salesforce, as they're using the tools. We did talk about actually doing this as a desktop app, but the technical complexity of that was a little bit too much. So I think one of the things that we would kind of try to co do is help agents understand like, okay, now that this app is open, like this is where to put it. This is like how you know we can try to help you keep it open during what you're doing because we really want this to be active as the agent is using other tools. So let me start with like the what what happens right now is this this agent this copilot is connected to Cisco at the telephony level. So as calls come in, they would actually automatically pick up by the by the copilot. There's nothing the the agent needs to do to like kick off a call. We instead monitor they're on hold. They're on a call with this person, and we get the metadata about like who's called in, you know, what the extension that was dialed in on. So we're going to be surfacing a lot of that information here. But just to for the demo, I'm going to show you like a bit of a replay of Audible. And I wanted to actually even before that, sorry, I know I'm talking about a lot of things before doing it. But I wanted to like highlight that the first thing we do is kind of focus on compliance. We're still actually working closely on the UI and UX here. We want to make sure that compliance notifications, especially around disclosures,
+
+Speaker 3  17:02  
+are these are these recorded or is this the agent asked to status? So this
+
+Speaker 1  17:06  
+is not recorded. So all of the suggestions here will tell the like will prompt the agent to actually say things like this. But we're not going to be synthesizing any voice. So this BOP file itself isn't actually talking to any patient. It's just providing suggestions. Thank you for calling Lumen Access. My name is Alex. This call may be recorded for quality and training purposes. Hi, this is Nina Marlowe. I help my mother with her paperwork. The pharmacy says her medicine is $780. We cannot afford that. I can check the assistance options. Could you spell your name and give me your callback number? So I want to quickly pause, but the first thing that happens in the flow of a call is that the very first thing is compliance. As soon as we have detected recording disclosure and HIPAA privacy, we're going to want to surface this in a very visible way. And the way that we imagine it is, these badges don't go away until the agent has actually made the disclosure. We can even add an explicit acknowledgement here so that they have to be checking this every single call. The first kind of step of this call overall is basically caller and patient identification. So we know that you know there's a lot of weird cases here. The first thing is to confirm who's on the phone right now. For this, we auto detect like okay, this is who it probably is based on looking at Salesforce. But there's a flow where the rep actually directly confirms exactly who it is. So in this case, we would look at the caregiver fields in Salesforce, and then looking at the name and what was said in the transcript. The AI would suggest Nina, N-I-N-A. Yeah. The other nuance is that in addition to caller verification, this demo has patient verification as well. So the idea here is that most calls we're assuming are going to be about one patient. We know that there's going to be calls that don't involve any patients, and then also calls that might involve multiple patients. And so I think that for now, this demo is positioned for just one patient confirmation. But those are use cases like we're thinking about how to handle. As the call goes on, you would have to explicitly confirm who the patient is and then who the caller is. And the reason for this is we just want to make sure that whatever context and updates we're fetching from and writing to Salesforce are linked to the correct records. And yeah, so as the call goes on, we'll basically be showing the rep suggestions that come from the work instruction documents. So everything that's here, everything in this assist tab, is coming from an AI that's been sort of trained and using the Galderma work instructions, job aids, and potentially other materials as well. So I'll pause there. Yeah, Kathleen.
+
+Speaker 4  19:14  
+So on the the verification or confirmation from the agent, is there a bidirectional feed to Salesforce to say it was confirmed that the caregiver is Elena Marlow, and so in Salesforce it'll update the record. I just don't know what because I want to understand that.
+
+Speaker 1  19:27  
+Yeah, that's a great question. So right now this confirmation is just is just on this side. It's not bidirectional. Okay. However, as the call goes on, and let me actually jump ahead to an example. Let's say that there's. Let's say that as the call goes on, we need to make an update. The patient or the transcript indicates we need to make an update to Salesforce, and obviously, like a lot of different cases are handled there. So let me just kick that off so I can show you. Thank you. That is $3,060 a month together, or $36,720 a year for a household of two. Yes, that is correct. May I place you on a brief hold while I check the? Oh, actually, sorry. Okay, let me just go. So, what I'm kind of saying is, as soon as this confirmation happens from our end, then we're able to give buttons like this, and then when the agent like presses this, they can then actually update Salesforce with a lot of different types of information. So, this will all be scoped to the record that they confirmed over here, and then we just imagine giving them a view where they can confirm everything. All of these will also have links into the Salesforce record directly. So if someone wants to like click, it might be like like a link here that says like open this record in Salesforce. But one of the visions of this product is that as much of the manual stuff as possible, we're starting to try to move more and more of it into the tool if reps start to like this interface. So then they'll be able to go ahead, save records, etc. So yeah, I think that. Let me jump ahead to the last point because I know that there's a lot to cover, but I wanted to focus on call call recap especially. So I worked with we worked with Salesforce architecture team on this, and also just by like sitting down with a lot of reps, and kind of would love your take on this. But the two the understanding of the flow that we have right now is that on the there's a lot of templates floating around for call like case case comments as well as these tasks that reps seem to use for indicating like recap information. And our understanding is there's a lot of different things like BI investigation. There's like the basic welcome call recap, and each of these might involve their own templates. And like standardizing this is a, it seems like it's a very hard problem. So what we've done is, let me see if I might not be able to. Okay, yeah. Next to this, like this view, which the reps would see, we have an internal. We're building an internal administration page. So this this page is basically only visible to assist RX ops teams. We would figure out exactly who needs to get access here, but this would be determined by ops teams, not the reps. And in administration, this is where FirstDocs you would actually upload and be able to maintain the work instructions. Whatever work instructions are uploaded here is where we process like basically tuning the AI to give suggestions that only come from these work instructions. So this is what Vibhav is actually working on now is like how we can represent these work instructions in a way that the AI can make really really good suggestions really fast. But for case recaps and notes, there is this view that you can actually use to manage all the templates. Now this is going to be probably like a pretty bare bones looking view to start, but basically the idea is that in here you can kind of name, define templates, purposes. They might involve like subjects, obtain, related to, etc. This template is what our AI will use to auto suggest of like the completion of this call. So after the call ends at the recap stage, we would actually basically our AI would basically fill in this call recap according to one of the templates here. So they would be like field X and role assistant Y. Elizabeth from QA Ops has also been very helpful in helping us collect data, so that we can see what format the templates look like, what's good, what's bad.
+
+Speaker 1  22:28  
+And then the final thing I'll say is, I know that there's like Stephen has said that like some programs are using case comments, some of them are using a lot of reps are still using tasks. We're kind of letting these Salesforce instance determine which field it should write to. So from the AI, when you hit save on, like there, there would be basically the save button and call recap. When you hit save, whatever the program's version of saving this call recap is, whether it's a new task, whether it's a dedicated case comments field, that's where it would be saved. So, I'll pause there. That's but yeah, that's the flow for for recaps.
+
+Speaker 4  22:55  
+Yeah, no, no questions. I think we'll get into the intricacy once we see it in practice because I think in Salesforce they document in a task note, but there are certain task titles that must be selected for the documentation, right? So that we know the next best action based on the task type. But this is this is great. Thank you.
+
+Speaker 1  23:10  
+Yeah, for sure. And I think that would be really useful for. I think that the more we can see how this is used, the better we can actually tune these. Because the other thing, like for example, is we're also suggesting follow up tasks, and these get saved explicitly as tasks, but kind of imagining a way for the the agent to actually be able to update what's here. And then I don't know. I think that like the more best practices around these tasks, we're able to like encode, the better we can make the suggestion. So for example, if tasks don't always have two dates assigned, you know, we can automatically fill them in with today or with some kind of rule-based system. That that part is like pretty easy for us to tune. So definitely on the recap side, we imagine this as being like a time where we want to learn a lot about like how we can make this as easy and as applicable as possible.
+
+Speaker 5  23:45  
+One question on the on the side that the desktop version, like the sorry, the dashboard that operations would see, is that role controlled? Like, can we control who has access to that?
+
+Speaker 1  23:55  
+We we do need to do that. I think that probably Alan and I we just all need to work on role based access to this admin view. Yeah, yeah, that's a good point. I think that this would also need to be controlled by enter authentication as well. I assume, and then some category based access.
+
+Speaker 4  24:07  
+Anisha, just to make sure I understand, it would be helpful for you all to receive the workbook for our call dispositions, right? That are used on the program.
+
+Speaker 1  24:14  
+Yeah. Can you? What's a what's a call disposition? What's a workbook?
+
+Speaker 4  24:17  
+Oh, that that's that's what we call the task matrix. I guess it's the different tasks that we have to create to document our calls and what dispositions are used for what notes. So I think that's something that we can help get for you.
+
+Speaker 1  24:28  
+That would be amazing. I have another ask related to documents, but I'll save that for after this phase. But that that would be amazing, Pepin. Yeah, thank you. I I just wanted to conclude with one other last feature. So you know we're going to be trying to suggest these suggest we're going to be surfacing these suggestions as the call goes on, and you know, showing what we know, showing call goals. When an agent transfers, we're going to try to show a little summary of you know what happened before the transfer. But as a way for the rep to also just be able to quickly interact and find information, we're kind of building. We've also built like a little chatbot into this app. So if they want to say like, what's this patient's enrollment status, then we're imagining that this could actually like go in into the CRM, figure out this would probably be doing a document lookup of like okay, we've looked at the ideally the fax document or whatever is in the CRM, pull the relevant information and just give that on the call. So this would be kind of the one place where we can explain to the reps like this is the part you just type in whatever you want to know. You can do corrections, and then hopefully you can also be like I need to update X fields to Y. And so I think that this is like a feature that is we're kind of thinking about as like a fallback in case that the suggestions we show just don't happen to match exactly with the revenue stream at the moment. Okay, just just to clarify, so what is it publishing to the CRM? So right now it's kind of pretty flexible. Like the system can be can publish theoretically any type of record. The AI is suggesting what sort of fields and with what to publish, and then there's a way for the rep to audit that beforehand.
+
+Speaker 3  25:45  
+Okay, so but it comes up with so these so so record when it says records saved, those are records changing within Salesforce.
+
+Speaker 1  25:52  
+Yes, this would be scoped to that like that specifically that like these changes would happen. I think that we need to think about a better way to visualize this is the record or these are the records that would be updated. Yeah,
+
+Speaker 3  26:01  
+what would what would be helpful is like for if there's some way you could pull back, like it says there are 10. There's 10 records that needs to be updated following this call. Copilot did five of them. Five of them. These are them here to publish, and then you still need to go into the CRM and update these five records.
+
+Speaker 1  26:17  
+And that I see that's really interesting. And are you saying that in the case where the AI can't figure that out, or more are there records that you really just want reps to be? Yeah,
+
+Speaker 3  26:23  
+that's I'm not clear on this. Is like, is the AI able to update everything, or there's certain things that it won't be able to that the agent is going to have to complete?
+
+Speaker 1  26:32  
+We're doing a lot of testing around this now. What I what I'd probably suggest is that within the next few weeks, if we find that during this write to CRM flow, which we need to kind of basically do a lot more evaluation on, we're noticing the AI is not able to do certain deep types of updates. So, as an example, right is understanding fax documents and attaching, understanding documents like that. That's a very that's a very thorny problem, and it might not necessarily be in the scope for this pilot. But if we can't do that, then I think the flow that we would build into the product would be like go into this link, hopefully directly into Salesforce, and then like maybe suggest the update you should make, or at least say like, hey, this is where you need to look. Yeah, because we're going to have to part of the change management is getting the agents to trust the system, so trust that these fields get updated, but not rely on it completely to do everything. Like there's other steps they need to take, or there's some verification, validation that they need to do that they're that they're doing that appropriately. Yeah, and then yeah, build and then to build their confidence that these records have been ported correctly and that they are completing all all of the necessary stages because I just I can see two types of people: the type of people that just click and fire and forget, and then the type of people that don't trust this and are
+
+Speaker 3  27:30  
+then going back in and checking everything in the CRM was updated correctly, which is obviously going to cause more time.
+
+Speaker 1  27:34  
+Yeah, we need to bake that in. I think the other thing I was going to call out was yeah, for writing to the records demographic information like income, name updates like that probably going to be the simplest to have this update flow for because they're very easy to like, you know, understand the workflow on the Salesforce side and the AI is like better able to do that. When it comes down to like updating nested case information, marking things as initiated, some of those obviously are very high value to do here, but those are ones where I think at your point like it might just be that we're we're saying here's the link, this is a line about what you need to do. So I think that that boundary. We'll just try to make sure that we're pretty clear about that going into this.
+
+Speaker 8  28:05  
+Yeah.
+
+Speaker 4  28:06  
+To that point, going back to the case, you know, just being able to use the system to get a quick status on the case. I think we could also provide some visibility to the case and staging document because every program is built in a almost in a configuration workbook where whatever we build into the CRM, whatever case statuses we're using, whether it's pending, complete, et cetera, and then the the next status, which is the deeper level of you know the case was closed with a positive outcome, like that's built in in our implementation workbook, and I think we can share that with you, Anish, to kind of give you some visibility into Galderma specifically. But just expect that every program that we have today probably has a version of that that may look a little differently.
+
+Speaker 1  28:38  
+Got okay, yeah. Anything you're able to share would be helpful, both for Galderma. I think Alex and Anita, have you heard anything about conversations regarding follow-up programs? This isn't going to be involved in the pilot. I'm just curious if that was discussed. I know that we talked about this too.
+
+Speaker 5  28:50  
+When you say follow-up, you mean like which program is going to be next?
+
+Speaker 1  28:52  
+Has SSRX discussed this product with any of the programs besides Galderma?
+
+Speaker 5  28:54  
+Not yet.
+
+Speaker 1  28:55  
+Okay, cool. Never mind. Yeah, the next the
+
+Speaker 5  28:57  
+next partner that comes on is likely going to be either Pat, just so you're aware and adopting your ECP.
+
+Speaker 1  29:02  
+Yeah, interesting. Yeah, I think that that was one of the asks. Is basically we've been trying to collect from Kevin and Anita and a lot of folks that are really helpful on getting us a lot of documents related to work instructions, job aids, the QA cards, and the Gallery PRD. But I think that one of the asks is for this system to work really well, especially like going into the pilot. The more documentation, the more truth about this is the state of the world that reps are using, the better. Because if there's like some change that shifts, and then our our AI system doesn't have access to it, then I just I don't want that to be like a problem holding the pilot back. So I think that would be kind of the one of the ask is how can we like make sure that we have everything going in the pilot.
+
+Speaker 5  29:30  
+So Kathleen, like a lot of the documents, I think Anish, this is like another challenge that we flag, right? Like, what are the most correct instructions for the team, just given like what changes happen? Do they trickle down to where they need to go? So it's basically the way that this is structured right now. It's pulling documents that you guys decide are what should drive agent behavior, and so if those those are in our control to upload, so they're not pulling from like the other areas because how they want this to. So defer to you guys on what else needs to be pulled into that, or which documents would be the best to manage his coaching. And it doesn't matter how long the documents are either, right? Like I will be able to like comb through it. They just have to be accurate. That's the tricky part.
+
+Speaker 1  30:01  
+Yeah, the Bob is working on making the the document parsing really really good. So I would just say that it doesn't matter to them. Basically, we just care more about accuracy and like what is what are we actually using more than anything.
+
+Speaker 3  30:09  
+Well, yeah, it's an interesting output to test there because we could upload. I understand this right. You can upload probably four different artifacts. You could do the program rules, the work instructions, the call guides, the job aids, and rely on the AI to sift through all of that and make the right connections in terms of the coaching, or you come up with a, or there's more of a human intervention before it, which takes those board documents and creates the right work instruction that goes into the AI. So there's only one document that pulls from.
+
+Speaker 6  30:34  
+Yeah, just to step into that real quick. Sorry, Anisha. I think just to add on to that, based on our conversations with CMs and CSRs, they are mostly looking at one job aid, one word description, and obviously which is the call guide. So I think it really just comes down to, as you said, selecting which is the right one. If you feel like correct me here, obviously. So it really comes down to like selecting which one they want. And if if you saw Anish's demo, the AI will select which one they want. But using chat, they can also like correct the agent and be like, okay, actually I don't want to select the pro pay one. This call is about benefits investigation.
+
+Speaker 4  30:59  
+Okay, and that makes sense. And I think on our side, like as we talk about what other features we can unlock with the tech. We also have to start in, you know, the relevant stakeholders are up to date, which I think that's part of the challenge yesterday. Like the configuration work, we set up and launched, but is that maintained as the program continues to evolve and status has changed? So there's some governance I think we need to talk about internally to get the best polished product out of this.
+
+Speaker 1  31:17  
+I think just to quickly add, like as an example, like Anita flagged that during BI calls, like during calls with payers, there's also like a set of payer guides and like BI specific guides, and we actually didn't even know that those existed, and so anything like that, where it's kind of like, oh, there's additional information that is relevant that reps are using. I think that's it's isn't it's not even like the ask in terms of like, hey, can we do it? But I think it's like the operational aspect is like, how do we make sure that whatever is fed into the system is is as close to like the truth as possible? And then
+
+Speaker 3  31:37  
+how how is it tied to the role? So
+
+Speaker 1  31:39  
+yeah, that's um so that's actually like something we're we're working on this week. But basically, case managers and CSRs we'd be able to differentiate what program and what role they are from the Entra login they have, and then they would see only specifically case manager job aids or CSR specific job aids.
+
+Speaker 3  31:52  
+So sorry, but is a but is is there something in the copilot this this tag to the picking up the associate's ID and contract title?
+
+Speaker 1  32:00  
+Yeah. So the rep the copilot will look up the documents that are only like that are accessible to this role and this program. So if the rep is logged into Galderma, then the AI will only be servicing suggestions from either the general Galderma or instructions in general materials or their specific role job is. If that makes sense. So there's we we have access to the the role skill groups in the program, and we're going to scope the AI to be focused on what that person's like role is.
+
+Speaker 3  32:21  
+Okay.
+
+Speaker 5  32:22  
+Pat, you raised something the other day that like do we have to? How do we? Do we have to do anything in our coaching to the agents to pull out the best AI suggestions? Like, can you say more about that to an agency?
+
+Speaker 3  32:32  
+Yeah, in context, I know that use AI. There's a lot, or use these AI agents. There's some. There's some implicit bias that they intentionally build in to the call guides and scripts to force the AI to create certain data points that help you to measure its effectiveness, accuracy, and so on. So I was just thinking through talking today. We're taking our generic call guides as they exist, but I don't want us to. And maybe it's not for the pilot. Maybe it's an under learning, unless there's something that we would need to learn from the pilot that we sort of artificially create some scripts or inward call guides to force the agents to generate a certain data point. So an obvious example is if we wanted the AI to pick up or record every adverse event, you would make the agent say that sounds like you're talking about an adverse event, which is reportable, and then the AI is going to capture adverse event reportable. But of course, but you have to get the training agent to respond in that for the transcript to recognize
+
+Speaker 1  33:21  
+it. Yeah, that's pretty interesting. I think that the way that we're thinking about it is that hopefully this is handled by when the when the Galderma Ops admin uploads the documents or updates them, we're going to do a lot of processing in the backend just at that one time to basically structure the documents in a way that's most helpful to the agent. So I kind of wonder if we then the idea of like actually writing out very specifically for the agent is interesting, and maybe that this is something that we can follow up on as well to see if there's like an ops way of of doing this. But it's not going to be a long running thing because, or at least
+
+Speaker 4  33:44  
+you know the way that we're we're looking at this in other technologies platforms is like natural words and phrases like I I'm feeling sick you know the injection made me feel unwell you know rash or whatever those things are but there are speech you know terms that are used that we could perhaps build into the system that'll help flag it once the transcription starts to read the conversation is how I thought about it but I think that's a that's a great point Pat
+
+Speaker 1  34:02  
+yeah so the other note is we're going to be doing like just a very simple synthetic test with a live rep on November 10th, so in a few weeks, just to kind of get a very rough feel, as well as just doing some production testing, extra audio is coming in. And I think that like the results there might also help like us surface. Is there any issues that we should think about this UX before coming into the pilot? Different suggestions, as we talked about adverse events, I also imagine we'll want to show very differently. So like if something is an adverse event and we think that you know that has happened on the calls and to discuss, then we likely would want to keep that suggestion there, big red maybe, and force the rep to explicitly close it, and maybe yeah.
+
+Speaker 3  34:28  
+And then the the other piece too is more subjective, but kind of how you can force the the patient to give more insights around the sentiment. So, are you are you happy with the resolution today? Do we answer? I mean, there's those typical rapid questions, but how you phrase those rapid questions, and even if you try and direct the patient to responding to certain criteria, those can be useful in the analysis.
+
+Speaker 1  34:47  
+Those those like instructions that they're giving to reps today about like you know tone, clarity, check-ins are those mostly in the job aids? Probably that's like they
+
+Speaker 3  34:52  
+they are. But I'm just wondering if we can go if we want to go any further and be more leading. Because now we wouldn't if we didn't have this tool we wouldn't do that. But if we can use this tool to pull through more context than we should. Yeah,
+
+Speaker 1  35:02  
+yeah, that's really yeah. I think that there's a lot of ways that. So also for visibility, you guys know there's another use case that we're working on called program implementation. The idea is it's trying to help teams create a lot of these documents based on initial like PRDs. The way that it will be deployed is people would actually use Codex, use ChatGPT, and be able to call skills that we've written that can kind of look at all the documents, flag contradictions, find updates, look at Jira. And I think that like it's a there's a lot of intersection between these two projects. But I think that the muscle we're trying to build here is to parse documents as well as possible. And if there's like new operations around actually writing specific documents for the AI, then that would be amazing. But at the same time, we're we're doing our best to make sure we can parse the documents that we're doing as well. So like, you know, I don't want us to think that we're we're going to have to write a specific type of document for this program. So great,
+
+Speaker 4  35:40  
+appreciate the time. I wanted to put something on everyone's radar so that we don't have to talk.
+
+Transcribed by https://otter.ai

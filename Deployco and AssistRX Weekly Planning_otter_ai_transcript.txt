@@ -1,0 +1,517 @@
+Speaker 1  0:00  
+Different hats, but pleasure to meet you. Yeah, nice meeting you. Thanks. Are you based in Orlando, or I just saw your team? Yeah, I'm. Yeah, I'm in in the Dallas-Fort Worth area.
+
+Speaker 2  0:14  
+Nice.
+
+Speaker 3  0:17  
+Hey everyone, how's it going? Pretty cool. Pretty cool.
+
+Speaker 4  0:22  
+Hi Josh, nice to meet you.
+
+Speaker 1  0:23  
+Nice to meet you.
+
+Speaker 5  0:35  
+Hey team, how's it going? I don't think I've, I think I've met some people before, so for those who I haven't met, I'm Web. I'm a forward deployed engineer on from Deployco, and excited to be working with you guys.
+
+Speaker 6  0:54  
+Meet you,
+
+Speaker 2  1:00  
+Alan. Is this everyone? Uh, looks like Naki joined us, so yes, I think so. Um, all good. So maybe I can level set to start, and then we can talk through how we want to work as a team. Uh, so you guys, it was simple and easy when Anish and Naki were the only two engineers really on the team, but now last week, you know, Viv and Cole happy to have you guys on board from the Deployco side, and then Josh and Pepe are supporting from the Astarex side as well. So we got big fast. Part of that is you guys have probably picked up on it, maybe not, but we're going through an agile transformation inside of Assist RX. So there's a pretty big emphasis on how do we work in an agile form or fashion for all of our engineering projects. But this team we have a lot of flexibility. Is what I want you to know. We we have a board out in Jira. I think several weeks ago, Nanki and Anish populated a bunch of tickets out on the board. They may or may not be accurate. We can clean them up. What I kind of pitched to everybody last week was this idea of we're kind of working in a weekly cycle right now. That we had these Monday planning meetings on the calendar, at least for the call center app, and I think there was a goal out of the deployco team at one point that we would try and demo once a week toward the end of the week. So I picked up on that and just said, "Hey, let's try weekly cycles. So let's try and do planning on Mondays." So that was the idea behind this meeting: is just to do a planning session of what we want to do as a team this week. I want you guys to know we are looking to hire a product owner and a scrum master into the team. They're not here yet. Melissa and Sean are off recruiting those people for us. But in the meantime, I'm what you got. So I'm here to serve and help as much as I can. I did poke around on the Jira board. I'll pull it up and we can look at it together. But I am open to whatever you guys want to work through on our ways of working as a team. So I said a lot there. I'll pause. I'll bring up the board. But in the meantime, tell me how you guys feel. Tell me about what works as far as ways of working for the team.
+
+Speaker 6  3:40  
+I think, Alan. I think this sounds great. So actually, also it might be nice if we do some intros because like Joshua loves to meet you. We all, but Alan, just also for context, for you intros. So we we hear you because we at Deployco now that we have you know new members joining the team. We've also like we have some more tech and kind of exec partners that are helping us. So we actually also have been doing a Monday. We started the first Monday weekly planning meeting internally at Deployco for this account. So what that means is that hopefully we can come into this meeting with a pretty strong sense on the deployco side of what we're working on, what our goals are, and also what's blocking us. And so those are two topics that I'd love to cover today. So the Jira board, as it stands right now, needs a lot of cleanup, but we have an internal linear that I'm proud to say I think finally, at least for this week, is very accurate in terms of what we want to do, so maybe one thing we could do is in case Jira ticketing is slow for whatever reason, or we don't finish it on the call, I can also share out a screenshot or some way of what our linear looks like. But I'll pause there. Maybe we could do some intros.
+
+Speaker 2  4:57  
+Yeah, go for the intros, man.
+
+Speaker 6  5:00  
+So my name is Anish. I'm an FDE, a forward deployed engineer on at Deployco. I've been working here for about a month and a week, and I was onboarded onto helping with AssistRX by Nanki. So, kind of just it's been a whirlwind. It's been really really fun. It's been amazing to partner, and yeah, I'm leading the kind of call center product use case and partnering with these very smart engineers and a very smart team on building out our this AI strategy in general. So maybe I'll popcorn to Nanki.
+
+Speaker 7  5:39  
+Hey everyone, great to remeet everybody here except for Joshua. Yes, I've been with Assistor X since Deployco's first day on the use case. So participated in shaping out both of them, and now brought in a group of amazing engineers from Deployco to help us drive the development over the finish line. I, however, I'm also an engineer. I'm a forward deployed engineer here at Deployco, focusing mostly on account strategy. And yeah, that's me. I've been focusing on the program implementation use case slightly more, but definitely have context across both. So involved in all parts of our deployment. I will popcorn to Vib.
+
+Speaker 5  6:27  
+Hey team. My name is Vib. I am joining from the deploy code side. I think I already introduced myself earlier on the call. So first of all, welcome Josh. Excited to have you on the team. Yeah, I've I think I onboarded like about a week ago. Already feels like a couple of months, and yeah, super excited to keep working with the team. And once again, thank you all for so much support, and looking forward to seeing you guys soon as well. And I'll pass it back to
+
+Speaker 4  7:00  
+Cole. You're going to hear me through this computer because we are in the same room. But anyway, I'm Cole, also a forward deployed engineer, and recently was onboarded to this project last week. We'll be focusing mostly on program implementation and then some of the AWS architecture and CI/CD. So yeah, excited to work with you, Josh, and continue to get this thing going.
+
+Speaker 2  7:34  
+I think we're going to be all good on intros then, right? Yeah, it's up next. Josh, do you want to introduce yourself to the team?
+
+Speaker 1  7:45  
+Yeah, thank you guys for having me on. Yeah, so I just joined the project today. I've been with AssistRX for almost, or yeah, right out a year now. Started actually, it'll be a year and one week from now. I'm an AI engineer and full stack engineer that been working on a lot of AI use cases within the company for form AI document processing and Salesforce integration and things like that. So happy to be a part of this project. Prior to AssistRX, I was primarily working with CMS and FDA on IT transformation and AI implementation into different government programs. So, yep. So happy to be here.
+
+Speaker 6  8:31  
+Nice to meet you, Josh. Congratulations on a year and a week, by the way. And also, yeah, document processing and Salesforce integration are super hot top of the mind for us too. So glad to hear that you were working on that. Curious, like for those use cases, just like out of curiosity, was there is there anything you could share about like what the products were, what what the goals are?
+
+Speaker 1  8:55  
+Well, yeah, one was CMS copayment processing. So we would get from Medicaid CMS documents from various different states for drug reimbursement programs. So we did a lot of real time, you know, field extraction, AI field extraction, categorization, and things like that. And then just recently on the IDP program, it was a lot of drug enrollment forms, copayment, insurance card validation. You know, doctors would scan in probably 20 different patients of various different documents. So one document might take tied to a different patient, and you had to do like patient association, like which one was their actual insurance. Some forms were like crossed out and says C attached. So the AI had to like populate all these various different forms and process or different documents and associate those to the right patient.
+
+Speaker 6  9:56  
+That's awesome. That sounds like a hard problem. I also know that field extraction from documents. Just seeing reps, kind of contact center reps, CSRs, CMs, they struggle with so much. I don't know if this is exactly the same type of document, but like enrollment forms that doctors are uploading are so messy. So kind of fulfilling the stereotype of doctors writing in their own unique handwriting.
+
+Speaker 1  10:21  
+Oh yeah, these are all handwritten. Yeah, handwritten documents, and then in the insurance place, they'll just say "see attached," and then three doc three pages down, we'll actually have just a scan of their insurance card.
+
+Speaker 6  10:33  
+Yeah, and it seems like reps super super frustrated by this. Spend a lot of time trying to parse, and there's a lot of errors. So it seems like a very valuable use case from our perspective as well. But yeah, okay. Then I think that's it from the Deployco side. And Josh, yeah, great to meet you. Yeah,
+
+Speaker 2  10:56  
+yeah. Pepe and Alex, do you guys know everybody here?
+
+Speaker 3  11:01  
+I do now, and I was fortunate. I got to work with Josh a few months ago, so we go way back in the Sister X years.
+
+Speaker 2  11:17  
+Pepe's been here for 12 years, right? 12
+
+Speaker 3  11:20  
+years, yeah. My gosh. So if you guys
+
+Speaker 2  11:23  
+need history stuff, he is an awesome guy to ask.
+
+Speaker 3  11:26  
+Anything about benefit verification, anything? I mean, and
+
+Speaker 1  11:31  
+also rock band stuff because I mean, Pepe.
+
+Speaker 3  11:34  
+Oh yeah, that is right. I almost I didn't forget about it, but almost.
+
+Speaker 1  11:42  
+He actually had hair at one point. He has the he has the picture to prove
+
+Speaker 3  11:45  
+it. Good stuff. I did want to say, by the way, Anish, that I did restructure my agents so they are in my Git in my local, and I'm very close to pushing them to the toolkit repo.
+
+Speaker 6  12:05  
+Nice,
+
+Speaker 3  12:06  
+and then we can finish out what we need to do for the process, if that's okay.
+
+Speaker 6  12:12  
+Totally, yeah. I think that that thread kind of meant to just help coordinate with DevOps. So I think if you're kind of open to just coordinating with Max and KK directly, they can probably help you get set up with any like CI/CD. But and then yeah, by the way, Alan, I set up a meeting tomorrow, and then happy to add folks, Alice, to your point, and Josh as well, or anyone. But I think one of my goals this week is to finalize, help them finalize CI/CD so that we can kind of get off from a good start. But Alan, what do you think would be most helpful? Like we can talk about the use cases at a high level. If it's helpful for Josh, we could kind of dive right into tickets and planning and goals. We could talk about blockers. I think one thing we want to raise is quite a few access requests. I think are still there. We didn't want to create a bunch of tickets because I know that one of the goals of this is to centralize things. So, yeah, what do you think would be a good place to start?
+
+Speaker 2  13:09  
+I spent time with Josh today walking through background. I gave him the recording for the demo you did for the operations team last week, and he has seen the architecture session we did with Andrew and Steve Loper and those guys too. So he's gotten a little bit of background. I think if we can use the time right now to spend on what are we going to do together as a team this week? Really, and if you want to drive that by showing us linear, that's cool. And then I'd like to spend a little bit of time on what do we need to get done and ticketed. I started a ticket, at least one ticket in Jira to get Josh provisioned with access, we can talk about the access requests that are still open for the rest of the team too. And then dependencies are important. Let's try and get that in right now this hour because we're going to meet with the infrastructure team later today. You guys, I want to impress on you. The infrastructure team really wants to help. They're overwhelmed, though, you guys. I want everybody to know. Anisha and I talked about this last week. They're overwhelmed right now. Like as we speak, there's an Azure networking break that's impacting people in the call centers today. So they're distracted on that right now, right? So they're not helping us for the deploy code stuff. They're not working on AWS because they got to get the Express route back to Azure up and running right now. So, and there, you guys have noticed they're a small team. There's only a handful of guys there that are helping us every time we ask, and we have the requests in for access and everything. So, their request is you guys know it. Track it with tickets, and you know let's communicate well on what do we need now, and what do we need, what can we wait for 24 hours, that type of thing. So, yeah, I want to be prepared when we meet with them at 430 on what do we need for you for from them this week.
+
+Speaker 6  15:31  
+Yeah, that sounds good. I think that makes a lot of sense. And then what we could do is I can just walk through like the access requests we have, and before even creating the tickets, just kind of make sure that they're reasonable or like we understand them, so that you get context. But yeah, why don't I toss it to linear, and then we can kind of get that out of the way. And then I think, Josh, it's kind of like we could figure out if there's certain things you want to work on, or if you want to just spend time getting onboard into the repo, I guess it's kind of. Let me share. I guess what the workstreams we're kind of thinking about are. Oh, also out. Oh, we're already recording this window. Okay. So, are people able to see the screen? Yes. Okay. So I'm going to share kind of our personal like AssistRX linear, and just to give you an idea, like this is something that we are we keep synthetic or not synthetic, but we don't involve you know AssistRX customers. I'm doing a sweep as you know just to make sure that's the case, but we kind of use this because we have an integration with Codex right now, and it makes managing this a lot easier. So I can go into like how that works if people are interested. But the today we kind of talked about like you know the key dates, and I think just to level set, I think the goal is this week, maybe during this call, is where we'd spend a lot of time like scoping out what we're building, what we're doing, what's blocking us. But then I think that the other key dates we're pretty mindful of November 10th and 11th. We want to do a live test with the rep and surface a few things for Steerco. So we're gonna make a post about like what's coming in Steerco and the agenda, but I think there's like a few open questions that we're just kind of documenting down so that we know what needs to be done. And then one of the goals coming into November 10th is that even if the agent isn't perfect, even if the productionization isn't perfect, we have a product that's ready enough to put in front of an agent and get feedback on. Not a live customer call, but just getting initial feedback that we need, and then you know still trying to push for this date of the pilot. But again, Alan, this is I think the question of how far can we get, and if if it's not ready, then we push it back. But I think these are the goals, so they're ambitious goals. So kind of walking into this week, we have what do we have? Where to go? Okay. So the way that we've broken down this workstream is into kind of features, AI experimentation, and productionization. So there's it's showing a lot of like nested sub issues. There might actually be a way to collapse this, but I'm going to be working primarily on features and sort of like helping enable different things. So logistics, access requests, working with CI/CD. This is kind of still focused on the DevOps on the deploy code side, and then I think Alan, we can kind of talk about what we need to do as a shared team and like on the productionization. But my goal is to get Copilot live and to get the admin view live. I think these are things that we want to have hashed out so that we can start doing acceptance testing. And then one of the other kind of goals is the deployment right now is ready to test for live calls, CRM context fetching, caller patient identification, and recaps. You know, stability might not be there, but I think that I want to do a session tomorrow. I'll schedule it during this meeting or afterwards for us to do some testing, and I guess we can talk about what that would look like.
+
+Speaker 6  19:24  
+But I am also the other thing I wanted to kind of think about is actually building that transcript feature that we talked about, where we can de either a de-anonymized transcript or even just like typing out an example transcript, uploading it, synthesizing, recording, and then feeding it into the program to test transcription, test you know eventually suggestions. So that's kind of on the product side. On the infra side, I think
+
+Speaker 2  19:55  
+I just ask one question. Yeah,
+
+Speaker 6  19:57  
+yeah. The
+
+Speaker 2  19:58  
+word copilot is loaded. So where you say copilot? Yeah, what do you mean when you say copilot for live calls?
+
+Speaker 6  20:05  
+So what I mean is this guy. So this this Alan, I'm kind of imagining as like this is our secret weapon. If suggestions don't aren't relevant at a certain time for an agent, they can always say like, show me this patient's income, and the idea here is that this would be able to fetch from the CRM and be able to retrieve from documents, and the rep could kind of use this like as if they had a little version of Codex.
+
+Speaker 2  20:38  
+Okay, so
+
+Speaker 3  20:40  
+Analysis because the word Copilot, right? Because we still have a lot of users on Microsoft Copilot, so when they say Copilot, that's what they think of.
+
+Speaker 6  20:51  
+Yeah, yeah. We could probably come up with a different name. Also, give me one sec. I'm just gonna grab it.
+
+Speaker 2  21:02  
+That thing either Anisha's battery is about to die.
+
+Speaker 6  21:07  
+Just like happened in like 10 minutes. But in the meantime, actually, like Nanki or if you're down, could you like toss a screenshot into the chat so that they could also like take a scan?
+
+Speaker 5  21:27  
+Yeah, I'm happy to let me send you the linear board. Anisha, you're talking about the linear board here, by the way.
+
+Speaker 6  21:39  
+Yeah, it should be, yeah. It should be safe to send because in just yeah.
+
+Speaker 5  21:45  
+Okay, awesome. Yeah, just give me one sec. Just log on to that. But yeah, kind of happy to just pivot off from where Anish was talking about. Sorry. I'm just gonna take screenshots and keep adding them to the chat. Nice.
+
+Speaker 6  22:31  
+But yeah, so I think like maybe for now I'll call it like chat support. There's probably a better name, but
+
+Speaker 2  22:43  
+all right. So that really truly is like a chatbot that they can type into.
+
+Speaker 6  22:48  
+Exactly. I think the piece. Okay.
+
+Speaker 5  22:52  
+So yeah, just to add on to that, the way that we think about it in in the sense that it's a little different than chatbot is that in a chatbot you would ideally put in a query, and your AI agent would answer. The way that we want this to work is that the customer or the person who's calling, or or like you know the customer on the other side, be it the patient or be it the pharmacist, their voice itself and the context that we provide serves as the input itself. So the person doesn't necessarily have to type about this call, but they can ask about this call. But ideally, the recommendation is just surface on the screen as an initial walk you through to the demo in a second.
+
+Speaker 2  23:30  
+Does that sort of make sense? It does. I mean, we had talked about this before, and you know that came up with the operations team with the idea of how can a a CSR that's on the phone with a patient, in a way, prompt the AI with the things that they ask with their points? But you're giving them an alternate ear that they can also type to the AI without the patient hearing it too.
+
+Speaker 6  24:01  
+Yeah, that's kind of that's kind of the approach. I think that might be the P zero. I mean, the this copilot would, or sorry, this chat would also have access to the transcript that we have so far, as well as the call metadata, and then it would just answer questions. If there's an issue, they could say like no I wanted this other thing I think in the version that I have in progress there's also like an inline PDF viewer and table I can't you know I don't want to bloat it with features I don't and also the model itself we'd want to choose in a way that's not overwhelming this with cost but I think that the high-level idea is to give them kind of a quick way to retrieve context if the suggestions that show up in the live view end up not being what they wanted. So yeah, I think the reason I'm focusing on these is because I want to finish off the product features that are independent of the suggestions work, and this is because kind of getting into what we're doing on the AI side, Viv is experimenting with quite a bit of how suggestions should work under the hood. So maybe Viv, are you down to like share a little bit about what you're working on this week and on the experimentation side?
+
+Speaker 5  25:18  
+Yeah, Anish, would you prefer if I shared my screen and then walked through, or yeah,
+
+Speaker 4  25:24  
+feel free to share.
+
+Speaker 5  25:25  
+Okay, awesome. Yeah, just give me one sec. Yeah. So before I do that, the kind of I can just talk about like a high-level idea that we're thinking. So based on a couple of calls that we have, the variant recordings, what we think we should do is when the human says something, or when the I'm I'm gonna use the two words caller and CSR. I'm just gonna call it that for for the rest of the time. But obviously, this caller can be like someone else, and CSR can be a CM or someone else from the ARX side. But ideally, when the caller calls and says something, we want the agent to recommend something as well. Now, the way that we want to benchmark this is that sure we want like in some ways like the AI to be better than the humans, but the best way that we think for now is that we want to make sure that the AI is at least as good as the human recommendation. So, based on the past recordings, we are going to compare the AI's recommendation and the CSR, what the CSR would have said in the next turn. So just to kind of like give you guys what an insight into what I'm talking about. Can you guys see my screen here?
+
+Speaker 3  26:34  
+Yes.
+
+Speaker 5  26:35  
+Okay. Awesome. So this is how an entire call looks like. You can see that this is the representative. This is the caller, and you know they're doing like this HIPAA stuff here. And if you see, there's like each of this has been divided into turns, where the turn one is something by the caller, and then the turn two, and then turn three. Now, how this looks like in an actual experiment, and how we use that is let me just quickly walk through an experiment. This is, by the way, like totally like work in progress. I'm just kind of like giving you guys a high level view. How this works is that on turn one, the AI agent gets the input. Caller says blah blah blah. There's a couple of inputs. There's a couple of tool calls. There's a couple of document search queries that the agent is allowed to make, and then at the end it comes up with a recommendation. In this case, I guess the recommendation was an empty list, so maybe we can maybe go through this one. Or in this case, it was also an empty list. That's unfortunate. Yeah. Okay. So I guess in this turn, you can see that it has enough context from the zip code, and it has by this point fetched the documents as well. So it has fetched like different passages based on the different documents that have been uploaded to this, and then at the end, it will give an output here. Yeah, we can see the suggestions are something like the payer's automated assistant is waiting for confirmation, so the plan should actually be confirm zip or something like that. So now this is what the agent should output, and this is what we would ideally see in the product now, what we are doing kind of like around this evaluations systems is in the next step. Once the agent has recommended, this is where the product sorts of end. Then what we've calibrated is something called like a judge call classification. So I can quickly give like a brief overview into the rubric As well, the rubric should be this one. Can you guys see my screen here on cursor? Okay, awesome. So this is actually like a 3,400 lines rubric that has been derived from all the work instructions, all the QA instructions and the main sort of reference point for these has actually been this QA quality card that I'm I'm sure you guys have all seen. So kind of like using this and then all the references from you can see like compliance, HIPAA as the scoring criteria, efficiency, context quality, and then using that, and then using some of these sources from the documents that have been given, we use this comprehensive 3,400 line rubric, and then we measure that in this step, which is the judge call classification. Now, in this judge call, it's basically as simple as you give the model some instructions on what all these previous turns were. You give it an understanding of what the human actually said in the next turn, so kind of like an idea into the future, and then and the rubric of course, and then it actually gives you an answer based on these different criteria. Like for example, in this insufficient evidence criteria, it gave a 0.59 confidence, and at the end, this is all like I guess in this case it was unscored because the rubric said that they didn't need to score it. But in this case, like this term was scored as like 0.25, and you can like walk into the details here. So this is kind of like the high-level idea of how we're structuring this. I'm happy to answer like any questions or any recommendations that you guys might also have on how we can benchmark this. But currently, we think that the best way to benchmark our agent's performance is based on historical CSR conversations. So I'm just curious. I'll I'll stop here. I've been speaking for a hot second, and curious to hear what you guys think.
+
+Speaker 2  30:54  
+Alex had a question there: of Are you using real transcripts for this? Are these the one? Were you able to get into Verint and download real calls? Is that how you're doing it?
+
+Speaker 5  31:06  
+So currently we have like 30 calls from Verint, which are like real calls. Yes, I think Anish is still working on getting the Verint recordings fully downloaded. But we had like a sample set of 30, which we're working off right now.
+
+Speaker 6  31:21  
+Yeah, and Alan, I think one of the access requests we'll talk about is getting is just finalizing the downloading because we're still not able to see the button, so that might be a PS Ops flag they have to flip or something, or maybe it just takes some time. I'll do another test, but so I think like this was hopefully like a good introduction to the kinds of experiments that we're running and how you know Vib is actually wiring this into Langfuse. So, yeah,
+
+Speaker 5  31:49  
+yeah, I would love to hear any questions. I know I guess just just to be mindful
+
+Speaker 6  31:54  
+of time, though. Like, I wonder if we should talk about you know infrastructure planning. I think that Cole also there's a lot of like system design questions we need to talk about, and and I want to make sure we do talk about blockers and dependencies. So, just
+
+Speaker 3  32:09  
+real quick, so are we using the cloud Langfuse?
+
+Speaker 6  32:15  
+No. Yeah. So it is. We are. It's okay. I thought we're using the open source one that's hosted on the VM. We have to use
+
+Speaker 3  32:23  
+that. We have to use that. Otherwise, we need to sign a BAA because we're putting information in the cloud across. So if we can fix that, please.
+
+Speaker 5  32:34  
+Okay. Yeah. Yeah. I'll. Yeah. I mean, I think currently. Yeah. Currently, it's cloud language fuse. US dot cloud dot lang fuse, but I'll move it all to the VMs Langfuse.
+
+Speaker 6  32:44  
+I would I'll just make sure to like initiate like a data deletion request too for to Langfuse because I think if yeah yeah if we didn't be
+
+Speaker 2  32:56  
+we don't have one so we absolutely cannot use the cloud Langfuse.
+
+Speaker 6  33:01  
+Yeah, so I think it has to be like deprovisioned, or I think there should be a way to request deletion of all data, though. So I would I would maybe just kick that off.
+
+Speaker 7  33:10  
+Okay,
+
+Speaker 6  33:11  
+and then we can yeah we we should switch to using the open source hosted link views on the VM. We're we're working with CICD on a few things, and so I think they're also a little like overloaded with how much is going on. But basically, the goal is this week to work with them on getting, you know, Langfuse hosted properly on the OS, not erroring out, and to add it to CICD. So, Alan, I think like I wanted to. We could switch focus to the architecture, system design, as well as like the blockers and dependencies. But do you feel like are are we in an okay place, especially for Viv and I? Can we update that our current weeks to your milestone? And then what we can do is like share that out with the team. Happy to do that either on the call or we can also do it offline.
+
+Speaker 2  34:00  
+We can do it in flying. I'm fine with that. If you guys, what I did in Jira, let me. It'll take. Yeah, yeah, yeah. It'll take like 20 seconds, but I'm gonna pull it up to show you. All I did in Jira was I created a sprint. I put dates on this sprint one through yesterday. So there's a bunch of gunk in here that was all to do had deadline dates some weeks back.
+
+Speaker 6  34:27  
+Yeah,
+
+Speaker 2  34:28  
+I could just use your help, Anish, to clean that up. Clearing it
+
+Speaker 6  34:31  
+up, amazing. Yeah, yeah. I think that honestly, all this can be cleared out, and then we'll just replace it with the the flows that we we actually have. Yeah.
+
+Speaker 2  34:40  
+So there's a new sprint here, sprint two for this week, and the only thing that's in there right now is I'm gonna I've got a ticket in there to get Josh his system access. I'm gonna create the I'll work with Josh. We'll get the sub tickets in there for all the telephony and whatever else we need to provision. I already created a GitHub access request for him. So if you can just dump something simple on these in here for each of you of here the things our goals that we we want to accomplish doesn't even have to be as detailed as linear. I hate that we're having to use two systems, but if we can have something in here to kind of give us a guide of what the goals are you guys are delivering. That's perfect.
+
+Speaker 6  35:24  
+I'll do that right after this call. I think that yeah, that makes sense. On the onboarding question, just real quick, Alan, are you going to kind of use that like ticket that I had made that had all the systems we needed? I don't think that some of them are relevant because Josh is already an employee. But do you feel like you have?
+
+Speaker 2  35:45  
+Ah, can you forward? Yeah, forward me the ticket that you're thinking about.
+
+Speaker 6  35:53  
+It wasn't a ticket. What I had done. Yeah, I I just like put in the thread like these are all the things that I wanted to get. Oh,
+
+Speaker 2  36:00  
+it's in the thread. I already used that. Okay,
+
+Speaker 6  36:02  
+nice, nice,
+
+Speaker 2  36:03  
+yeah, yeah.
+
+Speaker 6  36:04  
+So, okay, cool. Um, I want to leave some time for like if if Cole's down, we could we we wanted to talk about architecture and like system design as well, but I wanted to talk about access requests and blockers that I had noticed. So, give me one second. I'm going to toss this in the chat. Actually, actually, you want? I'm just going to share it later. So, one of the things, and maybe let me just like kind of pause and give you guys a chance to read. But I've just tried to collect a lot of the things that we've kind of been blocked on last week. So before we even create tickets, we can just kind of go through. I think we're done on this, But who all leaves Codex access? All of us, I think. So wait, Viv and Cole, you guys have it, right? Yeah. Did Cole? This is a question on program implementation. It was related to Nanki's point about we're blocked here, right? What was the block? Yeah,
+
+Speaker 4  37:25  
+we have a couple requests through. Sorry, I'm finding the access requests for the Codex plugins for programming implementation, Which I've added to the design doc, but that's read read and write on SharePoint, read on Confluence, read for Jira, read for Salesforce, read for Teams, and read for Outlook.
+
+Speaker 6  37:58  
+Okay, amazing. So Outlook, I'm just gonna collect them. Jira, read, write. What was the other one that wasn't captured here?
+
+Speaker 5  38:12  
+Confluence,
+
+Speaker 4  38:17  
+and it's read and write or just read? Just read. It's all just read except for SharePoint is is right is all that's right. So before we in Jira, right? I
+
+Speaker 6  38:32  
+think we need Jira right for the AI call center, right? But we won't need it for program implementation. And just to kind of show you, like, get ahead of it a little bit in terms of the your, I know Jira was enabled, and so I think one of the issues is correct me if I'm wrong, cool, but like a test ticket in Jira, the connector itself doesn't work. It's like it returns a 404, and one of the things is so like I think program implementation is one block, and then the other thing is like our own process. And one of the reasons why Jir gets out of date is because, or one of the reasons we can make sure that Jira is a lot more up to date is probably by using like Codex. So yeah, I think they're either a bug there, but
+
+Speaker 2  39:25  
+I think that for Jira, they actually disabled write capability.
+
+Speaker 6  39:32  
+They explicitly disabled. Okay.
+
+Speaker 2  39:33  
+Yeah. Do you think this is
+
+Speaker 6  39:36  
+not like this is going to be a fight, Alan? Like, if we even if we have justification for these and scope it to not have PHI, I'm just like
+
+Speaker 2  39:47  
+we need to work through it in a constructive manner. Everything that's coming in from the security team, they have valid concerns, so we need to go back to them and explain exactly what we want to do, why we want to do it, and we'll work through it in a constructive manner with them.
+
+Speaker 6  40:08  
+So what I mean is, yeah, I think that makes sense. But what is the best way to proceed? Is it to like, and what is the best way is
+
+Speaker 2  40:16  
+for you guys to equip me with all the details around what you're trying to do and why, and I will go work with Aaron and Len to work through any security concerns. We'll come back. We'll talk through how do we mitigate all of those, and we'll get it
+
+Speaker 3  40:40  
+done. So,
+
+Speaker 2  40:41  
+yeah,
+
+Speaker 3  40:42  
+Al, are you on our weekly AI sync with the SecOps team?
+
+Speaker 4  40:47  
+No.
+
+Speaker 3  40:49  
+Let me see if I can get you added to that because we we talk to them every Wednesday about connectors and skills.
+
+Speaker 2  40:55  
+Okay. And let's do that. But if you guys can equip me with data, I'm the one that needs to go advocate for you.
+
+Speaker 6  41:02  
+Yeah. Yeah. By the way, for Cole and the like, Alan is the one who's been fighting the fight. So,
+
+Speaker 4  41:10  
+thank you, Alan.
+
+Speaker 6  41:11  
+I yeah. I think Cole, are you down to just like own getting the information and justification over to Alan in terms of because I think especially for program implementation,
+
+Speaker 4  41:23  
+yeah, I I actually have this on our program implementation design doc. So I have a section for the system proposed access and then information needed and justification for each piece. So I can just I can just link that over to you now.
+
+Speaker 2  41:39  
+Yep, sounds good. Please definitely share that, and then understand that there's probably going to be a an alternate side to the story. Of course, they may come up with concerns, and we'll need to be creative in how we mitigate those. And it may I'll probably need y'all's help with that too.
+
+Speaker 6  42:01  
+Definitely. We want to do what we can to unblock program implementation as well as anything for our process. So we're happy to articulate, work with us. But I think it's fair to say we shouldn't just start creating tickets for this quite yet, right?
+
+Speaker 2  42:16  
+No, we need to get our plan together. Let's have a target that Pepe and I can go meet with them on Wednesday if that's the time that there's a regular weekly meeting, and you know we'll start the discussion on it, see what they come back with concerns, and then yeah we'll cycle on it. But hopefully we can get it done this week.
+
+Speaker 6  42:37  
+Okay, sounds great. Then there was like kind of a few blocks of things that I think were more about access to systems that people might already have. So on the OpenAI usage plan platform, basically what this is is we want to be able to help monitor costs and usage, and that's our deployment one. But like we we seem to not have access to actually see usage, or I don't have access to create projects. So this is kind of related to that key OpenAI key thing. But I think there's still a few more things that we kind of would ask for just to help monitor on platform.openai.com. Is I think that this is a Jordan question. It's probably like, is this something we should just go ahead and like create tickets for? Is that something that's, or do you think this is also like a, like we ideally, Alan, like we would be admins on the OpenAI page, but I don't know. Yeah,
+
+Speaker 2  43:40  
+I hear you. I don't know that they're going to want to make you admins, but there's got to be a way that they can give you the rights that you need to be able to see what you need to see.
+
+Speaker 6  43:52  
+Okay, like ideally, we it would be great to just Vib can create keys. I'm actually still blocked. I'm not sure if Cole can, and then we want to help like monitor usage. So if there's a way to like at least get access to some kind of cost platform, because the way that we tend to like to monitor costs for OpenAI projects is to just use platform.openai.com or like build an integration into it because it's the most accurate. But I'll send this over as well in terms of you know the justification in the same way.
+
+Speaker 2  44:25  
+Yep. So, and we can introduce those two topics around the plugins and monitoring usage to this afternoon.
+
+Speaker 6  44:35  
+Okay. Sounds like a plan. Same with Jira. This is more of a project management thing, but I like we don't have the ability to create releases, create sprints. I don't feel too strongly about this because it seems like you're you have that access. But
+
+Speaker 2  44:49  
+I yeah, I'll be able to do that for you.
+
+Speaker 6  44:52  
+Okay, sounds good. And then on Verint, I can follow up here. I think read access for Colin Vid will be nice, but given how much like went into getting this, if I'm the only one who has access to downloading, I think that's fine, and I can kind of QB for Deployco in terms of what we need to download to the right VM and what's you know what we need to do. But I'll toss these over to you just in case, like to with the justification, in case you you want to group it, and then Viv, just last question is like this SCP write access to the VM. Do you? Yeah, I got that
+
+Speaker 5  45:31  
+one resolved. Yeah, I got that one resolved. I worked with I forgot who I worked with, but yeah, I got that resolved.
+
+Speaker 4  45:39  
+Okay, Carl and Viv, are there? Oh, sorry.
+
+Speaker 2  45:42  
+Yeah, go ahead. Keep calling, Ken.
+
+Speaker 6  45:44  
+Oh no, I was just asking Colin Viv. Are there any? Is there anything that we're missing here? Anything we forgot?
+
+Speaker 4  45:50  
+I don't know about you guys, but I, I was hoping to connect Codex to GitHub. Do you guys have
+
+Speaker 5  46:00  
+Codex to GitHub access. Anishin, I do for the most part, but sometimes it does. It just asks me to run things on terminal, and I just approve it. Okay, so I think just to just to add on to that, I think Anish, you already probably mentioned this, but I think Salesforce is missing from this one. I just need the Salesforce API key. I think that's also needed for program implementation as a Codex plugin that Cole is working on. But we also need that for the call center use case. I've already already created a ticket for it and added it in the infrastructure channel. I don't think that's like a big issue or like a P1 blocker. If you can get that anytime during this week, that's great.
+
+Speaker 6  46:49  
+Yeah, I think that one VIP should be pretty easy to get, mostly because Stephen and Vish are just amazing to like. They they can probably quickly unblock us. So we have a meeting with them tomorrow, Alan. I'll add you to or Alan. Alan, I'll add you. But I figure we should just talk about what the production way of doing these API keys is, as well as any tokens that we need. So I think a ticket is fine. But all I'm saying is I think tomorrow we can also just like unblock this. Cool. So, kind of the second half of this, the last part is like what, what I kind of imagine like the dependencies on other teams are that like we can flag. And
+
+Speaker 2  47:38  
+oh, sorry. Yeah, I was just going to say you have that list of blockers. We should prioritize those. I feel like the codec stuff at the top is the most important. I'm less. I'm not as worried about Jira. I will help you guys through creating sprints and whatever you need to do with Jira, and then. then the one with Stephen Vice, I agree. For the Salesforce stuff, it's going to be quick and easy. We, it's not going to be as difficult to get those done. We can just message them and get it done. So let's focus the the blockers discussion with them around how do how do we work together this week to get through the codex stuff and whatever the the variant thing that you had listed was less important, and then I feel like there was a third one in there.
+
+Speaker 6  48:36  
+Yeah, I'll send. Let me just send this list, and then I'll send another message to you, Alan, afterwards about like the justification. But I think the beside, like these are these are kind of on the access requests. But I think there's also like bodies of work that we're kind of, and I wanted to kind of quickly go over those too. So I think. that the two things are the two most critical things in my mind are getting the stable TLS domain. We need that for Entra authentication wire up, and we need that for a callback URL for Cisco. And I think that this is like Max and KK are working on this, but so we're just kind of waiting on that. Now that I think we know the name, it's just kind of a matter of getting them a URL that they can use to that we can use to do wiring end to end. And then I think the other one, and this is related, Is do you know where we're at with? I know that there is that AWS thing. I know that actually hearing that is like good information, but I think that like that's probably one of the current blockers is just AWS access. Our perspective, or I guess like an Alan, I don't know what you think, but if we have if we have a process in terms of AWS where like let's say Cole or let's say we are like hey we think we should test this new system, and then we basically turn that into a ticket, go to the AWS team, go to Oreo, whoever is like spinning it up, and then come back, it's going to be really slow. I think ideally we just have a process where, under some kind of cost constraint, we at Clicko like have the ability to experiment with IAC. I know that this is like something that we had talked about before to really be able to like help clarify the architecture as soon as possible and test it. But I think to do that we need like a dev environment, basically.
+
+Speaker 2  50:43  
+We need to let's just have that conversation with them this afternoon. Then, of what's the right way for us to do it?
+
+Speaker 4  50:54  
+Okay.
+
+Speaker 2  50:57  
+I don't even know if they've thought that far ahead of how would they provision AWS access to each of us? I'm not sure they've even thought that far ahead. You know, their goal was to build out the network segments last week, so I don't even know if that finished.
+
+Speaker 6  51:14  
+Yeah. They're going through a lot, and they're they're fighting a lot of fires. So I guess we can kind of see if there's like a scoped down version of AWS. I'm not sure if it does turn out to be like we have to. This will take longer. Then I think we just maybe have to focus on productionizing the VM instance. But
+
+Speaker 2  51:52  
+we can, we can. Let's talk to them about the best way for us to work on it together jointly with them,
+
+Speaker 6  52:03  
+sounds good.
+
+Speaker 2  52:04  
+And we can talk to them about the types of things that we need to do. If we, I mean, we could talk about. Would it be useful to bring that AWS architecture diagram and talk to them about what we want to try there and what we need provisioned, or is that too detailed?
+
+Speaker 6  52:21  
+Cool. What do you think?
+
+Speaker 4  52:28  
+I think I mean we just need the environment test, right? So I don't know if we need the entire design. Also, with just like sorting through our our entire system design. Still, I think probably just getting an idea for what would be possible and like potential alternatives while we we sort through the design itself.
+
+Speaker 2  53:00  
+We have to have. Let me try and say this in a good way. We have to show up to them with an explicit request of what we want to be built out in AWS.
+
+Speaker 4  53:13  
+Okay.
+
+Speaker 2  53:14  
+And so that's why I think if we show up and say, "Well, we want to try a bunch of stuff in AWS," I don't think they're going to feel very good about giving us the keys to the kingdom and just saying no. Provision whatever you want out there. We have to explain what we want to do, why we want to do it, and the ramifications of what we're doing. Does that make sense?
+
+Speaker 6  53:38  
+Yes. I think what we could do is, and Cole, maybe we can talk about this in more depth. Is we could come in with like a set of hypothesized architectures to test. So one example would be what we kind of talked about. One example would be using a stateful storage instead of Redis, or instead of like a memory DB, one example might be, you know, I don't know. There's there's other examples.
+
+Speaker 2  54:12  
+Yeah, yeah. Replacing the streaming with Kinesis was another example that we had. My thought was let's get a dev system out there that's a single VM system, and then we pick a point in the architecture that we want to try replacing with an AWS service, and we tune that one item. And maybe the first thing is the data store, and we decide, oh, we're going to try DynamoDB, and we're going to try in-memory database as well, and then okay, let's try it out. Let's make a decision. Let's replace that one piece, and then we move on to the next piece of the architecture.
+
+Speaker 4  54:51  
+Yeah, that makes sense to me. Yeah,
+
+Speaker 6  54:55  
+I think storage and data would be the places. Redis, SQLite, and yeah, we got to
+
+Speaker 2  55:00  
+get rid of the SQLite thing. We know that, you know. I mean, even if you just created a DynamoDB instance, and I know that that we may have to find out is that too slow. But that was the recommendation from the AWS architects: is look at DynamoDB. So maybe we start there.
+
+Speaker 6  55:21  
+Okay. So then, maybe Cole, we can sync on like proposing a plan. I guess of like these are the steps, these are the things, and then the specific things to try out, and then we can talk about the system design in more depth overall of like the core system because I know that we wanted to talk about that. But yeah, I I guess like anything in terms, and you know one other conversation I think we could have, Alan, is the the repo overall in terms of PR rules, quality rules. I was gonna kind of have I have some thoughts about how we can do code review. Once we have CI/CD set up, we can do kind of a lot of like automated testing, but I think we should align at some point about like, do we want review or do we want to just like you know what should good PRs look like that kind of thing.
+
+Speaker 2  56:12  
+Yes, yes, and yes.
+
+Speaker 6  56:17  
+So maybe we're we're pretty close to that, But yeah, I think that's it from like my end. I think I'll start to create the tickets, and then we can provide the list of blockers. And then I don't know if we would have an AWS like stepwise plan and architecture like the variants today. But
+
+Speaker 2  56:39  
+no, we don't have to. I think we just need to be able to talk them through in that 430 meeting. Of this is an open item that we need to work through with you. Yeah, and we can work on how do we plan that out so that it's not. You know how they are going to be. They don't want you to delve over the fence with 14 tickets provisioning all this stuff, and I don't know why. Right. So if we can talk to them today about how we make it a good experience for all of us, let's let's do that.
+
+Speaker 6  57:08  
+Sweet, but it sounds like the things that we should make tickets for are the OpenAI access and the. I think that's it for now. Maybe the the Verin access, but even for Verint, I'm not super confident that they would be able to act on it super quickly because I think it it takes a lot. But it feels like so we'll send you the Codex ones and then I'll create tickets for the OpenAI usage. If that sounds good,
+
+Speaker 2  57:33  
+yeah, that sounds good. The Verint one, the ticket is still open. They're waiting for a confirmation of you can download what you wanted to download.
+
+Speaker 6  57:41  
+I'll still I'll test it. Yeah, I I think I wasn't able to, but let me try again.
+
+Speaker 2  57:47  
+Yeah, yeah. They they're waiting on a confirmation to close that one. So you can tell them I don't have what I expected. So please don't close it.
+
+Speaker 6  57:57  
+Yeah.
+
+Speaker 2  58:00  
+Okay. Was there anything? I know we talked about the blocker for Codex plugins related to the implementation use case. Is there anything else for the implementation use case that we need help with, or there's some goal for this week?
+
+Speaker 4  58:20  
+Yeah. Yeah, I can speak to that. Yeah, so the first thing is the access request, which we've already gone over, and then I've also sent out a spreadsheet for eval queries. So essentially, things that we want to ask each time something is merged into into the repo, and just basically make sure that we don't see degradation from changes. So that's been sent out, and then also just continue to iterate on on the skill itself. So I'm working on basically getting the details into CI/CD, understanding how it's going to integrate, and then iterating on those sales and sales.
+
+Speaker 2  59:12  
+Okay, sounds good. Well, we're out of time. My immediate question is: How did this go, and what do we want to do differently next time?
+
+Speaker 6  59:32  
+What do you think?
+
+Speaker 2  59:34  
+What do I think? I think it's good. I think we covered the really important topics. I hate that you guys have to have a planning meeting before you have a planning meeting with us. I'm hopeful that we can streamline that in some way. I don't love that we have linear and we also have Jira, and to me it feels a little painful. But I'm hoping we can do better. But we can take our time to figure that out.
+
+Speaker 6  1:00:04  
+I will say, at my last startup, we had basically four-hour planning meetings on Mondays, but at the end of the day, they helped because then the rest of the week felt smooth. So, but I do hear you. I think if we can figure out a way to synchronize these systems, it would be nice.
+
+Speaker 2  1:00:21  
+Yeah, that just tells me that the plugin access is important not only for the users and like the implementation use case. It's important for us if we want to get to an AI software development lifecycle. We have to have that.
+
+Speaker 6  1:00:36  
+Yeah, it's it's kind of the only reason we're able to do things at the Ployco, so I guess we're happy to provide as much justification as we can, but it definitely will help because I don't want like Alex should not have to be parsing through a million documents to find out what is needed manually, look at Jira tickets. I know Alex, we didn't get a chance to talk about the Excel spreadsheet, but like things like this, it's like, yeah, that's
+
+Speaker 2  1:01:02  
+good. Very tactical question. When Viv and Cole, when you guys got Codex access to the Sistr apps Codex, was that a ticket that you opened with Jordan? How did how did you guys do that?
+
+Speaker 5  1:01:20  
+Yeah, I can I can speak to that. The way that I did it is just created a ticket on the form that Alex actually sent me. And I
+
+Speaker 2  1:01:29  
+got you. I know what to do. Perfect. I'll get Josh. I'll get you started with that. Okay.
+
+Speaker 6  1:01:39  
+Alan, one question is: Is there anything we like, or Josh? I guess like to kick you off, or do you want to? Is it just? I guess. Sorry, we might have talked about this. I just forgot. But like, or do you think the focus this week is kind of just on onboarding? And I expect that might take time. But
+
+Speaker 1  1:01:56  
+yeah, I think you know onboarding is going to be key. We need to get that expedited because I think Alan had said next week you guys might be out of pocket for a little bit. So as much access as I can get in this week. What would be great if we could get something like obviously I'm going to watch the live demo. I'll probably have more questions after that. I have not watched the demo yet, but once I do, I'll probably have more pointed questions as far as deployment and how how to actually run this if I were to run it. So, just stuff like that.
+
+Speaker 6  1:02:33  
+Yeah, sounds good. And then I'll add you to meetings this week that around DevOps, Dev. I think it should already be on the the tri weekly ones, but can kind of pick up a lot of context there.
+
+Speaker 2  1:02:51  
+Okay.
+
+Speaker 6  1:02:54  
+Happy Monday.
+
+Speaker 2  1:02:57  
+It's definitely happy. I appreciate you guys. guys.
+
+Speaker 5  1:03:03  
+Yeah. Thanks a lot for our time back. Bye
+
+Unknown Speaker  1:03:06  
+now
+
+Transcribed by https://otter.ai

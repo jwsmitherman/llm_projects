@@ -1,0 +1,778 @@
+Speaker 1  0:00  
+Hey, good morning.
+
+Speaker 2  0:01  
+Good morning to you too. How was your weekend, man?
+
+Speaker 1  0:06  
+It was fine. It was fine. Nothing special. So just a bunch of kid stuff, family stuff, all that kind of stuff.
+
+Speaker 2  0:15  
+Yeah, same for me. I don't know. Ours was not glamorous. We were cleaning out our garage, that that's like just dirty and boring work. But yeah, you got to do it. So
+
+Speaker 1  0:30  
+that'll be me this weekend. We were just talking about that this morning that the garage needs a good cleanout. So
+
+Speaker 2  0:36  
+yeah, I was amazed at the amount of dust that we accumulated. It was like, oh wow, okay. Well, good luck to you on that. Those are not necessarily fun. And honestly, ours is not even done. We still got more to do.
+
+Speaker 1  0:51  
+Where are you located at again?
+
+Speaker 2  0:55  
+I'm north of Atlanta.
+
+Speaker 1  0:56  
+North of that's right. Okay, like Alfreda area.
+
+Speaker 2  1:00  
+Yeah, just south of there. I'm in Roswell.
+
+Speaker 1  1:02  
+Okay. Yeah, yeah.
+
+Speaker 2  1:04  
+Okay. We lived in Alpharetta for trying to think 15 years. 15 years. We lived in Alpharetta, and then we moved over here. Is we only moved like three or four miles away, but we're in Roswell now.
+
+Speaker 1  1:18  
+Okay. Very cool. All
+
+Speaker 2  1:20  
+good. all good. So tell me, I guess Cliff talked to you last week. How did he?
+
+Speaker 1  1:29  
+Yeah. How
+
+Speaker 2  1:30  
+did he explain it to you of what was going on and what we were up to with the deploy code stuff?
+
+Speaker 1  1:35  
+Yeah, just very high level stuff. It's obviously based on call center assistance app. He said the architecture would be in AWS for, or at least to his knowledge. And just we really kind of mostly talked about wrapping up the IDP work and what was needed there. And then he said going into next week we'll we'll see about more more context around this project. So,
+
+Speaker 2  2:06  
+well, that's good. Now's the time then. Perfect timing. Let me tell you the genesis of all of this was I asked Lynn Incliff to. I said, which is more important for the business? Is it the IDP stuff or the you know what we're doing with Deployco for the call center? And they said, yeah, the call center stuff. And I was like, okay, well we need help there. So that's why we asked for your help. So I thank you for being willing to adapt and to come help. We, so far, I want you to be prepared. What's been done is really skunk works. They they started and they spent a month trying to. It was the month of September. They spent just trying to gather requirements and figure out what were they going to do, and they did a pretty good job with that. Actually, they went and sat with the call center agents, learned about. I guess they had already picked that the pilot program was called Derma. They have that Nemluvio. It's like a dermatology medication that you inject once a month, and we have a a program team for that. There's about 50 people in operations for that program.
+
+Speaker 3  3:43  
+Okay,
+
+Speaker 2  3:43  
+I think you know some of them are like managers and QA and stuff like that. But they have a decent number of case call center reps that are taking the initial front line calls, and then they have case managers that get assigned to the patients that are handling those. The case managers are regionally assigned, so they. It's not a big project, say, or I shouldn't say that. It's not a big program. Terminology is still getting me tripped up here, but yeah, it's not a huge program that they're running for it, so that helps us a little bit. That that's the pilot program. So there's a couple of people you'll meet today from Deployco, and forgive me, have you met any of them already or not?
+
+Speaker 1  4:43  
+Let me just double check. I mean, I I'm not familiar with any of these people. No.
+
+Speaker 2  4:47  
+Okay, that's good. Well, they know you're coming and they are they're ready. So there are two people on the team. Nonki is our team lead.
+
+Speaker 1  5:01  
+Nonki. Okay.
+
+Speaker 2  5:02  
+Yeah, she's based out of San Francisco, and she's the team lead. And then Anish is our lead developer, and both of them have been here since really the beginning. So Anish started at the beginning, right at early September. Anish is like the lead engineer on the team. Yeah, I saw him
+
+Speaker 1  5:25  
+on the video. I was able to watch one of the videos that you sent. The other one, I had to request access.
+
+Speaker 2  5:32  
+Okay,
+
+Speaker 1  5:33  
+it was the 1y'all were reviewing the architecture review, and y'all were talking about Cisco and some of the AWS functionality there.
+
+Speaker 2  5:44  
+Yep. Okay. So you saw the architecture one. I hosted that meeting, so that's probably why you did not get access. But you missed the one that was a demo.
+
+Speaker 1  5:52  
+Yeah, I had to request access to that
+
+Speaker 2  5:55  
+one. Okay, and I'm trying to think who set that meeting up. I want to get you access because Vignette can see the app like it looks for a user. That would have been. They were the most recent meetings that we did with them. It was not the architecture one. No, it's not that one.
+
+Speaker 1  6:34  
+And I see there was a file, or there was a shared Naki had shared the environment infrastructure accessing and tools channel, Teams channel here, and so I looked in. There are shared documents in here. Most of them look like Mostly around Cisco and there's screenshots and things like that, but there's not much here.
+
+Speaker 2  7:08  
+Yeah, I want to get you the demo. Here it is. I found it
+
+Speaker 1  7:14  
+because I was thinking maybe that's located there. It was
+
+Speaker 2  7:17  
+Alex. He was out on Friday. Let me ask him. Alex Sobelman is assist RX. He's he's an employee with us. He's our director out of the strategic projects area. You can almost think of him as like a program manager right now, so he can help with a lot of this too. Let me see if I can get him a chance. Josh requested access. Morning, Thursday. All right, all right. Alex should get that recording for you. That'll be useful to you to actually see what does the call center app look like. So that will be good. Just as background, the idea with the well, let me start with there are actually two initiatives in flight with Deployco right now. The call center app is the one that we need your help. It is a it's an app, a full app that's going to be listening to the phone calls that the reps are making with the patients and running it through an AI engine. To OpenAI is going to do two things. One is they're using it to transcribe the calls. So there's a lot of work on their side to tune the the transcription and that you know they came back to me last week and they said you know one thing that we're noticing is that that transcription to do near real time transcription is going to be expensive it's probably going to be the thing that we need to look at what is the right model? What is the right speed? What is the right cost? How do we tune it for like?
+
+Speaker 1  9:48  
+And did I hear? Did I hear on the architecture call? Is it Salesforce that we're using for that, or no? Or there was some sort of Salesforce, or I know that we're using Cisco. We're using Cisco for the telephone or for the the the voice transaction, right?
+
+Speaker 2  10:05  
+That's in place today. That we use Cisco for all of the inbound voice. Okay. We use it in the call center today. Like a call center rep, when you go and sit, and we will set up time for you to do a side by side. Awesome. When you sit with a call center rep, they open up a Cisco app, and that has the different call queues that they say, "I'm ready to take a call."
+
+Speaker 1  10:31  
+Right. Okay. Got it.
+
+Speaker 2  10:33  
+So the whole telephony solution is Cisco is the provider of that.
+
+Speaker 1  10:37  
+Got it. Okay.
+
+Speaker 2  10:39  
+And so Cisco has an API that gives us audio packets that we can listen to, and that's what they're leveraging. They're hooking into Cisco to receive the audio feed, and they call it voice forking because we have to fork it. They're sending the voice to two places, one is Verint, and Verint is a third-party product that we already have. That product it does it takes the recordings and transcribes them, and they have a bunch of processes and operations today that they'll have people go back and grade some of the call center reps on how did you perform? Did you do what you were supposed to do? It's a very manual QA process today in Verint. Their transcription that we do with Verint today Is not real time. It takes a while. It's and early on when we were doing proof of concepts and everything, it was quickly ruled out that using Barent as the transcription system, it's not going to be the right approach.
+
+Speaker 1  12:01  
+Okay, like what kind of delay are we talking about here?
+
+Speaker 2  12:04  
+Like minutes. I mean, that's my understanding. There's stuff going on already on the operations side, and then for the infrastructure team that today they run Verint internally. We host it ourselves, so we have an internal copy of it. There's a project already in flight that they're going to move to Verint Cloud. That Verint will do the hosting of their solution. Apparently, that opens the door to all kinds of things. Like Verint has these products that are bots. So instead of having our people that are full-time employees, their job is their quality assurance for the operations team. That they listen to calls and grade the the reps on how how did you do. They'll have quality bots that, in theory, could do some of that work for
+
+Speaker 4  13:01  
+us,
+
+Speaker 2  13:02  
+or for the operations team. They have transcription bots to do the transcription that is tunable too. So one option is just to continue to build off of Verint. The other option is what we're trying with OpenAI, and the OpenAI solution is we build something custom on our own that does transcription. And honestly, at some point, it's like a bake off, right? There's like a long term decisioning of: do we just do this ourselves, or do we continue working with Verint? I. I suspect long term the best the best result would be we don't need variant anymore.
+
+Speaker 1  13:48  
+Right, right, yeah. Sounds a lot like a what are we doing with IDB? So
+
+Speaker 2  13:55  
+yeah, if we get better speed and cost on our own, then that would be a great win for the team. Awesome. So I think this there's a larger roadmap there of do we even need Barron anymore, but that's not going to be immediate. So
+
+Speaker 1  14:13  
+got it.
+
+Speaker 2  14:14  
+Yeah. So the voice fork is we're sending it to Barron and we're also sending it into our service, and that was the part that you saw in the architecture call. Alex says, "Yeah,
+
+Speaker 1  14:25  
+yeah." Alex
+
+Speaker 2  14:27  
+says he's going to track it down for you.
+
+Speaker 1  14:29  
+Well, I just clicked on the link, and it looks like I'm I'm in now. So, oh,
+
+Speaker 2  14:35  
+he says he has access. Okay, all right.
+
+Speaker 1  14:45  
+Deploy code. Yep.
+
+Speaker 2  14:48  
+All right. Good. That'll give you a little bit of a demo from a user perspective. That meeting with with the leadership for the operations team. There are customers in this. They're the ones that are going to use that call center app. There is a second initiative, which is to help the implementation team with building out a brand new program. So, if you think about, we have this internal development process that happens. I was building out. I'm
+
+Speaker 1  15:26  
+building out a what?
+
+Speaker 2  15:28  
+It's building out a new program for a new customer of AssistRX.
+
+Speaker 1  15:34  
+Okay. So,
+
+Speaker 2  15:35  
+like an example is we just signed Dexcom. They are. They have a brand new drug that they're bringing to market, and we have to stand up a whole new hub and program for that. That will be taking off in. Well, I think it's in Q1 of 2027. So we have a bunch of teams that are the ones that go and work with them on what are your requirements. If you need a customer engagement site, what does that look like? We have templates for that, but what do you have to do? They'll have a legal team that wants to go through and define. Here's the stuff on the consent form for customers that are going to enroll in our drug program. That project is all about helping the implementation. I don't know. I want to call them implementation analyst team. Dwayne Bello is the leader for the team. They do a bunch of back and forth. That they go gather requirements with the customer, and then they feed those in to our product management and engineering teams. That one's an internal process
+
+Speaker 4  16:48  
+one,
+
+Speaker 2  16:48  
+and Pepe is helping the deploy code team with that. That one, I know Pepe. Yeah, that one. They're not writing apps or anything like that. They're working on building out a bunch of skills in chat, well, in Codex to help them to go gather requirements, find any places that you have. They end up with like 20 something documents. They have to figure out, okay, where are things unclear? Where did where are there conflicts in these that we need to clean up? And then, how do we generate the work items in Jira for the engineering teams? So that one's like an internal process thing. It's like very early into teaching people. Here's how you use the AI tools to do your job better. Pepe's going to assist the OpenAI guys with that, the Deployco guys with that, so yeah, the call center app is more interesting to me because we're actually building apps, so
+
+Speaker 1  17:50  
+yeah,
+
+Speaker 2  17:51  
+I'm excited about it. Yeah, so yeah,
+
+Speaker 1  17:56  
+so from a requirement standpoint, and I'm sure I'm going to get into this more. The solution architecture for what I saw is in AWS.
+
+Speaker 2  18:09  
+Correct.
+
+Speaker 1  18:09  
+And so, would we be confined? Are we limited to just AWS services, or would we also be able to use sort of Azure services too, like sort of the the Azure Foundry or anything like that.
+
+Speaker 2  18:24  
+No Azure. It has to be. It has to be AWS.
+
+Speaker 1  18:27  
+Okay.
+
+Speaker 2  18:28  
+Yeah. Yeah. Yeah. Has to be AWS. No Azure. I've asked them to do some deeper looking at, you know, what they built in the POC, they're just going straight from their web app into OpenAI APIs, and I asked them to spend some time looking at how do we put it into Bedrock so we have. That's exactly
+
+Speaker 1  18:54  
+what I was about to say. So, is there no PHI like y'all are using the public OpenAI of this?
+
+Speaker 2  19:02  
+Correct. Yes.
+
+Speaker 1  19:04  
+So I don't know if you're are you allowed to use that for these type of processes from a from a compliance standpoint.
+
+Speaker 2  19:15  
+Uh huh. Yeah, they have all the BAA's signed and everything. Okay. Um, with legal and everything to support it.
+
+Speaker 1  19:24  
+Okay,
+
+Speaker 2  19:27  
+so yeah, all the legal stuff has happened. Yeah, because I'd rather
+
+Speaker 1  19:33  
+I'm in the camp of keeping this sort of confined to our own either AWS or Azure deployments, and so that's why I would probably lean on Bedrock deployment models instead.
+
+Speaker 2  19:47  
+Yeah, long term, I think we want to get there right now. What they built up in the POC is straight to OpenAI API.
+
+Speaker 1  19:57  
+Okay, and
+
+Speaker 2  20:00  
+originally, let me let me explain to you. When we did this project, there's like a a pricing point of
+
+Speaker 1  20:07  
+it. Okay.
+
+Speaker 2  20:08  
+That part of this project is we contracted with OpenAI and Deployco is a subsidiary of OpenAI, and they're providing the four deployed engineers. Part of that is we're signing up to spend money and tokens with OpenAI, and so there was an assumption out of the Deployco crew that they were like, "Well, to burn down your quota, you need to go directly to OpenAI." And there was a. I asked them to check on that, and I think there's flexibility that if we spend via Bedrock usage inside of AWS with the OpenAI models, I think it'll work. It'll it'll be okay. We'll still be burning down our quota. It's a like a billing thing that it has to go through. We we have to work through the billing piece to make sure that we're we're burning down our quota and everything. I think at some point we'll put a story in the backlog that says, okay, figure out how to switch this over to Bedrock to give us flexibility. Honestly, it gives us flexibility long term that if we decide we're getting better performance, better cost, and we want to try a different model. We can. We don't have to lock into OpenAI. So,
+
+Speaker 1  21:29  
+okay,
+
+Speaker 2  21:29  
+that was part of my goal with it too.
+
+Speaker 1  21:31  
+And OpenAI is doing the transcription for you right now, or I mean, sorry, it's that. I know that there's that other vendor, but the internal process is using OpenAI for that. Okay,
+
+Speaker 2  21:43  
+that is correct.
+
+Speaker 1  21:44  
+Okay, I got you.
+
+Speaker 2  21:46  
+Yeah, it's a two-step process. Well, actually, it's more than two-step. But first step in the process is there's transcribing as the audio packets come across, and then the second part is they're doing queries on some kind of vector store to to say it's rag. I mean that's what it is. They're trying to determine what suggestions do we give to the call rep, and then the final step in the process is we give them actions that they can take in Salesforce. So you'll see that in the demo that it's like, okay, one of the actions is we search for the patient in Salesforce, and if we locate it, we have the the call rep say yes, this is the person. Instead of today, you'll watch them. Today they have a Salesforce search screen up, and they're just typing in stuff, trying to search and manually find the patient in Salesforce. So, so the we'll prompt them for that, and then secondarily, like you know, if the patient says that they move to a new address, here's my new address. You know, we would pop them up with, hey, here, hit this button, and we'll save that new address back to Salesforce. You can confirm and save that, and the other one is that they spend a bunch of time after the call summarizing the call and saving it into Salesforce. So now we'll automate that to we'll give them a call summary that they can edit if they want to, and then hit a button and that gets saved back to Salesforce too.
+
+Speaker 1  23:19  
+Okay,
+
+Speaker 2  23:21  
+so that's kind of the Salesforce integration is the last step in the process. Kind of of okay, here are the activities that they often take in Salesforce, and here's things that we can do to make that simpler and easier for them.
+
+Speaker 1  23:40  
+Okay, now are they? So is the vector store connected to Salesforce, or is that a precursor before? Yeah,
+
+Speaker 2  23:47  
+that's a precursor. Precursor.
+
+Speaker 1  23:49  
+Okay.
+
+Speaker 2  23:50  
+Yeah, what we're doing for that that store is today we have a ton of PDF documents that are stored on SharePoint, and they hold the rules for. They have a document. It confuses all of us. It's called PRD, but it's Program Rules Document, not Product Requirements Document. It's confusing. Every time somebody says PRD at this place, I have to ask them which one do you mean?
+
+Speaker 1  24:24  
+Program rules documents. Yeah,
+
+Speaker 2  24:27  
+program rules document. That thing has a bunch of things. Like it'll say, oh, if you have this insurance and you have not done your deductible, then this other thing has to happen before you can enroll, and they they'll have a bunch of rules around it. They'll and the agents today they're pulling that thing up and they're like searching through a PDF trying to find the answers, or they're going to Teams and say asking their supervisor, what do I do about this situation? The other documents that they have are what they call work instructions. So the leadership for operations has gone through and they've said, well, these are some common things that you're going to run into as a call rep situations that you should know how, and they give them instructions of here's how you do this, and then I'm trying to think what other documents they have. I don't know. It's just a bunch of PDF documents that help a call center rep to know what to do. So the idea is we're going to take those, and they update them periodically. And when they update them and roll them out, the idea is that there's an admin UI that Anish has created that you would upload all of them into the vector store, so that they can be searched. That's the idea.
+
+Speaker 1  26:01  
+Almost like a yeah, it's it's a rag, almost like a knowledge base chat bot where they can communicate with sort of like policies, procedures, things like that in situations that they arise. So I would imagine they would have one screen up with that this chat session with the bot. They have another screen open with what's happening currently with an intake call, and they're just transcribing like, what do I do in this situation? What would be ideal is that they could be connected, and then
+
+Speaker 2  26:31  
+you could
+
+Speaker 1  26:32  
+and then you could get that real time feedback of, oh, it looks like they're calling about this. Here's the recommendation, up next. That's
+
+Speaker 2  26:39  
+correct. That's correct. The way they did it in the proof of concept UI is that it gives a recommendation, and with it is a little thing that they can click with a link that brings up the program rules or the work instructions, and it highlights here is the line that here's
+
+Speaker 1  26:57  
+the here's the reference source that the AI is using. Yeah,
+
+Speaker 2  27:03  
+that's correct. That's correct.
+
+Speaker 1  27:05  
+But right now in the POC, they're they're not connected. They're two separate screens, right? That's correct. Yes. Okay. Gotcha.
+
+Speaker 2  27:13  
+When you see a rep on a side by side, hopefully, let's ask to have you do that this week. I let's talk to them. I'm pretty sure that you can do it remotely. You don't even have to go in to the to the call center to do it. I think you can do it virtually over a Teams meeting or something. But when you sit there and Watch them. They have like five things up. Yeah, they probably they
+
+Speaker 1  27:46  
+probably have multiple screens up here and like things like that, kind of going on. Yeah,
+
+Speaker 2  27:51  
+yeah. They have two screens usually, and they have a bunch of browsers. One for Salesforce. One or multiple for Salesforce. Maybe they have multiple with the program docs. Some of them have OneNote with a bunch of stuff in there too. That they have OneNote documentation that they refer to, and then they have these Microsoft sticky notes that they use as well. Well, they also have the
+
+Speaker 1  28:15  
+Cisco app, right? That for the call intake.
+
+Speaker 2  28:17  
+That's right. They have the Cisco. It's a web interface too, so that's a browser tab. It's all voice
+
+Speaker 1  28:23  
+over IP stuff,
+
+Speaker 2  28:24  
+right? Yeah, yep, that's right. So it's it's a little bit wild, but they adapt and they do really well with it, actually. So it's definitely something they have to learn to figure out how do you flip back and forth between all of these things. But the ones that have done it for a while, they they're pretty good at
+
+Speaker 1  28:44  
+it. So, is the work that I'm going to be coming into is the goal really to fine tune that separate screen to get the recommendation as close as possible to the to reality, or is it or is it also the integration of of the two,
+
+Speaker 2  29:03  
+all of the above. I mean, really, let me tell you, Anish has been doing this on his own until now. Last week, they onboarded two extra engineers, Viv, who you'll meet today? I just met him. He just joined last Monday. Viv is there. He's going to help with tuning the AI from the Deploy Co and OpenAI side. So he's running a bunch of experiments there around how do I get better suggestions more quickly and all of that, and then the other guy is Cole. His primary role is on the use case with Pepe and Nonki. Okay,
+
+Speaker 1  29:51  
+so more of the education space. Yeah, he's
+
+Speaker 2  29:54  
+on a different use case. Cole, though, they said that he has AWS experience and can help us there if we need help too. Where I need the help from you is honestly to check on on the entire architecture. And if tell me how open you are to this is just flexibility to try and figure out how can you engage to learn what they're doing. I mean, we're going to start working. One thing that we agreed last week is now it's not just the niche doing it by himself, right? It's a team. So as part of forming a team as a team, we've got to come up with working agreements of how we're going to work together. We said, hey, we're going to sprint plan on Monday. We're about to do it in a couple of hours. Here,
+
+Speaker 1  30:42  
+yeah,
+
+Speaker 2  30:43  
+I have no idea how that's going to go, man.
+
+Speaker 1  30:45  
+So it's going to be a little agile, right? We're going to do standups. We're going to have a Jira board. We're going to is there? I'm assuming there's a Git repo for CI/CD processing.
+
+Speaker 2  30:55  
+Yeah, that's exactly right. So one of the first tasks for you is going to be onboarding to get access to everything.
+
+Speaker 1  31:03  
+Sure. Okay.
+
+Speaker 2  31:03  
+We'll put we'll put a task in for that. There's going to be a bunch of IT tickets to get you set up. To you need access to GitHub. You need access to probably maybe Verint. Maybe I feel like Cisco. You'll need access. There's there's a bunch of them.
+
+Speaker 5  31:22  
+Okay,
+
+Speaker 2  31:22  
+we just went through and did tickets for VIB last week, so I think we can hopefully we can clone all of that and and get you access to everything.
+
+Speaker 1  31:34  
+Okay,
+
+Speaker 2  31:35  
+and then one of the other things that we're very eager to is get it all wired up to do an end-to-end test. So, I think if this is okay with you, I'd like to suggest that you just use this week to onboard, learn everything end-to-end, figure out what they're doing with architecture. You Try and get to the point that you understand and can can run this thing even, and we'll ask them today what else is a good suggested place that you could help them. So I don't know. We're gonna have to figure out how to divide things up and participate in it. I really want for us and AssistRX to be able to understand what they're doing first to check them because I feel like they're really good at throwing out POCs and demonstrating stuff, but trying to productionize something. We need to hold them accountable to make sure that we've got something that we feel is scalable and grow and support more than just one single 50-person program.
+
+Speaker 1  32:56  
+And when you say they are these, so is Anish and all these guys are they? These are AssistRS ex employees, though. Are they contractors?
+
+Speaker 2  33:07  
+They're contract. They're DeployCo employees.
+
+Speaker 1  33:09  
+They're DeployCo employees. Okay.
+
+Speaker 2  33:12  
+Yeah. So Anish, Bibb, Nonki, and Cole. The four of them are all. They're all deploy code. Okay,
+
+Speaker 1  33:22  
+so basically you and I are just SysRX, and then the rest of this team is kind of
+
+Speaker 2  33:27  
+yeah. That's correct. Now, I'm trying to hire a few more people. So
+
+Speaker 1  33:32  
+so really, the goal is to get deploy code brought in as our own kind of process. Is what I'm understanding.
+
+Speaker 2  33:39  
+That's correct. That's correct. Deployco is really just a staffing model to get this call center app off the ground.
+
+Speaker 1  33:45  
+I see. I see. Okay, that makes sense. Okay.
+
+Speaker 2  33:48  
+They're bootstrapping us to get the call center app started, but long term, our Scrum team will have to own it.
+
+Speaker 1  33:56  
+Right. So it would be better if we had if we can build an internal AssistRX team, learn everything they've done, build our own architecture, and really just run it ourselves from from our own perspective is really the goal, right?
+
+Speaker 2  34:10  
+That's exactly right. That's exactly right.
+
+Speaker 1  34:12  
+Yeah,
+
+Speaker 2  34:13  
+and you're not you won't do it. You won't have to do it by yourself. Oh yeah, yeah. I get I get
+
+Speaker 1  34:19  
+what the goal is though. Now, yeah, I didn't understand completely like if they were all contractors, but thank you for clarifying that. So no, I get the goal. It's really kind of taking taking all these external processes and contracts, and how can we bring this all in and have our own self learning, build our own tools, build our own AI agents, and and really kind of take this forward as a as our own internal team.
+
+Speaker 2  34:42  
+Yeah, you get it exactly, and it doesn't stop here. That we're doing this first project for Galderma, but even even beyond just rolling it out to more drug programs, it's like we have a ton of other agents that we can build to operationalize and make things better and improve efficiency.
+
+Speaker 1  35:00  
+So I guess the question is: is if that's the case, why are we? Is it a client-specific requirement that we're in a specific environment? Is because of their their their contractual agreement with like their their PHI data or something like that, or
+
+Speaker 2  35:23  
+no, it's an executive assist RX thing. Okay, it easily could have. It probably would have helped us, honestly, Josh, if they said just do it in Azure. It
+
+Speaker 2  35:35  
+probably would have been quicker and easier for this. This started before I got here. I mean,
+
+Speaker 1  35:41  
+I have no issue with AWS. It's just we've already done a ton of stuff in in Azure already as a company. So I'm just kind of surprised that. Anyway,
+
+Speaker 2  35:51  
+yeah,
+
+Speaker 1  35:51  
+I didn't know if it was like a client requirement or what.
+
+Speaker 2  35:54  
+No, it's an executive decision that they wanted to test AWS as an alternative to Azure. Okay. I don't know how this turns out, Josh. I really don't. I think it's kind of personally. I think it's crazy that we're so multi-cloud today for a company our size. I don't know how this turns out. It could be that we come back in a year from now, everything's in AWS, or it could turn out that we're going to be multi-cloud. I'm just not sure where to go with this. Or that's
+
+Speaker 1  36:32  
+fine. Yeah. So not only is it a bake-off of the when
+
+Speaker 2  36:36  
+I came in, Glenn and Tim Segi told me we're using AWS. You guys are our pilot program in AWS.
+
+Speaker 1  36:44  
+Okay. The
+
+Speaker 2  36:46  
+infrastructure team. We have nothing in AWS but what we're putting for this project. So we are the pilot. We are the pilot. Okay.
+
+Speaker 1  36:56  
+Okay, that's good context to know.
+
+Speaker 2  36:58  
+And we are so early on in AWS, that we're that Tim's IT infrastructure team has gone into control tower and created us the account structure with Dev QA or Dev UAT and Prod. I think they're building out network segments that are segmented for each one of those. So we're building out the AWS infrastructure to house it now.
+
+Speaker 1  37:23  
+It's fine. I mean, I have experience with s3, you know, Lambda functions, Step functions, AWS SageMaker. I don't have a ton of experience in Bedrock because most the contract I was working on like two years ago, we didn't really use Bedrock. We used other.
+
+Speaker 2  37:44  
+I don't even think it was. It was so young at that point. Yeah, I don't.
+
+Speaker 1  37:48  
+I don't. Yeah, but I'm. I'm very familiar with AWS. It's just anyway. I get it. It's not only a bake off of can the AI do it between the the vendor and that, but it's also a bake off between AWS and Azure. It sounds like,
+
+Speaker 2  38:05  
+yeah, it makes it complex, really. I will say it's been hard from the perspective of the IT infrastructure team is trying to learn AWS and everything that they know from Azure is transferable. But
+
+Speaker 1  38:18  
+there's definitely some nuances, yeah, for sure. Yeah, yeah. And then from, I guess I will learn this from the other folks. So, I guess the challenge here is, well, you said Deploy Coach is just a staffing company. So I'm assuming our code is in our own Git repos. Do we do development in SageMaker, or is it all just kind of local code, and we just push it up to Git?
+
+Speaker 2  38:47  
+They're using Codex to generate all the code today.
+
+Speaker 1  38:51  
+Oh, okay, okay.
+
+Speaker 2  38:52  
+So part of this is Cliff and I are very aligned on this. We want to use this project as an AI SDLC kind of test pilot as well.
+
+Speaker 1  39:06  
+Okay.
+
+Speaker 2  39:07  
+Codex is part of the solution there. That they're OpenAI, right? So that's kind of the path. Part of what we need to get you provision for is we need to get you provision for Codex too, so that you have a license for that. They're pretty much generating all the code right now using Codex.
+
+Speaker 1  39:31  
+Okay, gotcha. Okay, and the solution right now is an application hosted in AWS correct? It's it's. I'm assuming it's like a. Does that run on Kubernetes, Docker, all that Docker
+
+Speaker 2  39:52  
+image today? What's your that architecture walkthrough? You you watched it, and the the document, the design document, is out there in the Teams channel too, and the SharePoint. You'll see today it's a single Docker image that has all of the services running in that single Docker image. So out there in AWS, it's a single VM today that's running. Yeah.
+
+Speaker 1  40:21  
+Okay. I just hear that. Yep. Yep.
+
+Speaker 2  40:23  
+Yeah, and it's a POC. It's not scalable. You'll see that, like the database in there is a SQLite database. We absolutely know that won't scale and be the right solution, right? So each one of those components has to be swapped out, and then the design document you'll see. There's two pictures. There's a POC design, which we didn't really spend any time in the meeting on, and then the second picture is the AWS design, which is not locked. I think some of the stuff that Anis put in there, I don't know that we the AWS architects that looked at it with us were like well that we would recommend Kinesis for the streaming
+
+Speaker 1  41:04  
+for the streaming well of course that's their service yeah
+
+Speaker 2  41:07  
+that's their service right and then they were like typical using DynamoDB you know for this other piece so and it was like okay well we need to evaluate that so Kinesis personally a little hesitant around. He's very worried about real-time performance, justifiably so.
+
+Speaker 1  41:29  
+What's the streaming service we're using? Is it Kinesis we're using right now, or what are we using for like Kafka? The
+
+Speaker 2  41:34  
+POC is using Redis.
+
+Speaker 1  41:39  
+Redis. Oh, okay. I've used Kafka and I've used I've worked with Kinesis before, but I haven't used that one.
+
+Speaker 2  41:47  
+Yeah, I he picked up whatever was quick and simple and easy for him, and truthfully, he's just using Codex to write all the code, right? So he's just like, grab it and go,
+
+Speaker 1  42:00  
+grab and go, okay.
+
+Speaker 2  42:02  
+Yeah, and I think there was another one that came up with the DevOps team that like his little web container was Caddy. It was like, why did you pick that? The DevOps team was like, that's not our standard approach. And he was like, yeah, it doesn't matter. I just picked the first one that was simple and easy, and it was fine. So, we'll we'll we're gonna swap all of that stuff out too. So they made a bunch of when he built the POC, he just did whatever was quick and simple.
+
+Speaker 1  42:29  
+I see.
+
+Speaker 2  42:30  
+And he said he just told Codex go do it, and I'm sure Codex gave him choices, and it was like
+
+Speaker 1  42:36  
+you can
+
+Speaker 2  42:36  
+do any of these. And he said pick number one, you know. So
+
+Speaker 1  42:41  
+yeah,
+
+Speaker 2  42:41  
+yeah.
+
+Speaker 1  42:42  
+All right. Cool. No, I I definitely have some context here, and I'm assuming, like you said, this week just kind of get up to speed or whatever. But I think at some point, maybe after this week, we'll talk about like real timelines. What are some real sort of expectations as far as okay, by I don't know January we want to do this, and you know oh yeah
+
+Speaker 2  43:07  
+yeah we know that that's quick and easy. The first is that we want to be able to pilot this with a call center rep for Galderma, and the goal to do that is November the 30th.
+
+Speaker 1  43:23  
+november 30. Okay, so roughly about a month. Yeah,
+
+Speaker 2  43:27  
+yeah. We have about a month, but Thanksgiving is in there. That's
+
+Speaker 1  43:31  
+true. Yeah, yeah,
+
+Speaker 2  43:32  
+yeah. And here, there's another rub that the deployco team has some kind of deployco planning session the first week of November, which is that's next week actually. They will have very limited availability next week, is what I understand. So we'll see. I don't know what to expect for next week. So it may be an opportunity that you will be able to dig, but you're probably going to have limited support from
+
+Speaker 4  44:07  
+them.
+
+Speaker 2  44:08  
+So,
+
+Speaker 1  44:08  
+and assuming I get access in time of stuff,
+
+Speaker 2  44:11  
+you we'll make sure you get access to everything this week. We'll get that done. In fact, we'll put Jira tickets on the board and spend it today to pick it up. That's the
+
+Speaker 1  44:21  
+way to do it. Yep.
+
+Speaker 2  44:23  
+Yep. We'll we'll make it happen. So,
+
+Speaker 1  44:28  
+and what was the client again that by the end of this month that we wanted to have like a working demo?
+
+Speaker 2  44:35  
+Galderma.
+
+Speaker 1  44:36  
+Galderma. Okay. Okay. Yeah.
+
+Speaker 2  44:38  
+That's Galderma is the company. The I laughed. I showed my wife. I was like, we had there were commercials on during the football games this weekend. The drug name is
+
+Speaker 1  44:52  
+Nimlubio. I'll
+
+Speaker 2  44:53  
+type it in the chat for you.
+
+Speaker 1  44:54  
+Okay.
+
+Speaker 2  44:56  
+Yeah. Galderma is the company, and then and look at the video. It's the drug,
+
+Speaker 1  45:07  
+okay.
+
+Speaker 2  45:09  
+And they're just the first one. They haven't picked. There's like a short list of two client two drug programs that would be the second, but they haven't picked which one. The goal is that this thing is ready to go to drug program number two and beyond mid January.
+
+Speaker 1  45:37  
+Mid January, okay,
+
+Speaker 2  45:38  
+yeah. So in theory, we've got well three months. Problem is, we got holidays in there too, right?
+
+Speaker 1  45:47  
+Yeah, it's kind of like the worst time to
+
+Speaker 2  45:50  
+yeah
+
+Speaker 1  45:50  
+to kick off a new project.
+
+Speaker 2  45:53  
+Well, I don't know. There's never a good time. the The contract with Deployco is outcome based. They don't. They're not going to like it. But if we're not done, they're going to keep with. They're going to stay with us into January and February, right? One thing that I'll warn you is they do push to limit the scope, and that's a consulting organization, right?
+
+Speaker 1  46:24  
+Yeah.
+
+Speaker 2  46:24  
+They want to limit the scope so that they can say we're done with our part. Now it's yours. You take it forward on your own. Yeah. So we
+
+Speaker 1  46:34  
+want to milk every everything we can from these guys and push them to as much as we can, pretty much.
+
+Speaker 2  46:40  
+Yeah, definitely. And get our money. Get the money's worth,
+
+Speaker 1  46:44  
+basically. Get the ROI.
+
+Speaker 2  46:46  
+Yeah, you're exactly right. They're good people. I like them. They're crazy smart. They're all young. You're gonna be. You'll laugh. I mean, they're all green and young, but at the same time, they're really, really smart and doing good stuff. So it's it's good. They work like crazy too. Like you guys take a minute off, okay? That's probably good though. I'm sure they recruit them for that.
+
+Speaker 1  47:12  
+Yeah, that's consulting.
+
+Speaker 2  47:16  
+Yeah, Anish is in New York, and the rest of them are in San Francisco.
+
+Speaker 1  47:21  
+I see. Okay.
+
+Speaker 2  47:23  
+Yeah.
+
+Speaker 1  47:24  
+Okay. No, very exciting stuff. Um, I'm. Thank you so much for having me on board this. I'm happy to do it. I'm excited about it. And yeah, we'll we'll dive. I'll stick my teeth in this and dissect everything, and probably ask a ton of questions, annoy everybody to the nth degree, but that's
+
+Speaker 2  47:45  
+okay. That's all good. Ask a lot of
+
+Speaker 1  47:47  
+questions, so the
+
+Speaker 2  47:48  
+Deployco guys have been great. That they, I mean, they recognize and know that part of this is equipping us to leave, or equipping us so that when they do leave and depart, whenever that is in q1 next year. That we own it and we we can run it and we know it front to back.
+
+Speaker 1  48:09  
+Yeah, makes sense.
+
+Speaker 2  48:10  
+So they're very they want us in there with them. So they'll they're going to be happy to have you there. My goal is that we are one team, so there should really be no difference. You guys can collaborate, and we can make our own working agreements as a team. It'll be good.
+
+Speaker 1  48:27  
+Yeah.
+
+Speaker 2  48:28  
+So I think it'll be okay. I'm worried about the tight deadlines and stuff. We have really ambitious goals here. So we'll see how this goes. We're gonna scramble a little bit and see. Give
+
+Speaker 1  48:45  
+it our best foot as long as we do our best. You know, that's all you can ask.
+
+Speaker 2  48:49  
+Yeah, I don't worry as much about the technology, very honestly, as I do the user experience. I
+
+Speaker 1  48:54  
+did think about that too. Again, you know, as I dive into this, and also just kind of what what's available to us and what what we can actually use to move the needle? Because sometimes there are some restrictions. Yeah, but we'll see. We'll get there.
+
+Speaker 2  49:13  
+Yeah, and I will tell you, we're also trying to hire a product owner and a scrum master for this team. That would help. Yeah. So Sean and Melissa are trying to find us a product owner and a scrum master.
+
+Speaker 1  49:28  
+I just know enough to be dangerous. That's it. But yeah, it's just building up Jira boards and PI planning and all that.
+
+Speaker 2  49:37  
+Yeah. So yeah, we're having to cobble all of that together today with the engineers on the team, right? And Deployco, they've hired their engineers as Ford deployed engineers that they do everything, right? They know that they have to go work on user experience too, and they'll they have people that can help with that too. But yeah, I think that part of it, we need to make sure that it helps the the users and those call center reps actually want to use it. So adoption is going to be key. Oh yeah, I think yeah. As much as you can be during this time, you can be flexible on how do you help the team. Yeah, it may be chasing down people to find answers to something about user experience. Maybe not as maybe it's not core AI even right out of the gate. We'll see what they say today.
+
+Speaker 1  50:31  
+Yeah, many have to wear many hats on this one. So
+
+Speaker 2  50:36  
+yeah, yeah. So keep me keep me honest on
+
+Speaker 4  50:39  
+it.
+
+Speaker 2  50:40  
+You know, tell me when you feel like we're off track or you need help. I I'm here to help whoever it is on
+
+Speaker 1  50:48  
+the team. Sounds great. No, no, super excited. Thanks, Alan. I appreciate it. So I'm looking forward to it.
+
+Speaker 2  50:56  
+So we have a meeting at two, I think, for planning. Do you have that? I have two. I have two meetings. It would be one for you, right?
+
+Speaker 1  51:05  
+I have two meetings. I have the deploy code AI weekly planning.
+
+Speaker 2  51:12  
+Yep.
+
+Speaker 1  51:12  
+And then I have the AI agent support experience call center demo product review feedback.
+
+Speaker 2  51:23  
+3o'clock your time, right?
+
+Speaker 1  51:24  
+Yes. Okay. So I have those two.
+
+Speaker 2  51:30  
+I'm going to forward you one more. Okay. And it said 330 your time. Well, if I can, I need to go to it in Outlook to do that, don't I? This is our meeting with the infrastructure team. So wait a minute, I should do the whole series, right?
+
+Speaker 1  52:01  
+Is that like a weekly thing?
+
+Speaker 2  52:04  
+Yeah, it's a weekly thing. All events and series. Right, that's a weekly one with the infrastructure team. Mostly, what they're going to talk to us about is like AWS build out and where we are and what we need there. So, all right,
+
+Speaker 1  52:32  
+we'll figure
+
+Speaker 2  52:32  
+it out as we go.
+
+Speaker 1  52:33  
+We will. It'll
+
+Speaker 2  52:35  
+be a scramble this week to get you all the meetings, get you all the access and everything, but we're the
+
+Speaker 1  52:42  
+go-to person for all the access stuff that I need to submit tickets for.
+
+Speaker 2  52:47  
+Let's talk to them about that too. Okay, they have a list of everything that they had to do last week to get to get VIB onboarded and access to everything. You're already an employee, so some of it will be easy. Like for him, it was a pain that they had to do an out-of-cycle compliance training and stuff. But there's no issue for you with that. So it should be simpler. But they have a list of all the systems that you need access to, and you'll have to make well. We'll figure that out. What are all the Jira tickets that have to be created for the teams to get you access?
+
+Speaker 1  53:27  
+Okay. Awesome.
+
+Speaker 2  53:29  
+Let's talk about that at two. We'll get it stubbed out for you and ready to go.
+
+Speaker 1  53:35  
+Sounds good.
+
+Speaker 2  53:37  
+Right. Thanks, Josh.
+
+Speaker 1  53:39  
+Awesome. Thank you.
+
+Speaker 2  53:41  
+Appreciate it.
+
+Speaker 1  53:42  
+All right. See ya. Bye.
+
+Speaker 6  53:43  
+Bye.
+
+Transcribed by https://otter.ai
