@@ -1,0 +1,14 @@
+USE [TransBroker];
+GO
+
+SELECT TOP 50
+    TR.TripRequestId,
+    EL.EventJson AS RequestPayload
+FROM [dbo].[TripRequest] AS TR WITH (NOLOCK)
+INNER JOIN [dbo].[O_RequestEventLogs] AS EL WITH (NOLOCK)
+    ON EL.OLOSRequestId = TR.OLOSRequestId
+WHERE TR.SystemId = 1
+    AND TR.IsSigningRequired = 1
+    AND TR.ContractId IN (29, 555, 326, 229)
+    AND EL.EventId = 3
+ORDER BY TR.TripRequestId DESC;
