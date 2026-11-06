@@ -1,0 +1,62 @@
+All four restored indexes are green, so the restore is finished.
+Write these on notepad line 26:
+
+aim-dedup-parties-20250519_restored-prod-20261105   docs.count: 756879723
+dedup-party-match-20250519_restored-prod-20261105   docs.count: 748755518
+irq-index_restored-prod-20261105                    docs.count: 859313
+iis-identity-api-20250519_restored-prod-20261105    docs.count: (from identity-staging, see below)
+The docs.count column is right at the edge of your screen, so those numbers might be cut off. To get exact counts for all four:
+	1	Run this in the partyrecord-staging tab:
+
+   GET _cat/indices/*restored-prod-20261105*?v&h=health,index,docs.count
+	2	Run it again in the identity-staging tab.
+	3	Correct line 26 with the numbers it shows, then press Cmd+S.
+
+Step 8: Move the aliases on partyrecord stage
+Tab: the address bar must say opensearch-partyrecord-staging.
+	1	Click on an empty line below your last command.
+	2	Paste one of these two blocks, depending on Paul’s answer about irq. If Paul hasn’t replied, use Version A. That’s what the runbook says, and you can move irq later.
+Version A (Paul said no to irq, or hasn’t replied):
+
+POST _aliases
+{ "actions": [
+  { "remove": { "index": "dedup-party-match-20250519_restored-prod-20260914", "alias": "dedup-party-match" } },
+  { "add":    { "index": "dedup-party-match-20250519_restored-prod-20261105", "alias": "dedup-party-match" } },
+  { "remove": { "index": "aim-dedup-parties-20250519_restored-prod-20260914", "alias": "iis-history-api-alias" } },
+  { "add":    { "index": "aim-dedup-parties-20250519_restored-prod-20261105", "alias": "iis-history-api-alias" } },
+  { "remove": { "index": "aim-dedup-parties-20250519_restored-prod-20260914", "alias": "aim-dedup-parties" } },
+  { "add":    { "index": "aim-dedup-parties-20250519_restored-prod-20261105", "alias": "aim-dedup-parties" } }
+]}
+Version B (Paul said yes, move irq too):
+
+POST _aliases
+{ "actions": [
+  { "remove": { "index": "dedup-party-match-20250519_restored-prod-20260914", "alias": "dedup-party-match" } },
+  { "add":    { "index": "dedup-party-match-20250519_restored-prod-20261105", "alias": "dedup-party-match" } },
+  { "remove": { "index": "aim-dedup-parties-20250519_restored-prod-20260914", "alias": "iis-history-api-alias" } },
+  { "add":    { "index": "aim-dedup-parties-20250519_restored-prod-20261105", "alias": "iis-history-api-alias" } },
+  { "remove": { "index": "aim-dedup-parties-20250519_restored-prod-20260914", "alias": "aim-dedup-parties" } },
+  { "add":    { "index": "aim-dedup-parties-20250519_restored-prod-20261105", "alias": "aim-dedup-parties" } },
+  { "remove": { "index": "irq-index_restored-prod-20260914", "alias": "irq-index-alias" } },
+  { "add":    { "index": "irq-index_restored-prod-20261105", "alias": "irq-index-alias" } }
+]}
+	3	Click on the POST _aliases line and press Cmd+Enter.
+	4	Expected: "acknowledged": true
+Step 9: Move the aliases on identity stage
+Tab: the address bar must say opensearch-identity-staging.
+	1	Click on an empty line below your last command and paste:
+
+   POST _aliases
+   { "actions": [
+     { "remove": { "index": "iis-identity-api-20250519_restored-prod-20260914", "alias": "iis-identity-consumer-alias" } },
+     { "add":    { "index": "iis-identity-api-20250519_restored-prod-20261105", "alias": "iis-identity-consumer-alias" } },
+     { "remove": { "index": "iis-identity-api-20250519_restored-prod-20260914", "alias": "iis-identity-api-alias" } },
+     { "add":    { "index": "iis-identity-api-20250519_restored-prod-20261105", "alias": "iis-identity-api-alias" } }
+   ]}
+	2	Click on the POST _aliases line and press Cmd+Enter.
+	3	Expected: "acknowledged": true
+Step 10: Verify
+	1	In both staging tabs, run:
+
+   GET _cat/aliases?v&s=alias
+	2	Expected: the rows for aim-dedup-parties, dedup-party-match, iis-history-api-alias and both iis-identity-* aliases now end in 20261105.
