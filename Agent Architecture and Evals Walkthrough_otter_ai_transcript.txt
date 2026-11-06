@@ -1,0 +1,313 @@
+Speaker 1  0:00  
+Perfect.
+
+Speaker 2  0:00  
+I think we synced with Alan today earlier before you joined the meeting as well. That yeah, I mean we would love to have any help we can, and more so I would just like to have you constantly like you know give me like second opinions, help in the development, and yeah, like overall, like have have someone to have the knowledge even after like deployco leaves. So what I can do here is I can walk you through how I've been doing stuff. And by the end of the call, I I was kind of hoping that you can tell me this is what I would need to run some experiments. The ultimate goal is that we deploy currently has some hurdles that we need to cross to get access to PHI data, but if you can get access to PHI data and then run those evals on those,
+
+Speaker 1  0:53  
+even better.
+
+Speaker 2  0:53  
+That is the ultimate goal. Do
+
+Speaker 1  0:55  
+we want to record this, or is there PHI?
+
+Speaker 2  1:02  
+There should be no PHI, but you can record this if you want. Can I record this?
+
+Speaker 1  1:14  
+It's okay if you can't.
+
+Speaker 2  1:18  
+I I do see the record button, but a little vary of recording details. That's okay. But yeah, I mean, I think it should be pretty straightforward, and this is not going to be like anything final at all. Like it is completely bifloated as of today. So I'm just going to walk you through the current state. You can stop me at any point for any questions, and then hopefully we can talk about what you need from me to yeah to do these this testing on the exam. That'd be great. That makes sense.
+
+Speaker 1  1:49  
+Perfect.
+
+Speaker 3  1:50  
+Awesome. Okay. Let me just share my screen. Okay. You see my screen? Uh huh.
+
+Speaker 2  2:02  
+Can you see my screen?
+
+Speaker 1  2:03  
+I do. Yep.
+
+Speaker 3  2:06  
+Let me get my Chrome up here.
+
+Speaker 2  2:15  
+Okay. Um, I think you should have enough context on how this is working, I think, right? Because I remember you were present on the evals call. Yep. But let me just quickly walk you through how the setup currently looks like. So we have. Have you used Langfuse before?
+
+Speaker 1  2:35  
+I have not.
+
+Speaker 2  2:37  
+Okay, should be should be pretty like easy to onboard, and you can also like play around with it. I can also just if you just go to like call companion devices this draw up, you should just be able to find the line fuse hosted. But yeah, let me just quickly walk you through the things. So the first thing is I've just created this synthetic dataset, just called Lumen 30, and once you click in this dataset, like you have these data points essentially, and if you click on any of this data, you can see that the first is actually mock CRM. Currently, we are not using like a real CRM, so we're just using a mock CRM. So when you run this and the CRM to who call is called. It actually like serves this data. Does
+
+Speaker 3  3:24  
+that make sense?
+
+Speaker 1  3:25  
+Okay, so this is like a call transcription.
+
+Speaker 2  3:30  
+So the call transcription part is coming in, but the first part is the mock CRM information is also stored in this dataset. I see in in this data point. So you can see like this probably has like the date of birth and yeah, appeal status and insurance and every information that a CSR or the agent might need as context. Ideally, you would pull that from Salesforce itself, but currently, you know, this is not like real data, so it doesn't make sense for us to put it in actual Salesforce, and then you actually come to the transcript part. So within the transcript part, you naturally have your text, text, text. It's just a list, and then you can see that you have your text, you have your speaker, you have your turn ID and you have your sequence. Sequence is just 1234. Turn ID is just this factual, like human was 060 is the name of the dataset, and then this is just turn 002, turn 003. So this is just all metadata which we don't need. And caller and rep is kind of like I guess like it. When I say wrap, this can be CSR, CSM, um, or or CM, anyone from uh our side, um, yeah, that's about it. That's all the information that we have on this actual data point, and then there's like a bunch of metadata, which is like what was the focus of the call, what is the coverage of the call? The expected graph scenario, graph coverage, and all of this is pretty much just like for testing. So that is the structure. And now let's walk through how this actually looks like once you run an experiment. So if you remember the graph approach that we talked about. I can quickly walk you through one trace. So, if you go through this trace, the way that this trace looks like is that Okay, so you see that on here. Wait, let me just go through a better trace.
+
+Speaker 3  5:51  
+Think this one is pretty good. Just go to this
+
+Speaker 2  6:00  
+one. So you can see in this trace, you have your opportunity prefix one. So the model is called on every turn end. So this w4 opportunity prefix one signifies the first turn. Prefix two specifies the second turn. Prefix three specifies the third turn. So you can see that on turn one, the input that it had was new speech, which was just Lumen patient support. This is Mira. How can I help you? And you can see that the decisions API was called when a workflow single decision model refers to decisions API, and you can see that the questions that this was asked was select one exactly joined root for this live call. This is where it decides like which part of graph it needs to go on. And please feel free to interrupt if like I'm blabbering or if this doesn't make sense. No, yeah,
+
+Speaker 1  6:54  
+I'm following so far.
+
+Speaker 2  6:56  
+Yeah, and then when you give it the choices, it's just stay, no action, stay, clarify, or advance, or interrupt, or any of these like nodes from the graph, and it just gives you probabilities, and you pretty much just pick one because on this one it was just hi hello, so that was like advance call no action, and you can see here that the responses API was not called because no action was needed here, let's just quickly go through another trace, which is this time the new speech was actually we can look at your concern. Please give us your name or member ID. That means in prefix two they said my delivery sat by the garage, and I get another one. This little strip looks different. So in this time in decisions API, you give it the same set of questions, but the options here this time the answer was actually stay CRM search. So in this case, it must have probably made the do call of this CRM search. There is another call that happens, which is to the responses API to actually figure out the arguments of CRM search. This is supposed to like mimic real life, where within CRM search there can be multiple tool calls. I think within Salesforce there's probably going to be like 10 wrappers or tools around MCP, and then you for now we're just kind of like blanketing in that one.
+
+Speaker 1  8:19  
+Can you go back to? Sorry, I'm a little under the weather right now. My throat is kind of in and out. But the w4 opportunity prefix three. Can you go back to click on that? So in this example, we can look at your concern. Yeah. Wait a minute. Maybe it wasn't that one. But this is the one that initiated this this workflow here. So this came from the LLM, right?
+
+Speaker 2  8:50  
+This instruction.
+
+Speaker 1  8:51  
+Uh huh.
+
+Speaker 2  8:53  
+This is the input. This is like the system prompt, right? Oh, okay.
+
+Speaker 1  8:55  
+So this is the system prompt to the LLM. Okay.
+
+Speaker 2  8:58  
+Yeah, yeah. This is all just input. So the input here was the entire graph, and then it was also this instruction. It was also all the speech. So the from okay, so
+
+Speaker 1  9:10  
+all the speech up to this point in this call.
+
+Speaker 2  9:13  
+Yes, yes, all the speech up to this point, which is like we can look at your concern. My little be sat by the garage. Blah blah blah. You can ignore like I think when you treat this, this is like looks like a lot of like metadata. So you can you kind of like it'll take you like I don't know like 1520 minutes to learn to like ignore a bunch of this metadata and look at only the important parts. And then this is the question that you asked it. So the output is actually like this just structured output, right? Like the only output that matters here is stay CRM search.
+
+Speaker 1  9:46  
+Stay CRM search. What does that mean, stay CRM search? Like it's advising the it's advising the call or the the call clerk to do this action.
+
+Speaker 2  9:57  
+It's actually advising the agent itself. So if you see the it it can say stay no action stay guidance stay clarify stay clarify means like clarify based on the current node and then tool call is CRM search so it's saying stay on the current node but do a tool call of CRM search okay it can say resume call no action it can also say like advance I don't know why this one doesn't have advance here, but if you go to like a different decision model,
+
+Speaker 1  10:26  
+I get it now. Yeah, I get it. Okay.
+
+Speaker 2  10:29  
+And then yeah, you'll see. Oh, this one also just has resume. It it depends a lot based on like where we are in the. So this
+
+Speaker 1  10:39  
+one had a high probability on. If you go back to one you were just on, or this one's fine. See, these probabilities are pretty low. What happens if? So, does something from this list have to be selected, even though if the confidence is low?
+
+Speaker 2  10:58  
+Yeah, yeah. Currently, it still has to be selected because we are giving it so many options. Realistically, like it, we're just relying on it to select the max one. But yeah, I totally see your point. We could potentially like explore an idea where we want to just select something which has a high confidence score.
+
+Speaker 1  11:19  
+Right. Like so, for example, like the confidence score doesn't meet a certain threshold, then yeah, it needs to yeah reinitiate a new clarifying question prompt.
+
+Speaker 2  11:28  
+Yeah, yeah, that that could be true, but I think currently what we're facing actually is that based on my initial testing, is that the graph tends to stay on a node longer than needed. So we're actually like getting the reverse problem, that the graph is hopping around too much. Then why is the probability?
+
+Speaker 1  11:46  
+Why is the confidence so low? Then, if that's the case,
+
+Speaker 2  11:50  
+I think it's just because we're giving it so many options. Like I think in this case, it was quite like for example, let's if you see this one, workflow decision model. I think this one is quite obvious that you need to do a CRM search, so it's quite obvious. But stay CRM search is still 0.32 when stake guidance is 0.28 because in theory both can be the right answers, right? You can ask for guidance like, hey, tell me more about yourself, or you can just do a CRM search based on what you already know.
+
+Speaker 1  12:23  
+Yeah, I was just curious because in other other projects I've worked on, if kind of doing, I mean, I haven't gone through this sort of walk through, you know, bit by bit here. But if the model's confidence score is is lower than there was a an alternative agent that would run with a different clarifying question prompt, and it lead it down like a different workstream.
+
+Speaker 2  12:47  
+Yeah, yeah. No, I mean, I I I agree with you. I think in like classic AI engineering, you would definitely do that. But I think the, and this is just my opinion, and you know you can totally like come up with a different answer, but I think in just my opinion, because we are dealing with like the goal is to have like a sub three second latency, we don't have an option to run another agent. Okay, and that is the reason why we're using like realistically like decisions API is not that robust. It doesn't have reasoning. It's not smart at all. It's just doing base probability under the hood, right? But we can't do anything else because we can only afford one completions call and one decisions call. That is the max that we can afford. I've done some testing, and I am happy to like share you the testing as well. But you can just also ask like codex to make a couple of calls to different GPT families based on different token inputs, and measure their time to forge token. And if we want to hit sub 30 seconds, sub three seconds, what I've realized is 20k responses API time to forex token is like one second, one to 1.5 seconds. So that's the max that we can afford. Because GPT transcribe takes 500 milliseconds, and then a decisions API also takes like 100 to 100 milliseconds. And if we want to reach a 20k to a 30k context token limit, we need to have like some sort of like context limitation factor, right? Like in a classic rag approach, instead of sending the whole document, you send like a smaller part. So you need to have this like the whole point of this decision graph is to just shorten this like like context that you're providing it. So we need to have this. Like in this case, you can see that decision model took point 33 eight seconds, and a standard like streaming guidance would take 2.96 seconds total. But the first token would appear like one second, 1.2 seconds. So that's like fine actually.
+
+Speaker 1  14:57  
+No, I get it.
+
+Speaker 2  15:00  
+That makes sense.
+
+Speaker 1  15:01  
+Yeah, we had the we had the luxury of another project where the we could run multiple LM because it was a it wasn't latency wasn't really an issue, but I get it. There's a there's a trade off between the latency and the type of LLM response and the quality of that response that that does play a factor. Yeah,
+
+Speaker 2  15:21  
+yeah, yeah. Like this is also like if you see like this streaming model, this is yeah. So if you see like actually like just what I was saying, right? The TFFT was actually 1.09 seconds. So that plus the 0.43 seconds gives us like 1.5 seconds. GPT transcribe in a real world would have taken another point five seconds, so and then you know, for in our time, yeah, just engineering, and you can assume that this is still three seconds, and we cannot go more than three seconds for sure.
+
+Speaker 1  15:53  
+Right.
+
+Speaker 2  15:54  
+So, yeah, I mean, this is still like GPT six Luna with tokens 20 1000s, so this is like nothing. Like ideally, if you give this whole thing to Astra and just have like Codex running on the background, like literally Codex agent running on the background, it would be so much nicer. But that's just the as you said, that's just the luxury we don't have.
+
+Speaker 1  16:14  
+I see. Okay.
+
+Speaker 2  16:17  
+But yeah, does the CRM search on how this is going to look like in the product, that after the CRM search is done, the user or the human in there's a human in the loop bar here, which actually clicks on okay accept, and then like then we actually make the CRM call. Yeah, once that happens, it's the exact same thing that keeps happening again. Even if you go down like super down, and oh, I guess this is like an interesting part: workflow decision rate. Why wasn't the judge running on this? I was a failure. But yeah, you can see the same thing is happening here. Yeah, exact same thing. Guidance. Let's go down a little bit more. Something similar must be happening here as well. In this case, it is still on stake guidance, which is kind of like bad. Which is just what I was kind of telling you about, right? Like, just seems to stay on one node too much. But either way, so you get the idea of how overall like this agent is running. Now, how we are doing evals is after this whole thing is run, we actually run the LLM as a judge. I think I already walked you through like how the transcript looked like, so it gives you a score based on like different, and this can actually like take whatever time it wants, right? Like this is a Luna with like 44,000 tokens. It takes 10 seconds, but we don't care, right? This is like an async process. Yeah, it gave back like answers of a bunch of criterias for status, for reason. Let's score. Yeah, so you can see in c4, it actually like scored zero, so this was like pretty bad like run I guess, and then at the end you final like consolidated David score, which is this. So ideally this judge should have run on like each of these turns, but I think this was just like a also the judge the
+
+Speaker 1  18:20  
+judge doesn't run run on every turn. Just where well, that would make sense because sometimes that was
+
+Speaker 2  18:24  
+that was just that was an error. Like it should run on every turn. Oh, it shouldn't. Oh, should have run. Yeah, I think I was just facing like yesterday. I was just facing an issue with the judge running on every turn. I think that was I was like hitting like rate limiting or something because I was running it like super fast. Maybe the latest ones it should have run. See, but ideally it should run on. And the LLM
+
+Speaker 1  18:53  
+that we're using is it deployed in in Bedrock? Is it like
+
+Speaker 2  18:58  
+no? It's it's just making it's just making it to direct direct call. It's not deployed on Bedrock.
+
+Speaker 1  19:05  
+Okay. So is there any PHI or PII problems with? Because I know when I worked on projects with sending PHI to the LLM, like it had to be deployed within an Azure tenant in a certain subscription in a certain region for us to be able to use that for HIPAA compliance.
+
+Speaker 2  19:25  
+So, from my understanding, this is from my understanding. We have a B assist RX has a BAA with OpenAI, and OpenAI has the zero data retention policy. So, any key that you make on platform.openai.com, you can use that key, and that key should be zero data retention. So that key should be safe to process PHM.
+
+Speaker 1  19:51  
+But we don't know what region or where the data is. Oh, oh, you're using it for not being reached.
+
+Speaker 2  19:57  
+That's that's a good question. You can. You should probably. I have. I haven't been told anything about region just yet, but that is kind of something like this kind of stuff is something that I'm hoping to rely on your experience and expertise for. That once you kind of like adapt this to run on PHI data, you know you can have all these like nitty gritties worked out.
+
+Speaker 1  20:21  
+Okay.
+
+Speaker 2  20:22  
+Okay. I'll also quickly walk you through like what work I've done. Now, do I have
+
+Speaker 1  20:29  
+access to LinkFuse? I don't remember a ticket for LinkFuse. I don't remember seeing.
+
+Speaker 2  20:35  
+This is like on the self-hosted machine, so you should just be able to access the endpoint.
+
+Speaker 1  20:41  
+Oh. So
+
+Speaker 2  20:42  
+if you okay,
+
+Speaker 1  20:43  
+so you launch it from the VM. Is that what I'm seeing? Yeah. Oh, okay. You spin it up from the VM. Okay.
+
+Speaker 2  20:51  
+Yes. Yes.
+
+Speaker 1  20:53  
+I got you.
+
+Speaker 2  20:56  
+So ideally, I think they should just be shared. I think.
+
+Speaker 1  20:59  
+Got you. Got you, got you. Okay, I'm now. I'm now. I'm understanding. Okay. Yeah. Can you go back to the oh the application? Okay, I I think I'm understanding now. Okay. Uh, interesting. Okay, how does how does this API how is this endpoint or that this URL that's being spun up? How is that like secured within our within our Zscaler configuration, or is this like,
+
+Speaker 2  21:34  
+or
+
+Speaker 1  21:35  
+is this through like GlobalProtect?
+
+Speaker 2  21:39  
+I think this is a Zscaler URL. I think this is this is just on this machine. I think you're gonna have to talk to Anish about like because they spun up this URL.
+
+Speaker 1  21:49  
+Okay.
+
+Speaker 2  21:51  
+So, but yeah, this is definitely like Zscaler, and you can only access this URL if you are SSHed into the machine. And I think in order to SSH into the machine, you need to have Zscaler. So yes, you you do need to have Zscaler.
+
+Speaker 1  22:06  
+Okay. Okay, makes sense. Okay, cool. So that's how you run that. Now,
+
+Speaker 2  22:12  
+yeah.
+
+Speaker 1  22:12  
+So can you go back to like the? I think no. This is extremely beneficial. Thank you so much. So this is really kind of how the the actual intake as a someone calls in, and this is something that we can simulate through Jabber eventually, right? Like we'll we'll eventually be able to get this hooked into to the the Cisco phone, right, and then start transcribing these live into the streaming thing. Now, the data that you presented on the the simulated calls, synthetic data that you have, is that simulating a streaming of a conversation, or is that just like one payload?
+
+Speaker 2  23:00  
+It's not streaming. Currently, currently, how we're thinking about this is that a call like the start of an agent starts when a human is done speaking.
+
+Speaker 1  23:13  
+Okay, so we're not advising them inside in the call at all. It's
+
+Speaker 2  23:18  
+so when the human is speaking, nothing happens. When the human is done speaking. The AI, the AI
+
+Speaker 1  23:24  
+takes over.
+
+Speaker 2  23:25  
+Something comes up. Yeah,
+
+Speaker 1  23:27  
+got you.
+
+Speaker 2  23:29  
+And ideally, this is like two to three seconds is fast enough that you know while the human like finishes like oh like I see what mean they have something on their screen. Ideally, so this is something that also needs to be productized. Like, when do we make these calls? Because if we make these calls too many times, like while the person is speaking, this is a very interesting problem that I was like looking into as well. Like, we are operating on like half context. So, is it better to have incorrect recommendations in the middle of the call, or would we rather like have correct recommendations two seconds once the human is done speaking? And I think we went for the latter, because a lot of times with half recommendation is just like imagine you are a CSR, and while the person is speaking, your recommendations just keep changing. Just like I don't even have the time to read them.
+
+Speaker 1  24:26  
+No, yeah, I see the issue. So we haven't tested this through a streaming,
+
+Speaker 3  24:34  
+not through Jabber yet. No,
+
+Speaker 1  24:35  
+not through Jabber yet.
+
+Speaker 2  24:36  
+Currently, that's that part. That part is also kind of, I don't know how to say what's the right word. Like it has a ceiling with the accuracy of GPT Transcribe, but we assume that that's something that we're not testing because that's just the best we have. So that's that's the product version of this is something that we haven't tested yet or we haven't moved on to yet. Currently, we are still focusing on hill climbing this current graph approach itself. Like the actual agent architecture itself, there there needs to be a lot more work done before we can actually move on to productizing
+
+Speaker 1  25:14  
+it. I see. Yeah.
+
+Speaker 4  25:15  
+Yeah.
+
+Speaker 1  25:17  
+Not just the architecture, but just the the process flow like I'm just trying to think of like through a call once the person's done when it initiates and I want to be able to see the AI and the human me the the recipient on the call I want to see that transcribing and scoring happen simultaneously as it's as it's occurring that's what we need to test
+
+Speaker 2  25:41  
+yeah so I can actually like let me show you something if I still have this running.
+
+Speaker 1  25:52  
+No, but this is really good. This is a good start. I definitely understand the challenge here and the limitations, I understand.
+
+Speaker 2  26:04  
+Here, so let me show you something that I'm actually trying to test myself. So I just like deployed this on a lightweight UI, and I'll say my name is Viva, and I am trying to understand my benefits for Lumen. I'm just gonna say as customer, and ideally, like this should be fashion. I guess CSR. Can you tell me your full name? Oh, I don't know why this is so bad right now. Oh, I guess like it did the CRM patient match, and then I'll just say my name is caller. I think now it should start sending a first recommendation. Yeah. So now you can see here now it actually like went to the HIPAA node, and it's asking ask the caller for one approved identifier. So it didn't like recommend anything until it was so confident because the the node the graph node the decision API that I showed you earlier that decided stay no action because we also don't want to just spam them with AI slop right. So we want to make sure that if the human will also like read this, then they read this. It's also going to take them time to read and understand this, right? So you also don't want to show them so much information that they're not even able to read
+
+Speaker 1  27:31  
+it. That makes sense. Cool.
+
+Speaker 2  27:35  
+Yeah. So what I would recommend is I would just say SSH into the VM, just read. There is, by the way, a bunch of slop in the VM. I have not written a single line of code in there because it's just all been experimented. So we don't need to productionize any of that just yet. So I would not recommend reading any of the code if that's what you were thinking of doing. You can read the code on GitHub, but please do not read the code on the VM. You will end up hating me. We just say ask your codex to write a summary of every experiments. There's a file called, however, all the things that I've done with codecs I've organized very meticulously. It's in three files: experiments.memory.md and issues.md. memory.md is pretty much all the things I told it to remember all my preferences. Issues.md is something that is something that we are letting go for now, but we will take care of when we productionize it. Something as you said, like if you want to run the agent like midway or like where you want to put human in the loop, a bunch of those things, and experiments.md is every single experiment that I've conducted from the very first day. So you can ask your agent to summarize. Once again, that is also a lot of slum, but you should be able to ask your agent to summarize it, and you should be able to read it.
+
+Speaker 1  28:57  
+Okay, cool. No, yeah, looking forward to diving in. So,
+
+Speaker 2  29:02  
+yeah. So I would say just read everything that's on the VM. If you come across like weird namings like w4, w5, v5, v6, just ask it to refer to experiments.md or memory.md and what that version means. Because I've been hill climbing it, right? So there's been different versions on different dates. So you will see a lot of these things like V1, V2, V3, V4, V6, W3, V4. The for high level W1, W2, W3, W4 are the four architectures I'm testing, and V1, V2, V3, V4, V6 are like versions of each architect. I see. You'll see this naming across like language use and across like the VM itself. So yeah, I would just say read everything on the VM. Kind of spec out like how you would want to run this. Ideally, the way that I've just been running it, I've just been telling my codex everything I wanted to do, and then in the background, Codex is just running it and making sure that the judge and everything runs properly. So I'm happy to like give it to you in a little bit more like organized state as well. So maybe run a couple of smoke tests, smoke experiments on the synthetic ones, get get a hang of like how it's going, and then you know as you said, kind of just think about like how we would want to go about using vent and PHI data. For that, we will also need like a Salesforce read-only key. We will also need like PHI keys, or we will also need like the Vent Vent audios. So we need like a bunch of those things. So I would probably just recommend then you can kind of like go about and see like what the next job, and then maybe you and I can talk on like Monday or something, and see where to go from there.
+
+Speaker 1  30:50  
+Sounds good. All right, man. Well, I really appreciate it. No, this is extremely helpful. Really appreciate it. At this point, I think I have more clarity now on how how it's actually working, so appreciate that.
+
+Speaker 2  31:02  
+Yeah, yeah, and I think earlier the eval CDD that was all like human written, and that is what I've been doing. So if you have like any like concerns or clarification, you can just always go to that document as like a source of truth, because I understand like this is totally experimentation, right? So that's probably like something, but yeah, let me know how you feel, and feel free to text me, and you know you can sync maybe on Monday or Tuesday maybe. Yeah, I think I'll be a little bit busy with Steerco, but I'll let you know.
+
+Speaker 1  31:37  
+All right, I appreciate the time. Thank you so much, babe.
+
+Speaker 2  31:41  
+Of course, have a have a wonderful day, Josh, and I'll talk to you very soon.
+
+Speaker 1  31:45  
+All right, thank you. Bye.
+
+Transcribed by https://otter.ai
