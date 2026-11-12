@@ -1,0 +1,136 @@
+MEDICAL NECESSITY API - REQUEST AND RESPONSE
+============================================
+
+
+MARKING A PAYLOAD AS PREVIOUSLY CHECKED
+---------------------------------------
+
+Add these two fields to the payload:
+
+    "clarifyingQuestion": "the question we returned on the first call",
+    "clarifyingAnswer": "what the requester typed in response"
+
+Both populated means we treat it as a recheck. Send the rest of the
+payload unchanged.
+
+If you would rather keep it on a separate route,
+POST /v1/medical-necessity/reevaluate does the same thing:
+
+    {
+      "tripRequest": { "...the original payload, unchanged..." },
+      "clarification": {
+        "question": "the question we returned",
+        "answer": "what the requester typed"
+      }
+    }
+
+
+OUR RESPONSE
+------------
+
+    {
+      "evaluationId": "3f2a9c41-8d17-4b6e-9a2f-11c8e6d4a7b0",
+      "olosRequestId": "d5c83716-0772-fe46-345c-17394bb7b828",
+      "correlationId": null,
+      "sourceSystemTripId": null,
+      "requesterFacilityId": 5815,
+      "levelOfService": "BLS",
+      "callType": "initial",
+
+      "meetsMedicalNecessity": true,
+      "clinicalSummary": "Two sentences on the patient's condition.",
+      "clarifyingQuestion": null,
+
+      "detail": {
+        "determination": "meets",
+        "basis": "Why the determination landed where it did.",
+        "confidence": "High",
+        "criteriaDocumented": [
+          {
+            "criterionId": "bed_confinement",
+            "citation": "Medicare Benefit Policy Manual, Chapter 10, 10.2.1",
+            "evidence": "The patient is bed confined before and after transport",
+            "questionId": 62096
+          }
+        ],
+        "exclusionsTriggered": [],
+        "questionFindings": [
+          {
+            "questionId": 62096,
+            "question": "The question as it was asked.",
+            "answer": "What the requester answered.",
+            "nonMedNec": false,
+            "category": "supports_necessity",
+            "criterionId": "bed_confinement",
+            "citation": "Medicare Benefit Policy Manual, Chapter 10, 10.2.1",
+            "evidence": "The answer text, quoted verbatim.",
+            "reason": "Why this answer supports or does not support necessity.",
+            "confidence": "High"
+          }
+        ]
+      },
+
+      "meta": {
+        "service": "medical-necessity-guidance",
+        "serviceVersion": "0.4.0",
+        "knowledgeVersion": "1.27.26",
+        "questionsEvaluated": 3,
+        "inputTokens": 7412,
+        "outputTokens": 486,
+        "processingMs": 3679,
+        "receivedAtUtc": "2026-11-12T18:04:11.202Z",
+        "respondedAtUtc": "2026-11-12T18:04:14.881Z"
+      }
+    }
+
+
+FIELDS FOR THE UI
+-----------------
+
+  meetsMedicalNecessity   boolean           true or false
+
+  clinicalSummary         string            Display text, two sentences
+
+  clarifyingQuestion      string or null    NULL MEANS SHOW NOTHING AND LET
+                                            THE SUBMISSION CONTINUE
+
+
+FIELDS FOR SHOWING THE REASONING
+--------------------------------
+
+  detail.determination    meets | does_not_meet | needs_review
+
+  detail.confidence       High | Medium | Low
+
+  detail.basis            Why the determination landed where it did
+
+  detail.questionFindings[]   One entry per question
+
+
+Each entry in questionFindings[]:
+
+  questionId        Matches the question id in the payload
+  question          The question as it was asked
+  answer            What the requester answered
+  nonMedNec         false means the answer supports necessity
+  category          supports_necessity | insufficient_alone | non_covered |
+                    administrative | unclear
+  criterionId       Which criterion it rests on
+  citation          The source document and section
+  evidence          The answer text, quoted verbatim
+  reason            Why it supports or does not support necessity
+  confidence        High | Medium | Low
+
+
+FIELDS FOR LOGGING
+------------------
+
+  meta    Service and knowledge versions, token counts, timings.
+          Not for display.
+
+
+ON A RECHECK
+------------
+
+callType comes back as "reevaluation", and clarifyingQuestion is null.
+We do not ask twice.
