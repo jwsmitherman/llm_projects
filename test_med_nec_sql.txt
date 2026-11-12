@@ -1,0 +1,30 @@
+--vick
+SELECT TOP (50)
+    LEN(A.RequestPayload) AS PayloadCharCount,
+    A.RequestPayload,
+    EL.TripRequestId,
+    A.EventTimeStamp
+FROM
+(
+    SELECT
+        OREL.EventJson AS RequestPayload,
+        OREL.*
+    FROM dbo.O_RequestEventLogs AS OREL WITH (NOLOCK)
+    WHERE OREL.EventId = 3
+      AND OREL.OLOSRequestId IN
+      (
+          SELECT TR.OLOSRequestId
+          FROM dbo.TripRequest AS TR WITH (NOLOCK)
+          INNER JOIN dbo.TripLeg AS TL WITH (NOLOCK)
+              ON TL.TripRequestId = TR.TripRequestId
+          WHERE TR.SystemId = 1
+            AND TR.IsSigningRequired = 1
+            AND TR.ContractId IN (29, 555, 326, 229)
+            AND TL.CreateDateTime >= '2026-10-25'
+            AND TL.CreateDateTime <  '2026-10-27'
+            AND TL.ChunkId IS NOT NULL
+      )
+) AS A
+INNER JOIN dbo.TripRequest AS EL WITH (NOLOCK)
+    ON A.OLOSRequestId = EL.OLOSRequestId
+ORDER BY PayloadCharCount DESC;
