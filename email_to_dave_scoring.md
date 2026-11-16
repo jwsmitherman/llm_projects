@@ -1,83 +1,56 @@
-# Medical necessity — scoring change and how to read the file
+# Medical necessity — how to read the file
 
 Dave,
 
-Updates from Friday's call below, then how to read the new file.
+The score is now a documentation score of 0 to 6 — mobility, level of consciousness and medical monitoring, each 0 to 2 — so a 0 means nothing was documented. Level of service, modifiers and isolation are still columns on the sheet but are no longer added into the score, because they are on every order regardless of what the facility documented. Trips the model never assessed show blank scores rather than zeros, with the reason in the Flags column.
 
-## From the call
+## The score
 
-**"Nothing higher than a two in the individual columns."**
-Correct. Each category is scored 0 to 2: 2 = documented and supports necessity, 1 = addressed but not sufficient alone, 0 = not documented. That is unchanged.
+- **`Score: documentation` is 0 to 6.** It is mobility, level of consciousness and medical monitoring added together.
+- **Each of those three is 0 to 2.** 2 = documented and supports necessity. 1 = addressed but not sufficient alone. 0 = not documented, or asked and answered no.
+- **A 0 means nothing was documented.**
+- The three category columns are colour shaded, so a row reads as a shape before you read a number.
 
-**"The total only goes up to eight."**
-This was a defect. We were adding six columns, and two of them could never be 0:
+## Columns that are reported but not scored
 
-- Level of service is on every order — scored 1 for BLS, 2 for ALS or SCT
-- Modifiers (origin and destination) are on every order — scored 1 or 2
+- **`Score: LOS`** — every order has a level of service. It describes the trip, not the documentation.
+- **`Score: modifiers`** — every order has an origin and destination code. Same reason.
+- **`Score: isolation`** — always 0. No question on the order form asks about isolation precautions.
 
-Every trip collected 2 to 4 points before any clinical documentation was read. A trip with no documentation scored 2 or 3 out of 12.
+## Failed calls
 
-**Fixed:** the score is now `Score: documentation`, 0 to 6 — mobility, level of consciousness and medical monitoring only. Level of service and modifiers are still columns on the sheet but are not added in.
+- A trip the model never assessed has **blank** scores, not zeros. The reason is in `Flags`.
 
-**"It's just a straight add."**
-It was. It no longer is.
+## The determination
 
-**Billing link.**
-No code change. Waiting on the RCM data. One request: when Vic has it, we need to know what it joins on. If it keys on claim or encounter rather than trip request id, we need that field added to the extract now or the join will not be possible.
+- **`LLM: meets`** — yes or no. This is the answer. The score is the working behind it.
+- **`LLM: summary`** — two sentences on the patient's condition.
+- **`LLM: clarifying question`** — what we would ask the facility. Blank when nothing is needed.
+- **`LLM: assessment per question`** — per answer: supports necessity or not, the reason, the answer quoted, the citation. Look here when you disagree with a determination.
+- **`AUDIT` columns** — flag anything the model asserted that is not in the order.
 
-**Corti APIs.**
-Nothing yet. Will review ahead of the 28th.
+## The patient care record
 
-## Two things we found while making the change
+- **`ePCR` columns** — what the crew documented.
+- **`Agreement`** — whether the order and the record reached the same conclusion.
 
-**Isolation scored 0 on every trip.** No question on the order form asks about isolation precautions, so the category can never match. It is still a column but is no longer added into the score. Whether isolation should be asked at order entry is a separate decision.
+## Your columns
 
-**One trip was a technical failure, not a bad order.** Trip 10130063 never reached the model because of an API error. It scored 2 and looked like a poorly documented trip. Failed calls now show blank scores with the reason in the Flags column.
+- **`SME: meets`, `SME: notes`** — blank, for your determination.
+- **`Flags`** — failed calls, trips with no matching record.
 
-## Effect on the trips you reviewed
+## Layout
 
-| Trip | Documented | Old /12 | New /6 |
-|---|---|---|---|
-| 10129725 | Cardiac monitoring only | 5 | 2 |
-| 10131394 | One of three bed confinement elements | 3 | 1 |
-| 10131626 | Mobility, consciousness, monitoring | 8 | 6 |
-| 10130063 | Technical failure | 2 | blank |
+- Row 1 is the group banner and the scale. Row 2 is the headers. Every column filters.
 
-## How to read the file
+## Decisions for you
 
-Row 1 is the group banner and the scale. Row 2 is the headers. Every column filters.
+- **Scale.** 0 to 6 is three categories at 0 to 2, so any score decomposes by eye. Say the word if you want 0 to 10.
+- **Isolation.** Should the order form ask about isolation precautions? The criteria recognise it; the form does not ask.
 
-**The score**
+## Open
 
-- `Score: mobility`, `Score: LOC`, `Score: monitoring` — each 0 to 2, colour shaded
-- `Score: documentation` — the three added, 0 to 6
-
-**Reported, not scored**
-
-- `Score: LOS`, `Score: modifiers` — on every order, describe the trip not the documentation
-- `Score: isolation` — always 0, no form question feeds it
-
-**The determination**
-
-- `LLM: meets` — yes or no. This is the answer; the score is the working behind it.
-- `LLM: summary` — two sentences on the patient's condition
-- `LLM: clarifying question` — what we would ask the facility. Blank when nothing is needed.
-- `LLM: assessment per question` — per answer: supports necessity or not, the reason, the answer quoted, the citation. Look here when you disagree.
-- `AUDIT` columns — flag anything the model asserted that is not in the order
-
-**The record**
-
-- `ePCR` columns — what the crew documented
-- `Agreement` — whether the order and the record reached the same conclusion
-
-**Yours**
-
-- `SME: meets`, `SME: notes` — blank, for your determination
-- `Flags` — failed calls, no matching record
-
-## Two decisions for you
-
-1. **Scale.** You said it should run to 10. It is 0 to 6 because it is three categories at 0 to 2, so any score decomposes by eye. Say the word if you want 0 to 10.
-2. **Isolation.** Should the order form ask about isolation precautions? The criteria recognise it; the form does not ask.
+- **Billing link.** When Vic has the RCM data we need to know what it joins on. If it keys on claim or encounter rather than trip request id, that field has to be in the extract before the join is possible.
+- **Corti APIs.** Will review ahead of the 28th.
 
 Josh
