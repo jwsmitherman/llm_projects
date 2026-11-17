@@ -1,0 +1,737 @@
+---
+title: "USAJOBS Data Pull & Series Analysis: RC/RQ Project"
+subtitle: "OPM Classification & Assessment Policy, data science support for the taxonomy and redline work"
+output:
+  html_notebook:
+    toc: true
+    toc_float: true
+    code_folding: show
+  html_document:
+    toc: true
+    toc_float: true
+params:
+  # Occupational series to pull (4-digit codes). Set to the current cycle's assignments.
+  series: !r c("0560", "0661", "0667", "0669", "0671", "0672", "0673", "1103", "0950")
+  # 2024 = pre-freeze baseline; 2025 = freeze year (comparison only); 2026 = current.
+  years: !r c(2024, 2025, 2026)
+  # Pull full announcement text (duties, quals, evaluations). Needed for keyword,
+  # competency, and term analysis. Much larger than the metadata pull.
+  pull_text: true
+  # Parallel workers. The API doesn't IP-limit, so parallel pulls are fine; keep it polite.
+  workers: 4
+  # Pause between paged requests, per worker, in seconds.
+  throttle: 0.25
+  # Root folder for flat files. Upload the "sharepoint" subfolder to the RCRQ Teams/SharePoint data folder.
+  out_dir: "usajobs_data"
+  # TRUE = re-pull months already cached. The current month is always re-pulled.
+  refresh: false
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Purpose
+
+This notebook gets the USAJOBS job announcement data the RC/RQ team uses and runs the analyses classifiers, IOs and pod leads have asked for in the project trainings and check-ins:
+
+| \# | Analysis | Why the team needs it |
+|---------------|-----------------|----------------------------------------|
+| A | **Series synopsis** (postings, agencies, organizational titles, grade range, pay plan, hiring paths) | The "USA Jobs synopsis" that goes into each series taxonomy (organizational titles, grade coverage, recruitment activity). |
+| B | **Grade distribution and concentration** | Shows which grades agencies actually recruit at (e.g. the 0661 "majority above GS-5" question). It supports grade-level illustrations alongside EHRI. |
+| C | **Agency drill-down and pay system comparison** | Compares VA (Title 38 / hybrid) with Title 5 agencies on grade and pay (0661, 0667, 0671). |
+| D | **Year comparison 2024 vs 2025 vs 2026** | 2024 is the pre-freeze baseline and 2025 is used as a comparison year. |
+| E | **Keyword evidence search** ("needle in the haystack") | Checks whether an AI redline recommendation (e.g. "property disposal", "e-discovery") shows up in real announcements, and how often and at which grades. |
+| F | **Competencies agencies list** | Gives evidence for general **and technical** competencies, which matters most where OPM has no validated technical model. |
+| G | **Emerging and declining duty language plus technology/automation terms** | Feeds the "Impact of Automation" section and shows how the work is changing. |
+| H | **Education requirement signals** | Supports the skills-based hiring shift (EO 14170 / Chance to Compete / Merit Hiring Plan). |
+
+**Data source.** The USAJOBS Historic JOA API (`/api/historicjoa`, the metadata) and `/api/historicjoa/announcementtext` (the full text). Both endpoints are public. If you've been given a key (Xavier's setup), set `USAJOBS_API_KEY` and it is sent as `Authorization-Key`. The pulls run in parallel by series and month, so no single request chain gets near the volume cap.
+
+**Workflow.** Run locally in RStudio or VS Code against flat files. Outputs go to `params$out_dir`. Then copy `out_dir/sharepoint/USA Jobs <year> data/` into the RCRQ data folder on SharePoint.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.width = 10, fig.height = 6)
+```
+
+# 0. Setup
+
+```{r packages}
+pkgs <- c("httr2", "jsonlite", "dplyr", "tidyr", "purrr", "stringr", "readr",
+          "ggplot2", "future", "furrr", "writexl", "knitr")
+missing <- setdiff(pkgs, rownames(installed.packages()))
+if (length(missing)) install.packages(missing)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+SERIES   <- params$series
+YEARS    <- params$years
+OUT      <- params$out_dir
+RAW_DIR  <- file.path(OUT, "raw")
+dir.create(file.path(RAW_DIR, "joa"),  recursive = TRUE, showWarnings = FALSE)
+dir.create(file.path(RAW_DIR, "text"), recursive = TRUE, showWarnings = FALSE)
+
+# Year colors: fixed order, validated categorical slots (2024 blue, 2025 orange, 2026 aqua)
+YEAR_COLORS <- c("2024" = "#2a78d6", "2025" = "#eb6834", "2026" = "#1baf7a")
+theme_set(theme_minimal(base_size = 12) +
+            theme(panel.grid.minor = element_blank(),
+                  panel.grid.major.x = element_blank(),
+                  legend.position = "top"))
+```
+
+# 1. API helpers
+
+All network access goes through `get_json()`. Paging follows the `paging$next` link until the API stops returning a continuation token.
+
+```{r api-helpers}
+BASE_URL <- "https://data.usajobs.gov"
+ENDPOINTS <- c(joa = "/api/historicjoa", text = "/api/historicjoa/announcementtext")
+
+get_json <- function(url) {
+  req <- request(url) |>
+    req_user_agent(Sys.getenv("USAJOBS_USER_AGENT", "opm-rcrq-analysis")) |>
+    req_timeout(180) |>
+    req_retry(max_tries = 6,
+              is_transient = \(r) resp_status(r) %in% c(429, 500, 502, 503, 504),
+              backoff = \(i) min(60, 2^i))
+  key <- Sys.getenv("USAJOBS_API_KEY", "")
+  if (nzchar(key)) req <- req_headers(req, `Authorization-Key` = key)
+  resp <- req_perform(req)
+  fromJSON(resp_body_string(resp), simplifyVector = TRUE, flatten = FALSE)
+}
+
+build_url <- function(endpoint, query) {
+  q <- paste(names(query), vapply(query, \(v) URLencode(as.character(v), reserved = TRUE), ""),
+             sep = "=", collapse = "&")
+  paste0(BASE_URL, endpoint, "?", q)
+}
+
+# Collapse a list-column of small data frames (jobCategories, hiringPaths, positionLocations) to text
+collapse_nested <- function(col, fields, sep = "|") {
+  if (is.null(col)) return(NA_character_)
+  # Some responses simplify a one-item array to a data-frame column (one row per record)
+  if (is.data.frame(col)) {
+    col <- col[, intersect(fields, names(col)), drop = FALSE]
+    if (!ncol(col)) return(rep(NA_character_, nrow(col)))
+    return(do.call(paste, c(lapply(col, as.character), sep = ", ")))
+  }
+  vapply(col, function(x) {
+    if (is.list(x) && !is.data.frame(x)) x <- tryCatch(as.data.frame(x), error = \(e) NULL)
+    if (!is.data.frame(x) || nrow(x) == 0) return(NA_character_)
+    x <- x[, intersect(fields, names(x)), drop = FALSE]
+    if (!ncol(x)) return(NA_character_)
+    paste(unique(do.call(paste, c(x, sep = ", "))), collapse = sep)
+  }, character(1))
+}
+
+# Make one page of results a flat, all-character tibble so pages always bind cleanly
+flatten_page <- function(df) {
+  if (is.null(df) || !length(df) || !nrow(df)) return(tibble())
+  df <- as_tibble(df)
+  # Normalize casing (docs show camelCase, some responses use PascalCase)
+  names(df) <- sub("^(.)", "\\L\\1", names(df), perl = TRUE)
+  names(df)[tolower(names(df)) == "usajobscontrolnumber"] <- "usajobsControlNumber"
+  if ("jobCategories" %in% names(df))
+    df$series_list <- collapse_nested(df$jobCategories, "series")
+  if ("hiringPaths" %in% names(df))
+    df$hiring_paths <- collapse_nested(df$hiringPaths, "hiringPath")
+  if ("positionLocations" %in% names(df)) {
+    df$locations   <- collapse_nested(df$positionLocations,
+                                      c("positionLocationCity", "positionLocationState"), " | ")
+    df$n_locations <- vapply(df$positionLocations,
+                             \(x) if (is.data.frame(x)) nrow(x) else 0L, integer(1))
+  }
+  df |>
+    select(where(\(x) !is.list(x))) |>
+    mutate(across(everything(), as.character))
+}
+
+fetch_all <- function(endpoint, query, throttle = params$throttle) {
+  url <- build_url(endpoint, query)
+  pages <- list()
+  repeat {
+    js <- get_json(url)
+    pages[[length(pages) + 1]] <- flatten_page(js$data)
+    nxt <- js$paging$`next`
+    tok <- js$paging$metadata$continuationToken
+    if (is.null(nxt) || !nzchar(nxt) || is.null(tok) || NROW(js$data) == 0) break
+    url <- paste0(BASE_URL, nxt)
+    Sys.sleep(throttle)
+  }
+  bind_rows(pages)
+}
+```
+
+# 2. Pull the data (parallel, cached)
+
+One unit of work is **endpoint × series × month**. Each unit is saved as its own `.rds`, so an interrupted run picks up where it stopped.
+
+```{r pull-plan}
+month_windows <- function(years) {
+  starts <- seq(as.Date(paste0(min(years), "-01-01")),
+                as.Date(paste0(max(years), "-12-01")), by = "month")
+  starts <- starts[as.integer(format(starts, "%Y")) %in% years & starts <= Sys.Date()]
+  ends <- do.call(c, lapply(starts, \(s) seq(s, by = "month", length.out = 2)[2] - 1))
+  tibble(start = starts, end = pmin(ends, Sys.Date()))
+}
+
+endpoints_to_pull <- if (isTRUE(params$pull_text)) c("joa", "text") else "joa"
+plan_tbl <- tidyr::expand_grid(endpoint = endpoints_to_pull, series = SERIES,
+                               month_windows(YEARS)) |>
+  mutate(file = file.path(RAW_DIR, endpoint,
+                          sprintf("%s_%s.rds", series, format(start, "%Y-%m"))),
+         is_current = format(start, "%Y-%m") == format(Sys.Date(), "%Y-%m"),
+         todo = params$refresh | is_current | !file.exists(file))
+
+plan_tbl |> count(endpoint, todo)
+```
+
+```{r pull-run}
+pull_one <- function(endpoint, series, start, end, file, ...) {
+  out <- tryCatch({
+    df <- fetch_all(ENDPOINTS[[endpoint]],
+                    list(PositionSeries = series,
+                         StartPositionOpenDate = format(start),
+                         EndPositionOpenDate   = format(end)))
+    df$pull_series <- series
+    saveRDS(df, file)
+    tibble(rows = nrow(df), error = NA_character_)
+  }, error = \(e) tibble(rows = NA_integer_, error = conditionMessage(e)))
+  bind_cols(tibble(endpoint, series, start), out)
+}
+
+todo <- filter(plan_tbl, todo)
+if (nrow(todo)) {
+  future::plan(future::multisession, workers = params$workers)
+  pull_log <- furrr::future_pmap_dfr(
+    select(todo, endpoint, series, start, end, file), pull_one,
+    .options = furrr::furrr_options(seed = TRUE), .progress = TRUE)
+  future::plan(future::sequential)
+  write_csv(pull_log, file.path(OUT, sprintf("pull_log_%s.csv", format(Sys.time(), "%Y%m%d_%H%M"))))
+  pull_log |> summarise(units = n(), rows = sum(rows, na.rm = TRUE), errors = sum(!is.na(error)))
+} else {
+  message("Everything is cached. Set params$refresh = TRUE to re-pull.")
+}
+```
+
+```{r pull-errors}
+# Any failures? Re-run the chunk above; only the missing units are pulled again.
+if (exists("pull_log")) filter(pull_log, !is.na(error))
+```
+
+# 3. Combine & clean
+
+```{r combine}
+read_cached <- function(endpoint) {
+  files <- list.files(file.path(RAW_DIR, endpoint), pattern = "\\.rds$", full.names = TRUE)
+  keep  <- sub("_.*$", "", basename(files)) %in% SERIES
+  bind_rows(lapply(files[keep], readRDS))
+}
+
+to_num <- \(x) suppressWarnings(as.numeric(x))
+strip_html <- function(x) {
+  x |>
+    str_replace_all("<[^>]+>", " ") |>
+    str_replace_all("&nbsp;|&#160;", " ") |>
+    str_replace_all("&amp;", "&") |>
+    str_replace_all("&lt;", "<") |>
+    str_replace_all("&gt;", ">") |>
+    str_replace_all("&#39;|&rsquo;", "'") |>
+    str_squish()
+}
+
+joa_raw <- read_cached("joa")
+
+if (!nrow(joa_raw))
+  stop("No metadata rows were pulled. Check the pull log in ", OUT, " for errors (proxy, SSL, or no postings).")
+
+# Columns the analysis uses. Any the API didn't return are added as NA so later steps still run.
+ensure_cols <- function(df, cols) {
+  for (cl in setdiff(cols, names(df))) df[[cl]] <- NA_character_
+  df
+}
+JOA_COLS <- c("usajobsControlNumber", "positionOpenDate", "positionCloseDate", "minimumGrade",
+              "maximumGrade", "promotionPotential", "salaryType", "minimumSalary", "maximumSalary",
+              "totalOpenings", "hiringDepartmentCode", "hiringDepartmentName", "hiringAgencyName",
+              "supervisoryStatus", "series_list", "hiring_paths", "locations", "payScale",
+              "positionTitle", "teleworkEligible", "announcementNumber")
+missing_cols <- setdiff(JOA_COLS, names(joa_raw))
+if (length(missing_cols))
+  message("Not in the API response (filled with NA): ", paste(missing_cols, collapse = ", "),
+          "\nColumns returned: ", paste(names(joa_raw), collapse = ", "))
+joa_raw <- ensure_cols(joa_raw, JOA_COLS)
+
+joa <- joa_raw |>
+  distinct(usajobsControlNumber, pull_series, .keep_all = TRUE) |>
+  mutate(
+    series      = pull_series,
+    open_date   = as.Date(substr(positionOpenDate, 1, 10)),
+    close_date  = as.Date(substr(positionCloseDate, 1, 10)),
+    year        = as.integer(format(open_date, "%Y")),
+    month       = as.Date(format(open_date, "%Y-%m-01")),
+    grade_min   = as.integer(to_num(minimumGrade)),
+    grade_max   = as.integer(to_num(maximumGrade)),
+    fpl         = as.integer(to_num(promotionPotential)),
+    hourly      = str_detect(coalesce(salaryType, ""), regex("hour", ignore_case = TRUE)),
+    salary_min  = to_num(minimumSalary) * if_else(hourly, 2087, 1),
+    salary_max  = to_num(maximumSalary) * if_else(hourly, 2087, 1),
+    openings_n  = to_num(totalOpenings),          # often "Few"/"Many" -> NA
+    is_va       = coalesce(hiringDepartmentCode == "VA", FALSE) |
+                  str_detect(coalesce(hiringDepartmentName, ""), "Veterans Affairs"),
+    is_supv     = str_detect(coalesce(supervisoryStatus, ""), regex("^y", ignore_case = TRUE)),
+    multi_series = str_detect(coalesce(series_list, ""), "\\|")
+  ) |>
+  filter(year %in% YEARS)
+
+text <- if (isTRUE(params$pull_text)) {
+  read_cached("text") |>
+    ensure_cols(c("usajobsControlNumber", "positionOpenDate")) |>
+    distinct(usajobsControlNumber, pull_series, .keep_all = TRUE) |>
+    mutate(across(any_of(c("summary", "duties", "majorDutiesList", "requirementsQualifications",
+                           "requirementsEducation", "requirementsConditionsOfEmployment",
+                           "evaluations", "requirements", "otherInformation")), strip_html))
+} else tibble()
+
+# One analysis table: metadata + full text, keyed on control number + series
+TEXT_FIELDS <- c("summary", "duties", "majorDutiesList", "requirementsQualifications",
+                 "evaluations", "requirementsEducation", "requirementsConditionsOfEmployment",
+                 "otherInformation")
+if (nrow(text)) {
+  text_keep <- text |>
+    select(usajobsControlNumber, pull_series, any_of(TEXT_FIELDS))
+  for (f in setdiff(TEXT_FIELDS, names(text_keep))) text_keep[[f]] <- NA_character_
+  jt <- joa |>
+    left_join(text_keep, by = c("usajobsControlNumber", "pull_series")) |>
+    mutate(
+      duties_text = str_squish(paste(coalesce(summary, ""), coalesce(duties, ""),
+                                     coalesce(majorDutiesList, ""))),
+      quals_text  = str_squish(paste(coalesce(requirementsQualifications, ""),
+                                     coalesce(evaluations, ""))),
+      all_text    = str_squish(paste(duties_text, quals_text,
+                                     coalesce(requirementsConditionsOfEmployment, ""),
+                                     coalesce(otherInformation, ""))),
+      has_text    = nchar(all_text) > 0,
+      title38     = str_detect(all_text, regex("title 38|38 u\\.?s\\.?c", ignore_case = TRUE))
+    )
+} else {
+  jt <- joa |> mutate(has_text = FALSE, title38 = NA)
+}
+
+tibble(announcements = n_distinct(joa$usajobsControlNumber),
+       series_rows = nrow(joa),
+       with_text = sum(jt$has_text),
+       years = paste(sort(unique(joa$year)), collapse = ", "))
+```
+
+# 4. Save flat files (for SharePoint)
+
+```{r save-flat}
+for (y in YEARS) {
+  d <- file.path(OUT, "sharepoint", sprintf("USA Jobs %s data", y))
+  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  write_csv(filter(joa_raw, substr(positionOpenDate, 1, 4) == as.character(y)),
+            file.path(d, sprintf("usajobs_%s_joa_metadata.csv", y)))
+  if (nrow(text))
+    write_csv(filter(text, substr(positionOpenDate, 1, 4) == as.character(y)),
+              file.path(d, sprintf("usajobs_%s_announcement_text.csv", y)))
+}
+list.files(file.path(OUT, "sharepoint"), recursive = TRUE)
+```
+
+# A. Series synopsis (taxonomy input)
+
+One row per series and year. This is the "USA Jobs synopsis" for the taxonomy series profile.
+
+```{r synopsis}
+top_n_str <- function(x, n = 5) {
+  x <- x[!is.na(x) & nzchar(x)]
+  if (!length(x)) return(NA_character_)
+  tb <- sort(table(x), decreasing = TRUE)[seq_len(min(n, length(unique(x))))]
+  paste0(names(tb), " (", tb, ")", collapse = "; ")
+}
+mode_int <- function(x) { x <- x[!is.na(x)]; if (!length(x)) NA_integer_ else as.integer(names(which.max(table(x)))) }
+
+synopsis <- jt |>
+  group_by(series, year) |>
+  summarise(
+    announcements      = n_distinct(usajobsControlNumber),
+    agencies           = n_distinct(hiringAgencyName),
+    departments        = n_distinct(hiringDepartmentName),
+    top_departments    = top_n_str(hiringDepartmentName),
+    top_titles         = top_n_str(str_to_title(positionTitle), 8),
+    distinct_titles    = n_distinct(str_to_lower(positionTitle)),
+    pay_scales         = top_n_str(payScale),
+    lowest_grade       = suppressWarnings(min(grade_min, na.rm = TRUE)),
+    highest_grade      = suppressWarnings(max(grade_max, na.rm = TRUE)),
+    modal_entry_grade  = mode_int(grade_min),
+    modal_fpl          = mode_int(fpl),
+    median_salary_min  = median(salary_min, na.rm = TRUE),
+    median_salary_max  = median(salary_max, na.rm = TRUE),
+    pct_supervisory    = round(100 * mean(is_supv, na.rm = TRUE), 1),
+    pct_va             = round(100 * mean(is_va), 1),
+    pct_multi_series   = round(100 * mean(multi_series), 1),
+    top_hiring_paths   = top_n_str(unlist(str_split(hiring_paths, "\\|")), 6),
+    pct_telework       = round(100 * mean(str_detect(coalesce(teleworkEligible, ""),
+                                                     regex("^(y|true)", ignore_case = TRUE))), 1),
+    .groups = "drop") |>
+  mutate(across(c(lowest_grade, highest_grade), \(x) ifelse(is.infinite(x), NA, x)))
+
+kable(select(synopsis, series, year, announcements, agencies, lowest_grade, highest_grade,
+             modal_entry_grade, modal_fpl, pct_va, median_salary_min))
+```
+
+```{r titles}
+# Organizational titles (taxonomy "organizational titles" field) for each series, all years together
+org_titles <- jt |>
+  mutate(title = str_squish(str_to_title(positionTitle))) |>
+  count(series, title, sort = TRUE, name = "postings") |>
+  group_by(series) |> mutate(share_pct = round(100 * postings / sum(postings), 1)) |>
+  slice_head(n = 25) |> ungroup()
+org_titles |> group_by(series) |> slice_head(n = 8)
+```
+
+# B. Grade distribution & concentration
+
+A posting advertised at 7/9/11 counts once at **each** grade. The modal grade shows where recruiting is most concentrated. Read it next to the EHRI on-board concentration when you choose illustration levels.
+
+```{r grades}
+grade_long <- jt |>
+  filter(!is.na(grade_min), !is.na(grade_max), grade_max >= grade_min, grade_max - grade_min <= 15) |>
+  mutate(grade = map2(grade_min, grade_max, seq)) |>
+  unnest(grade) |>
+  count(series, year, payScale, grade, name = "postings")
+
+grade_long |>
+  filter(payScale %in% c("GS", "GG")) |>
+  group_by(series, year, grade) |> summarise(postings = sum(postings), .groups = "drop") |>
+  group_by(series, year) |> mutate(share = postings / sum(postings)) |> ungroup() |>
+  mutate(year = factor(year)) |>
+  ggplot(aes(factor(grade), share, fill = year)) +
+  geom_col(position = position_dodge2(padding = 0.15), width = 0.8) +
+  facet_wrap(~ series, scales = "free_x") +
+  scale_fill_manual(values = YEAR_COLORS) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Share of GS/GG postings advertising each grade",
+       x = "Grade", y = "Share of postings", fill = NULL)
+```
+
+```{r fpl}
+# Full performance level vs entry grade: where postings start, and how far they ladder
+jt |>
+  filter(!is.na(grade_min)) |>
+  count(series, entry = grade_min, fpl) |>
+  group_by(series) |> slice_max(n, n = 6) |> ungroup()
+```
+
+# C. Agency drill-down & pay-system comparison
+
+VA hires many health series under Title 38 or hybrid Title 38, usually with higher grades and stricter quals. These tables separate VA from everyone else so a classifier can tell whether a grade pattern is government-wide or VA-specific (the 0661 and 0667 questions).
+
+```{r agency-compare}
+agency_cmp <- jt |>
+  mutate(segment = case_when(is_va & coalesce(title38, FALSE) ~ "VA, Title 38 cited",
+                             is_va ~ "VA, other",
+                             TRUE ~ "Non-VA")) |>
+  group_by(series, year, segment) |>
+  summarise(announcements = n_distinct(usajobsControlNumber),
+            pay_scales = top_n_str(payScale, 3),
+            median_entry_grade = median(grade_min, na.rm = TRUE),
+            modal_entry_grade = mode_int(grade_min),
+            modal_fpl = mode_int(fpl),
+            median_salary_min = median(salary_min, na.rm = TRUE),
+            .groups = "drop")
+kable(agency_cmp)
+```
+
+```{r agency-detail}
+# Agency-level table for any series. Change the code to drill in.
+drill_series <- SERIES[1]
+jt |>
+  filter(series == drill_series) |>
+  group_by(year, hiringDepartmentName, hiringAgencyName) |>
+  summarise(announcements = n_distinct(usajobsControlNumber),
+            grades = paste0(min(grade_min, na.rm = TRUE), "-", max(grade_max, na.rm = TRUE)),
+            modal_fpl = mode_int(fpl),
+            median_salary_min = median(salary_min, na.rm = TRUE),
+            .groups = "drop") |>
+  arrange(year, desc(announcements))
+```
+
+# D. Year comparison (2024 baseline vs 2025 freeze vs 2026)
+
+```{r year-volume}
+jt |>
+  distinct(series, usajobsControlNumber, month, year) |>
+  count(series, year, month) |>
+  mutate(month_of_year = as.integer(format(month, "%m")), year = factor(year)) |>
+  ggplot(aes(month_of_year, n, colour = year)) +
+  geom_line(linewidth = 0.7) + geom_point(size = 2) +
+  facet_wrap(~ series, scales = "free_y") +
+  scale_colour_manual(values = YEAR_COLORS) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  labs(title = "Announcements opened per month", x = NULL, y = "Announcements", colour = NULL)
+```
+
+```{r year-table}
+# Year-to-date comparison on the same months so 2026 isn't penalized for being partial
+ytd_month <- as.integer(format(max(jt$open_date, na.rm = TRUE), "%m"))
+jt |>
+  filter(as.integer(format(open_date, "%m")) <= ytd_month) |>
+  group_by(series, year) |>
+  summarise(ytd_announcements = n_distinct(usajobsControlNumber), .groups = "drop") |>
+  pivot_wider(names_from = year, values_from = ytd_announcements, names_prefix = "ytd_")
+```
+
+# E. Keyword evidence search ("needle in the haystack")
+
+Put the AI redline recommendations here, by series. `series = "ALL"` applies a pattern to every series. Patterns are case-insensitive regex. For each one the output shows how many postings mention it, at which grades, and a sample snippet with a control number. That lets a classifier decide whether there's "a there there" before adopting a recommendation.
+
+```{r keyword-config}
+keywords <- tribble(
+  ~series, ~theme,                           ~pattern,
+  # 1103 Industrial Property Management (AI redline example)
+  "1103",  "Supply chain management",        "supply chain",
+  "1103",  "Asset management",               "asset management",
+  "1103",  "Property disposal / life cycle", "disposal|life[- ]?cycle",
+  # 0950 Paralegal (gap analysis example)
+  "0950",  "E-discovery / ESI",              "e-?discovery|electronically stored information|\\bESI\\b",
+  "0950",  "Legal tech platforms",           "relativity|westlaw|lexis|case management system",
+  "0950",  "Information governance",         "information governance|records management",
+  # 0560 Budget Analysis
+  "0560",  "Financial systems",              "\\bG-?Invoicing\\b|\\bERP\\b|oracle|\\bSAP\\b|momentum|financial management system",
+  # 0671 Health System Specialist
+  "0671",  "Health system admin support",    "health system administrat|medical center director",
+  # Everyone: automation / technology (Impact of Automation)
+  "ALL",   "AI / machine learning",          "artificial intelligence|\\bAI\\b|machine learning",
+  "ALL",   "Automation",                     "automat(e|ed|ion)|robotic process|\\bRPA\\b",
+  "ALL",   "Data analytics / BI",            "data analy|dashboard|power bi|tableau",
+  "ALL",   "Digital collaboration",          "sharepoint|microsoft teams|collaboration (tools|platform)",
+  "ALL",   "Obsolete terms",                 "typewriter|floppy|carbon cop|microfiche"
+)
+```
+
+```{r keyword-run}
+keyword_hits <- function(df, kw, text_col = "all_text") {
+  kw_exp <- bind_rows(filter(kw, series != "ALL"),
+                      tidyr::crossing(series = unique(df$series),
+                                      select(filter(kw, series == "ALL"), -series)))
+  pmap_dfr(kw_exp, function(series, theme, pattern) {
+    d <- df[df$series == series & df$has_text, ]
+    if (!nrow(d)) return(NULL)
+    rx  <- regex(pattern, ignore_case = TRUE)
+    hit <- str_detect(d[[text_col]], rx)
+    loc <- str_locate(d[[text_col]][hit], rx)[, "start"]
+    snippets <- str_sub(d[[text_col]][hit], pmax(1, loc - 90), loc + 90)
+    tibble(series, theme, pattern, year = d$year, grade_max = d$grade_max,
+           control = d$usajobsControlNumber, hit = hit,
+           snippet = replace(rep(NA_character_, nrow(d)), which(hit), snippets))
+  })
+}
+
+if (any(jt$has_text)) {
+  kw_detail <- keyword_hits(jt, keywords)
+  kw_summary <- kw_detail |>
+    group_by(series, theme, year) |>
+    summarise(postings = n_distinct(control), hits = n_distinct(control[hit]),
+              pct = round(100 * hits / postings, 1),
+              grades_seen = paste(sort(unique(grade_max[hit])), collapse = ","),
+              example = first(na.omit(paste0("[", control, "] ...", snippet, "...")[hit])),
+              .groups = "drop")
+  kable(select(kw_summary, -example))
+}
+```
+
+```{r keyword-examples}
+# Evidence snippets to check before adopting a recommendation (first 3 per theme)
+if (exists("kw_detail")) kw_detail |> filter(hit) |> group_by(series, theme) |>
+  slice_head(n = 3) |> select(series, theme, year, grade_max, control, snippet)
+```
+
+# F. Competencies agencies are using
+
+There are two passes. (1) Count mentions of OPM general competencies; the list below is a starter set, so replace or extend it with your series' FWCI list from the taxonomy. (2) Extract the competency lists agencies write themselves, e.g. *"...you will be evaluated on the following competencies: A, B, C."* Pass 2 is where **technical** competencies show up.
+
+```{r competency-dictionary}
+general_competencies <- c(
+  "Attention to Detail", "Customer Service", "Decision Making", "Oral Communication",
+  "Written Communication", "Problem Solving", "Interpersonal Skills", "Reasoning",
+  "Teamwork", "Flexibility", "Integrity/Honesty", "Self-Management", "Technical Competence",
+  "Planning and Evaluating", "Accountability", "Critical Thinking", "Information Management",
+  "Technology Application", "Digital Collaboration", "Data Analysis", "Project Management",
+  "Organizational Awareness", "Influencing/Negotiating", "Learning", "Stress Tolerance")
+# To use the FWCI list from the taxonomy instead:
+# general_competencies <- read_csv("fwci_competencies_<series>.csv")$competency
+```
+
+```{r competency-mentions}
+if (any(jt$has_text)) {
+  comp_rx <- setNames(
+    str_replace_all(general_competencies, c("/" = "\\\\s*/\\\\s*", " " = "\\\\s+")),
+    general_competencies)
+  comp_mentions <- map_dfr(names(comp_rx), function(cn) {
+    jt |> filter(has_text) |>
+      mutate(hit = str_detect(quals_text, regex(comp_rx[[cn]], ignore_case = TRUE))) |>
+      group_by(series, year) |>
+      summarise(competency = cn, pct_postings = round(100 * mean(hit), 1), .groups = "drop")
+  })
+  comp_mentions |>
+    group_by(series, competency) |> summarise(pct_postings = mean(pct_postings), .groups = "drop") |>
+    group_by(series) |> slice_max(pct_postings, n = 10) |>
+    ggplot(aes(pct_postings, reorder(competency, pct_postings))) +
+    geom_col(fill = "#2a78d6", width = 0.7) +
+    facet_wrap(~ series, scales = "free_y") +
+    labs(title = "General competencies named in qualifications/evaluation text",
+         x = "% of postings (average across years)", y = NULL)
+}
+```
+
+```{r competency-extract}
+extract_listed_competencies <- function(txt) {
+  m <- str_match_all(txt, regex(
+    "(?:competenc(?:y|ies)|knowledge,? skills,? (?:and|&) abilities|KSAs?)[^:.]{0,120}:\\s*([^.]{5,600})",
+    ignore_case = TRUE))
+  items <- unlist(lapply(m, \(x) x[, 2]))
+  items <- unlist(str_split(items, ";|,|\\u2022|\\s-\\s|\\s\\d+\\.\\s|\\band\\b"))
+  items <- str_squish(str_remove_all(items, "^[^A-Za-z]+|[^A-Za-z)]+$"))
+  items[nchar(items) >= 4 & nchar(items) <= 60 & str_count(items, "\\S+") <= 7]
+}
+
+if (any(jt$has_text)) {
+  listed_comp <- jt |> filter(has_text) |>
+    select(series, year, usajobsControlNumber, quals_text) |>
+    mutate(items = map(quals_text, extract_listed_competencies)) |>
+    select(-quals_text) |> unnest(items) |>
+    mutate(competency = str_to_title(items),
+           in_general_list = str_to_lower(competency) %in% str_to_lower(general_competencies)) |>
+    distinct(series, year, usajobsControlNumber, competency, in_general_list) |>
+    count(series, competency, in_general_list, name = "postings", sort = TRUE)
+  # Candidate TECHNICAL competencies: frequent, not in the general list
+  listed_comp |> filter(!in_general_list, postings >= 3) |>
+    group_by(series) |> slice_max(postings, n = 15)
+}
+```
+
+# G. How the work is changing: emerging vs declining duty language
+
+Compares bigram document frequency in duty text between the first and last year pulled. A positive change means the phrase appears in a larger share of postings now. This feeds the "Impact of Automation" section and the "what are they doing now?" question when manual tasks drop out.
+
+```{r term-shift}
+stop_words <- c("the","and","of","to","in","a","for","or","with","as","on","by","be","is","are","an",
+  "this","that","will","at","from","all","other","duties","position","may","such","include",
+  "including","work","as","you","your","which","their","its","s","these","under","within","not",
+  "has","have","into","also","must","any","each","major","responsible","incumbent","serves")
+
+bigram_docs <- function(txt) {
+  w <- str_split(str_squish(str_replace_all(str_to_lower(txt), "[^a-z ]", " ")), " ")[[1]]
+  w <- w[!w %in% stop_words & nchar(w) > 2]
+  if (length(w) < 2) return(character())
+  unique(paste(head(w, -1), tail(w, -1)))
+}
+
+if (any(jt$has_text) && length(YEARS) >= 2) {
+  y0 <- min(YEARS); y1 <- max(YEARS)
+  term_shift <- jt |> filter(has_text, year %in% c(y0, y1)) |>
+    mutate(bg = map(duties_text, bigram_docs)) |>
+    select(series, year, usajobsControlNumber, bg) |> unnest(bg) |>
+    distinct() |>
+    count(series, year, bg, name = "docs") |>
+    left_join(jt |> filter(has_text) |> count(series, year, name = "n_docs"),
+              by = c("series", "year")) |>
+    mutate(share = docs / n_docs) |>
+    select(series, year, bg, share, docs) |>
+    pivot_wider(names_from = year, values_from = c(share, docs), values_fill = 0) |>
+    mutate(change_pp = round(100 * (.data[[paste0("share_", y1)]] - .data[[paste0("share_", y0)]]), 1),
+           support   = .data[[paste0("docs_", y0)]] + .data[[paste0("docs_", y1)]]) |>
+    filter(support >= 5)
+
+  bind_rows(
+    term_shift |> group_by(series) |> slice_max(change_pp, n = 10) |> mutate(direction = "emerging"),
+    term_shift |> group_by(series) |> slice_min(change_pp, n = 10) |> mutate(direction = "declining")
+  ) |> select(series, direction, bigram = bg, change_pp, support) |> arrange(series, direction, desc(abs(change_pp)))
+}
+```
+
+```{r tech-trend}
+# Technology/automation themes by year (from the "ALL" rows in the keyword config)
+if (exists("kw_summary")) {
+  kw_summary |>
+    filter(theme %in% filter(keywords, series == "ALL")$theme, theme != "Obsolete terms") |>
+    mutate(year = factor(year)) |>
+    ggplot(aes(pct, theme, fill = year)) +
+    geom_col(position = position_dodge2(padding = 0.15), width = 0.75) +
+    facet_wrap(~ series) +
+    scale_fill_manual(values = YEAR_COLORS) +
+    labs(title = "Share of postings mentioning technology/automation themes",
+         x = "% of postings", y = NULL, fill = NULL)
+}
+```
+
+# H. Education requirement signals (skills-based hiring)
+
+```{r education}
+if (any(jt$has_text)) {
+  edu <- jt |> filter(has_text) |>
+    mutate(edu_section   = nchar(coalesce(requirementsEducation, "")) > 20,
+           degree_req    = str_detect(all_text, regex("(bachelor|master|associate)'?s? degree|degree (is )?required", ignore_case = TRUE)),
+           substitution  = str_detect(all_text, regex("substitut(e|ion) (of )?education|education.{0,40}substitut", ignore_case = TRUE)),
+           positive_edu  = str_detect(all_text, regex("basic requirement|positive education|must have (a|an) .{0,40}degree", ignore_case = TRUE)),
+           skills_assess = str_detect(all_text, regex("subject matter expert qualification|SME-QA|structured interview|work sample|technical assessment|USA Hire", ignore_case = TRUE))) |>
+    group_by(series, year) |>
+    summarise(postings = n(),
+              pct_edu_section = round(100 * mean(edu_section), 1),
+              pct_degree_language = round(100 * mean(degree_req), 1),
+              pct_substitution = round(100 * mean(substitution), 1),
+              pct_basic_requirement = round(100 * mean(positive_edu), 1),
+              pct_skills_assessment = round(100 * mean(skills_assess), 1),
+              .groups = "drop")
+  kable(edu)
+}
+```
+
+# Export: one workbook per series
+
+Each workbook carries everything a classifier or IO needs for the taxonomy and redline evidence for that series.
+
+```{r export}
+xl_dir <- file.path(OUT, "series_workbooks")
+dir.create(xl_dir, showWarnings = FALSE)
+# Uses whatever earlier sections have produced; a section that wasn't run gets a "not run" sheet
+got <- \(name) if (exists(name)) get(name) else NULL
+fs  <- \(df, s) if (is.null(df)) tibble(note = "section not run") else
+  if (!nrow(df)) tibble(note = "no data") else filter(df, series == s)
+
+needed <- c("synopsis", "org_titles", "grade_long", "agency_cmp")
+if (length(missing_objs <- needed[!vapply(needed, exists, logical(1))]))
+  warning("Not created yet: ", paste(missing_objs, collapse = ", "),
+          ". Run all chunks above (Ctrl+Alt+P) before exporting.")
+
+for (s in SERIES) {
+  sheets <- list(
+    synopsis            = fs(got("synopsis"), s),
+    org_titles          = fs(got("org_titles"), s),
+    grades              = fs(got("grade_long"), s),
+    agency_comparison   = fs(got("agency_cmp"), s),
+    keyword_summary     = fs(if (exists("kw_summary")) kw_summary, s),
+    keyword_evidence    = fs(if (exists("kw_detail")) filter(kw_detail, hit), s),
+    general_comp        = fs(if (exists("comp_mentions")) comp_mentions, s),
+    listed_comp         = fs(if (exists("listed_comp")) listed_comp, s),
+    term_shift          = fs(if (exists("term_shift")) term_shift, s),
+    education           = fs(if (exists("edu")) edu, s),
+    postings            = fs(select(jt, series, year, usajobsControlNumber, announcementNumber,
+                                    positionTitle, hiringDepartmentName, hiringAgencyName, payScale,
+                                    grade_min, grade_max, fpl, salary_min, salary_max,
+                                    is_va, title38, hiring_paths, open_date), s)
+  )
+  write_xlsx(sheets, file.path(xl_dir, sprintf("usajobs_%s_%s.xlsx", s, paste(range(YEARS), collapse = "-"))))
+}
+if (exists("synopsis")) write_csv(synopsis, file.path(OUT, "usajobs_series_synopsis.csv"))
+list.files(xl_dir)
+```
+
+# Notes & caveats
+
+- **Postings ≠ hires.** USAJOBS counts recruiting activity. Use EHRI for on-board counts and grade concentration, and read the two together.
+- **Multi-series announcements** appear under every series they list (`pct_multi_series`). Totals across series double-count them; use `n_distinct(usajobsControlNumber)` for unique counts.
+- **Postings follow current policy.** Alignment between postings and the OPM standard is expected. Gaps between them (sections E–G) are the signal. Confirm with the SOC/O\*NET crosswalk before you change policy.
+- **Keyword patterns are a first pass.** Read the evidence snippets before you cite a frequency.
+- **`totalOpenings`** is often text ("Few", "Many") and is NA in numeric form.
+- **Hourly salaries** are annualized at 2,087 hours.
+- **Title 38 detection** uses text mentions, so it needs `pull_text = TRUE`. VA rows without the mention fall under "VA, other".
