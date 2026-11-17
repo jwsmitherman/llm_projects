@@ -1,0 +1,124 @@
+Medical necessity - how to read the file
+
+Dave,
+
+The score is a documentation score of 0 to 6: mobility, level of
+consciousness and medical monitoring, each 0 to 2. A 0 means nothing was
+documented. Level of service, modifiers and isolation are columns on the
+sheet but are not added into the score, because they are on every order
+regardless of what the facility documented.
+
+
+THE SCORE
+
+   Score: mobility        0 to 2
+   Score: LOC             0 to 2
+   Score: monitoring      0 to 2
+   Score: documentation   the three added, 0 to 6
+
+   Each category, from what the model recorded for each answer:
+
+      2   the answer supports necessity
+      1   addressed but not sufficient on its own
+      0   administrative, not covered, unclear, or nothing documented
+
+   The three category columns are colour shaded.
+
+
+REPORTED BUT NOT SCORED
+
+   Score: LOS          every order has a level of service
+   Score: modifiers    every order has an origin and destination code
+   Score: isolation    always 0, no form question asks about isolation
+
+
+THE SCORE DOES NOT DECIDE THE DETERMINATION
+
+   - The score and LLM: meets are both built from the same per-question
+     findings.
+
+   - The determination also applies the criteria weights, the exclusions,
+     and the rules that require elements together. Bed confinement needs
+     all three.
+
+   - A trip can carry three "not sufficient alone" findings, score 3, and
+     correctly not meet.
+
+   - LLM: basis is the model's own line on what drove the determination.
+
+   - Score vs determination flags the rows where the two conflict
+     sharply: meets with nothing documented, or does not meet on a score
+     of 4 or more. Those are the rows worth your time.
+
+
+THE DETERMINATION
+
+   LLM: meets                      yes or no. This is the answer.
+   LLM: confidence                 High, Medium or Low. Not derived from
+                                   the score.
+   LLM: summary                    two sentences on the patient
+   LLM: clarifying question        what we would ask the facility, blank
+                                   when nothing is needed
+   LLM: assessment per question    per answer: what the model recorded,
+                                   the reason, the answer quoted, the
+                                   citation. Look here when you disagree.
+   AUDIT columns                   flag anything the model asserted that
+                                   is not in the order
+
+
+THE ORDER AS ENTERED
+
+   Questions and answers    every question asked and what was answered
+   Other form info          diagnosis, weight, Medicare question 10,
+                            special needs
+   Duplicate payloads       whether the order was submitted more than once
+
+
+THE PATIENT CARE RECORD
+
+   ePCR columns    what the crew documented
+   Agreement       whether the order and the record reached the same
+                   conclusion
+
+
+YOUR COLUMNS
+
+   SME: meets, SME: notes    blank, for your determination
+   Flags                     failed calls, no matching record
+
+
+FAILED CALLS
+
+   A trip the model never assessed has blank scores, not zeros. The
+   reason is in Flags.
+
+
+LAYOUT
+
+   Row 1 is the group banner and the scale. Row 2 is the headers. Every
+   column filters.
+
+
+DECISIONS FOR YOU
+
+   - Scale. 0 to 6 is three categories at 0 to 2, so any score
+     decomposes by eye. Say the word if you want 0 to 10.
+
+   - Isolation. Should the order form ask about isolation precautions?
+     The criteria recognise it; the form does not ask.
+
+   - Category weights. The criteria file weights concepts at 0.3, 1.0 and
+     2.0. A stretcher-only finding counts for more than a bariatric one.
+     The score treats them equally. We can carry the weights through if
+     you want the score to rank strength rather than coverage.
+
+
+OPEN
+
+   - Billing link. When Vic has the RCM data we need to know what it
+     joins on. If it keys on claim or encounter rather than trip request
+     id, that field has to be in the extract before the join is possible.
+
+   - Corti APIs. Will review ahead of the 28th.
+
+Josh
