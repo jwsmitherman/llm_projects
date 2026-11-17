@@ -2,34 +2,56 @@ Medical necessity - how to read the file
 
 Dave,
 
-The score is a documentation score of 0 to 6: mobility, level of
-consciousness and medical monitoring, each 0 to 2. A 0 means nothing was
-documented. Level of service, modifiers and isolation are columns on the
-sheet but are not added into the score, because they are on every order
-regardless of what the facility documented.
+All six categories are scored 0 to 2, as scoped. The total adds three of
+them - mobility, level of consciousness and medical monitoring - for a
+documentation score of 0 to 6, where a 0 means nothing was documented.
+Level of service, modifiers and isolation are scored and shown, but kept
+out of the total because they land on every order regardless of what the
+facility documented.
 
 
-THE SCORE
+THE SIX CATEGORIES
 
-   Score: mobility        0 to 2
-   Score: LOC             0 to 2
-   Score: monitoring      0 to 2
-   Score: documentation   the three added, 0 to 6
+   All six are scored 0 to 2:
 
-   Each category, from what the model recorded for each answer:
+      Score: mobility
+      Score: LOC
+      Score: monitoring
+      Score: isolation
+      Score: LOS
+      Score: modifiers
+
+   Each one, from what the model recorded for each answer:
 
       2   the answer supports necessity
       1   addressed but not sufficient on its own
       0   administrative, not covered, unclear, or nothing documented
 
-   The three category columns are colour shaded.
 
+THE TOTAL
 
-REPORTED BUT NOT SCORED
+   Score: documentation   mobility + LOC + monitoring, 0 to 6
 
-   Score: LOS          every order has a level of service
-   Score: modifiers    every order has an origin and destination code
-   Score: isolation    always 0, no form question asks about isolation
+   Three of the six are not in the total:
+
+      Score: LOS          every order has a level of service, so this
+                          is 1 or 2 on every trip, never 0
+      Score: modifiers    every order has an origin and destination
+                          code, so this is 1 or 2 on every trip
+      Score: isolation    always 0, no form question asks about
+                          isolation precautions
+
+   Those three describe the trip rather than the documentation. Added
+   in, they put a floor of 2 under every total, so a trip with nothing
+   documented scored 2 or 3 out of 12.
+
+   The three in the total have a real zero. A 0 means nothing was
+   documented.
+
+   Say the word if you want the 0 to 12 total of all six back as a
+   second column.
+
+   The three scored categories are colour shaded.
 
 
 THE SCORE DOES NOT DECIDE THE DETERMINATION
