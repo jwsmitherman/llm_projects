@@ -1,0 +1,79 @@
+RE: CoPilot response to questions about determining medical necessity
+
+Mukund,
+
+THE QUESTIONING MODEL IS WHAT THE SERVICE ALREADY DOES
+
+Our prompt instruction for the clarifying question, as written today:
+
+   "One question, or null. Return a question only when a single further
+   detail could change the determination, and when nothing else already
+   documented settles it. If the trip clearly meets criteria, return null.
+   If no answer could rescue it, return null. Ask about the patient's
+   condition, never about the form."
+
+Against the recommendations:
+
+   Ask ONE targeted question
+      - "One question, or null"
+
+   Highest-information-gain question
+      - "a single further detail could change the determination"
+
+   Ask only what's missing
+      - "when nothing else already documented settles it"
+
+   Stop when you have enough
+      - "If the trip clearly meets criteria, return null"
+
+   No Tier 3 detail at ordering
+      - "Ask about the patient's condition, never about the form"
+
+
+ONE DEFECT IN THE OUTPUT
+
+   - Three of four clarifying questions in the 25 October run are
+     compound, two questions joined by "and".
+
+   - Example: "Because of the back pain, is the patient unable to walk
+     even with assistance, AND can they sit safely in a chair or
+     wheelchair for the 9-minute ride?"
+
+   - A nurse answers half of a compound question and we cannot tell which
+     half. One-line prompt fix.
+
+
+TWO REFINEMENTS TO QUEUE
+
+   - State the known fact in the question: "We have the patient listed as
+     receiving 4 L/min oxygen. Will they require assistance managing it
+     during transport?"
+
+   - Name the Tier 3 exclusions explicitly: no pain score, no orientation
+     level, no transfer technique, no historic baseline.
+
+   - Dave asked to hold prompt changes until we review at volume. I will
+     bundle these three.
+
+
+NOT OURS
+
+   - "Don't tell the nurse failed medical necessity" is a UI decision. We
+     return meetsMedicalNecessity true or false; the wording is
+     Transport.net's screen.
+
+   - Angela's developers are building that screen now. Their suggested
+     wording should go to her this week.
+
+
+CRITERIA CHECK
+
+   - Seven of the nine criteria statements in the document are already in
+     our knowledge file: weakness alone, bed confinement alone, fall risk
+     in hospital, oxygen without regulation need, alternative transport
+     availability, transient dementia, facility pressure.
+
+   - Two are not: abnormal laboratory values alone, patient preference.
+     Adding both.
+
+Josh
