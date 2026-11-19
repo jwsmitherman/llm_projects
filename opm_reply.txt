@@ -1,0 +1,8 @@
+Tom, I think the single master doc is the right call. The A/B/C block markers plus the taxonomy mapping appendix cover all three versions without us maintaining three templates.
+
+For April, I'd hit her three asks:
+1. Approach: one master template with conditional blocks, populated from the RCRQ taxonomy
+2. Changes: a few taxonomy fields to add or clean up so population is consistent (the 1410 gaps you flagged)
+3. Timeline: pilot one series per version, then a first draft
+
+On my side I can script the placeholder fill from the taxonomy and add a check that no «placeholders» are left behind. Want me to draft the reply and you edit, or the other way around?
