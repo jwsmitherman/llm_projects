@@ -26,7 +26,10 @@
 #   Part 4  How stage resolved them: identity composition, sponsors on 2+ receipts linked vs split,
 #           sponsors joining the same person's existing (non-sponsor) records, and merge risks
 #           (2+ SSNs in one identity, sponsor merged with the beneficiary on its own receipt).
-#   Part 5  Comparison with the IDEN-45868 status quo, review samples, findings, Excel export.
+#   Part 5  Comparison with the IDEN-45868 status quo, review lists, findings, Excel export.
+#
+# Every step runs on the full data: no sampling, no row limits. JSON fields are discovered from
+# the schema of every document, and every review list holds every record in its category.
 #
 # Stage data is read from the OpenSearch dump tables in Databricks (Harness "pcis_elasticsearch
 # dump" job). Section 6 checks the dump contains sponsor party records; if it predates the sponsor
@@ -84,9 +87,8 @@ SSN_TYPE_RX = "SSN|SOCIAL"
 DETAIL_OVERRIDES = {}
 PARTY_OVERRIDES = {}
 PARSE_ALL_PARTIES = True                  # SSN + identity for every party (needed for Part 4 joins)
-SAMPLE_DOCS = 2000
 MAX_RECORDS_PER_SSN = 200
-REVIEW_SAMPLE_SIZE = 100
+EXCEL_MAX_ROWS = 1_000_000                # longer tables continue on a second sheet
 
 LOG_SPONSOR_PATHS = {
     "form_type": "$.formType.source.formType",
@@ -292,24 +294,50 @@ def seg_text(segs):
     return ".".join(s for s in segs if s != "[]").lower()
 
 
-def discover_paths(json_strings):
-    """Union of leaf paths and object arrays over sample documents, with how often each appears."""
-    leaves, arrays, n = {}, {}, 0
-    for s in json_strings:
-        try:
-            d = json.loads(s)
-        except Exception:
-            continue
-        n += 1
-        out, arr = flatten_doc(d)
-        for p, (segs, v) in out.items():
-            e = leaves.setdefault(p, {"segs": segs, "docs": 0, "example_type": type(v).__name__})
-            e["docs"] += 1
-        for p, (segs, sub) in arr.items():
-            e = arrays.setdefault(p, {"segs": segs, "children": {}, "docs": 0})
-            e["children"].update({k: v[0] for k, v in sub.items()})
-            e["docs"] += 1
+def _walk_schema(dt, path, segs, leaves, arrays):
+    if isinstance(dt, T.StructType):
+        for f in dt.fields:
+            _walk_schema(f.dataType, _jp(path, f.name), segs + (f.name,), leaves, arrays)
+    elif isinstance(dt, T.ArrayType):
+        el = dt.elementType
+        if isinstance(el, T.StructType):
+            sub = {}
+            _walk_schema(el, "$", (), sub, {})
+            arrays[path] = {"segs": segs, "children": {k: v["segs"] for k, v in sub.items()}}
+        _walk_schema(el, f"{path}[0]", segs + ("[]",), leaves, arrays)
+    else:
+        leaves[path] = {"segs": segs, "docs": 0, "example_type": dt.simpleString()}
+
+
+def discover_paths(source_sql, col):
+    """Every JSON path found in ALL documents of `col` (merged schema), with how many documents
+    have a value at each path. Full scans, no sampling."""
+    try:
+        ddl = spark.sql(f"select schema_of_json_agg({col}) from ({source_sql})").collect()[0][0]
+        dtype = spark.range(1).select(F.from_json(F.lit(None).cast("string"), ddl).alias("x")).schema[0].dataType
+    except Exception:   # runtimes without schema_of_json_agg: infer from every document
+        dtype = spark.read.json(spark.sql(source_sql).select(col).rdd.map(lambda r: r[0])).schema
+    leaves, arrays = {}, {}
+    _walk_schema(dtype, "$", (), leaves, arrays)
+    paths = list(leaves)
+    counts = {}
+    for i in range(0, len(paths), 200):
+        chunk = paths[i:i + 200]
+        exprs = ", ".join(f"count_if(get_json_object({col}, '{p}') is not null) as c{j}" for j, p in enumerate(chunk))
+        row = spark.sql(f"select count(*) as n, {exprs} from ({source_sql})").collect()[0]
+        counts["n"] = row["n"]
+        counts.update({p: row[f"c{j}"] for j, p in enumerate(chunk)})
+    n = counts.get("n", one(f"select count(*) from ({source_sql})"))
+    for p in paths:
+        leaves[p]["docs"] = int(counts.get(p, 0))
+    leaves = {p: v for p, v in leaves.items() if v["docs"] > 0}
     return leaves, arrays, n
+
+
+def paths_table(leaves, n):
+    return (pd.DataFrame([{"path": p, "documents_with_value": i["docs"], "pct_of_documents": round(i["docs"] / max(n, 1), 4),
+                           "type": i["example_type"]} for p, i in leaves.items()])
+            .sort_values("path").reset_index(drop=True))
 
 
 def json_identifier_expr(src, arrays, exclude_rx):
@@ -452,7 +480,7 @@ keep("p1_detail_value_shapes", spark.sql(f"""
     select 'identifier_type', coalesce(upper(cast({null_sql(next((f"`{c}`" for c in detail_cols if re.search(r"type_?cd$", c.lower()) and "identif" in c.lower()), None))} as string)), '(null)'), count(*)
     from {SPONSOR_DETAILS_TABLE} group by 1, 2
     order by 1, 3 desc
-""").toPandas().groupby("field", group_keys=False).head(10))
+""").toPandas())
 
 per_key = keep("p1_sponsors_per_beneficiary", spark.sql("""
     select least(n, 4) as sponsors_on_record, count(*) as beneficiary_keys
@@ -609,23 +637,19 @@ p2 = keep("p2_payload_summary", spark.sql(f"""
 
 keep("p2_identifier_types", spark.sql("""
     select coalesce(first_identifier_type, '(none)') as first_identifier_type, count(*) as sponsors
-    from payload where has_sponsor group by 1 order by 2 desc limit 20
+    from payload where has_sponsor group by 1 order by 2 desc
 """))
 keep("p2_payload_value_shapes", spark.sql("""
     select 'dob' as field, dob_shape as value_shape, count(*) as sponsors from payload where has_sponsor group by 1, 2
     union all
     select 'zip5', zip5_shape, count(*) from payload where has_sponsor group by 1, 2
     order by 1, 3 desc
-""").toPandas().groupby("field", group_keys=False).head(10))
+""").toPandas())
 
-sp_samples = [r[0] for r in spark.sql(f"""
-    select s from (select explode(from_json(get_json_object({DATA_EXPR}, '$.party.sponsors'), 'array<string>')) as s
-                   from {GENERATE_LOG_TABLE} where {run_filter} limit 500) limit 1000
-""").collect()]
-sp_leaves, _, sp_n = discover_paths(sp_samples)
-keep("p2_sponsor_json_paths", pd.DataFrame([{"path": p, "in_pct_of_sample": round(i["docs"] / max(sp_n, 1), 3),
-                                             "example_type": i["example_type"]} for p, i in sp_leaves.items()])
-     .sort_values("path").reset_index(drop=True))
+SPONSOR_JSON_SQL = f"""select explode(from_json(get_json_object({DATA_EXPR}, '$.party.sponsors'), 'array<string>')) as s
+                       from {GENERATE_LOG_TABLE} where {run_filter}"""
+sp_leaves, _, sp_n = discover_paths(SPONSOR_JSON_SQL, "s")
+keep("p2_sponsor_json_paths", paths_table(sp_leaves, sp_n))
 
 keep("p2_notification_types", spark.sql("""
     select coalesce(notification_type, '(none)') as notification_type, count(distinct concat_ws('|', source_id, case_id)) as messages
@@ -667,6 +691,83 @@ save_chart(fig, "03_payloads")
 # COMMAND ----------
 
 # ================================================================================================
+# 5b. PART 2 - LOAD CONFIRMATION: WERE ALL 10M TEST-SET RECORDS SENT?
+# Looks for every test-set beneficiary key in the payload log across ALL runs for
+# LOG_SOURCE_SYSTEM, not only LOG_RUN_IDS, and reports which runs carried them. Any log column
+# whose name looks like a status / error / result is broken down for the test-set keys. Every key
+# never found in any run is listed in full (sheet p2_not_loaded_keys). The stage party index check
+# (section 8, p3_landing_by_beneficiary) confirms which of them arrived in stage.
+# ================================================================================================
+
+log_cols = spark.table(GENERATE_LOG_TABLE).columns
+STATUS_COLS = [c for c in log_cols if re.search(r"status|error|result|success|fail|state", c.lower())]
+print("payload log columns:", log_cols)
+print("status-like columns used:", STATUS_COLS or "none")
+status_select = "".join(f", cast(`{c}` as string) as `st_{c}`" for c in STATUS_COLS)
+
+loadlog = work(spark.sql(f"""
+    select run_id {status_select},
+           coalesce(nullif(regexp_extract(coalesce(get_json_object(d, '$.sourceId'), ''), '{BASE_KEY_REGEX}', 1), ''),
+                    nullif(regexp_extract(coalesce(get_json_object(d, '$.systemCaseIdentifier'), ''), '{BASE_KEY_REGEX}', 1), '')) as base_key
+    from (select *, {DATA_EXPR} as d from {GENERATE_LOG_TABLE} where source_system = '{LOG_SOURCE_SYSTEM}')
+"""), "loadlog")
+
+test_keys = work(spark.sql(f"select distinct id_for_key as base_key from {TEST_SET_TABLE}"), "test_keys")
+sel_runs = f"run_id in ({', '.join(str(r) for r in LOG_RUN_IDS)})" if LOG_RUN_IDS else "true"
+
+key_runs = work(spark.sql(f"""
+    select t.base_key,
+           count(l.run_id) as messages,
+           count(distinct l.run_id) as runs,
+           count_if({sel_runs.replace('run_id', 'l.run_id')}) as messages_in_selected_runs
+    from test_keys t left join loadlog l on l.base_key = t.base_key
+    group by 1
+"""), "test_key_runs")
+
+load = keep("p2_load_confirmation", long_form(spark.sql("""
+    select count(*) as test_set_keys,
+           count_if(messages > 0) as found_in_any_run,
+           count_if(messages_in_selected_runs > 0) as found_in_selected_runs,
+           count_if(messages > 0 and messages_in_selected_runs = 0) as found_only_in_other_runs,
+           count_if(messages = 0) as not_found_in_any_run,
+           count_if(messages > 1) as sent_more_than_once,
+           count_if(runs > 1) as in_more_than_one_run
+    from test_key_runs
+""").toPandas()))
+load["pct_of_test_set"] = (load["value"] / max(metric(load, "test_set_keys"), 1)).round(6)
+TABLES["p2_load_confirmation"] = load
+
+keep("p2_load_by_run", spark.sql("""
+    select l.run_id, count(*) as messages, count(distinct l.base_key) as test_set_keys
+    from loadlog l join test_keys t on t.base_key = l.base_key
+    group by 1 order by 1
+"""))
+for c in STATUS_COLS:
+    keep(f"p2_load_status_{c}"[:31], spark.sql(f"""
+        select l.run_id, coalesce(l.`st_{c}`, '(null)') as {c}, count(*) as messages, count(distinct l.base_key) as test_set_keys
+        from loadlog l join test_keys t on t.base_key = l.base_key group by 1, 2 order by 1, 4 desc
+    """))
+
+not_loaded = spark.sql(f"""
+    select regexp_extract(k.base_key, '{RECEIPT_REGEX}', 1) as receipt, k.base_key,
+           coalesce(d.sponsors, 0) as sponsors_in_details
+    from test_key_runs k
+    left join (select base_key, count(distinct sponsor_key) as sponsors from sent group by 1) d on d.base_key = k.base_key
+    where k.messages = 0 order by 2
+""").toPandas()
+TABLES["p2_not_loaded_keys"] = not_loaded
+print(f"test-set keys never found in any {LOG_SOURCE_SYSTEM} run: {len(not_loaded):,} (full list in sheet p2_not_loaded_keys)")
+keep("p2_not_loaded_summary", spark.sql(f"""
+    select case when d.base_key is null then 'no sponsor rows in details table' else 'has sponsor rows' end as detail_status,
+           count(*) as keys, coalesce(sum(d.sponsors), 0) as sponsors
+    from test_key_runs k
+    left join (select base_key, count(distinct sponsor_key) as sponsors from sent group by 1) d on d.base_key = k.base_key
+    where k.messages = 0 group by 1
+"""))
+
+# COMMAND ----------
+
+# ================================================================================================
 # 6. STAGE DUMP READINESS
 # Finds the stage party and identity dump tables and checks they contain sponsor party records
 # (_id matching SPONSOR_ID_REGEX). If none are found the dump was taken before the sponsor load:
@@ -690,7 +791,7 @@ if STAGE_PARTY_TABLE:
     r = spark.sql(f"""select count(*) as party_docs, count_if(_id rlike '{SPONSOR_ID_REGEX}') as sponsor_party_docs,
                              count(distinct _index) as indexes from {STAGE_PARTY_TABLE}""").collect()[0]
     readiness.update(r.asDict())
-    readiness["party_indexes"] = ", ".join(x[0] for x in spark.sql(f"select distinct _index from {STAGE_PARTY_TABLE} limit 10").collect())
+    readiness["party_indexes"] = ", ".join(x[0] for x in spark.sql(f"select distinct _index from {STAGE_PARTY_TABLE}").collect())
     STAGE_READY = r["sponsor_party_docs"] > 0
 keep("p3_stage_readiness", pd.DataFrame([readiness]).astype(str).T.reset_index().set_axis(["item", "value"], axis=1))
 if not STAGE_READY:
@@ -707,15 +808,8 @@ if not STAGE_READY:
 
 PCOL = {}
 if STAGE_READY:
-    samples = [r[0] for r in spark.sql(f"""
-        (select _source from {STAGE_PARTY_TABLE} where _id rlike '{SPONSOR_ID_REGEX}' limit {SAMPLE_DOCS // 2})
-        union all
-        (select _source from {STAGE_PARTY_TABLE} where not _id rlike '{SPONSOR_ID_REGEX}' limit {SAMPLE_DOCS // 2})
-    """).collect()]
-    leaves, arrays, n_docs = discover_paths(samples)
-    keep("p3_party_json_paths", pd.DataFrame([{"path": p, "in_pct_of_sample": round(i["docs"] / max(n_docs, 1), 3),
-                                                "example_type": i["example_type"]} for p, i in leaves.items()])
-         .sort_values("path").reset_index(drop=True))
+    leaves, arrays, n_docs = discover_paths(f"select _source from {STAGE_PARTY_TABLE}", "_source")
+    keep("p3_party_json_paths", paths_table(leaves, n_docs))
     PCOL, party_map, ID_TYPE_PATH = map_json("_source", leaves, arrays,
                                              ["identity_id", "sparse", "role", "form_type", "receipt", "system",
                                               "ssn", "first_name", "last_name", "dob"],
@@ -726,8 +820,8 @@ if STAGE_READY:
         keep("p3_party_identifier_types", spark.sql(f"""
             select upper(get_json_object(x, '{type_path}')) as identifier_type, count(*) as identifiers
             from (select explode(from_json(get_json_object(_source, '{arr_path}'), 'array<string>')) as x
-                  from {STAGE_PARTY_TABLE} where _id rlike '{SPONSOR_ID_REGEX}' limit 200000)
-            group by 1 order by 2 desc limit 20
+                  from {STAGE_PARTY_TABLE} where _id rlike '{SPONSOR_ID_REGEX}')
+            group by 1 order by 2 desc
         """))
 
 # COMMAND ----------
@@ -763,23 +857,18 @@ if STAGE_READY:
     # identity link: from the party document, or else from the identity documents
     IDENTITY_SOURCE = "party document"
     if PCOL.get("identity_id") is None and STAGE_IDENTITY_TABLE:
-        id_samples = [r[0] for r in spark.sql(f"select _source from {STAGE_IDENTITY_TABLE} limit {SAMPLE_DOCS}").collect()]
-        id_leaves, id_arrays, _ = discover_paths(id_samples)
-        key_rx = re.compile(BASE_KEY_REGEX)
+        id_leaves, _, _ = discover_paths(f"select _source from {STAGE_IDENTITY_TABLE}", "_source")
+        cands = [p for p, info in id_leaves.items() if "[0]" in p and info["example_type"] == "string"]
         link_expr = None
-        for doc in id_samples[:200]:
-            try:
-                d = json.loads(doc)
-            except Exception:
-                continue
-            for p, (segs, val) in flatten_doc(d)[0].items():
-                if "[0]" in p and isinstance(val, str) and key_rx.search(val):
-                    arr = p[:p.rindex("[0]")]
-                    sub = p[p.rindex("[0]") + 3:]
-                    link_expr = (arr, "$" + sub if sub else None)
-                    break
-            if link_expr:
-                break
+        if cands:
+            exprs = ", ".join(f"count_if(regexp_extract(get_json_object(_source, '{p}'), '{BASE_KEY_REGEX}', 1) <> '') as c{k}"
+                              for k, p in enumerate(cands))
+            hits = spark.sql(f"select {exprs} from {STAGE_IDENTITY_TABLE}").collect()[0]
+            best = max(range(len(cands)), key=lambda k: hits[f"c{k}"])
+            if hits[f"c{best}"] > 0:
+                p = cands[best]
+                arr, sub = p[:p.rindex("[0]")], p[p.rindex("[0]") + 3:]
+                link_expr = (arr, "$" + sub if sub else None)
         if link_expr:
             arr, sub = link_expr
             member = "x" if sub is None else f"get_json_object(x, '{sub}')"
@@ -1072,37 +1161,39 @@ if STAGE_READY:
 # COMMAND ----------
 
 # ================================================================================================
-# 14. PART 5 - REVIEW SAMPLES
-# Up to REVIEW_SAMPLE_SIZE record keys per category for manual review in the stage dashboards
-# (receipt, party _id, identity _id only). Categories: sponsors split across identities,
+# 14. PART 5 - REVIEW LISTS
+# Every record key in each category, for manual review in the stage dashboards (receipt, party
+# _id, identity _id only), one workbook sheet per category. Categories: sponsors split across identities,
 # identities with 2+ SSNs, sponsor merged with a record on its own receipt, beneficiary records
 # whose sponsors did not land in stage, and sponsor records without an identity.
 # ================================================================================================
 
+REVIEW_SQL = {
+    "split": f"""select s.receipt, s.party_id, s.identity_id from sponsor_parties s
+                 join (select ssn_key from stage_sponsor_ssn_groups where identities > 1 and receipts <= {MAX_RECORDS_PER_SSN}) g
+                   on g.ssn_key = s.ssn_key where s.in_test_set""",
+    "2plus_ssns": """select m.receipt, m.party_id, m.identity_id from sponsor_identity_members m
+                     join (select identity_id from identity_comp where ssns > 1) c on c.identity_id = m.identity_id""",
+    "own_receipt": """select distinct s.receipt, s.party_id, s.identity_id from sponsor_parties s join sponsor_identity_members o
+                        on o.identity_id = s.identity_id and o.base_key = s.base_key and not o.is_sponsor
+                      where s.in_test_set""",
+    "not_in_stage": f"""select regexp_extract(s.base_key, '{RECEIPT_REGEX}', 1) as receipt, s.base_key as party_id,
+                               cast(null as string) as identity_id
+                        from (select distinct base_key from sent) s left anti join (select distinct base_key from sponsor_parties) l
+                          on l.base_key = s.base_key""",
+    "no_identity": "select receipt, party_id, identity_id from sponsor_parties where in_test_set and identity_id is null",
+}
+REVIEW_LABELS = {"split": "sponsor split across identities", "2plus_ssns": "identity with 2+ SSNs",
+                 "own_receipt": "sponsor merged with record on own receipt", "not_in_stage": "sponsors not in stage",
+                 "no_identity": "sponsor record without identity"}
+
 if STAGE_READY:
-    n = REVIEW_SAMPLE_SIZE
-    review = keep("p5_review_samples", spark.sql(f"""
-        (select 'sponsor split across identities' as category, s.receipt, s.party_id, s.identity_id
-         from sponsor_parties s join (select ssn_key from stage_sponsor_ssn_groups
-                                      where identities > 1 and receipts <= {MAX_RECORDS_PER_SSN} order by rand(7) limit {n // 4}) g
-           on g.ssn_key = s.ssn_key where s.in_test_set)
-        union all
-        (select 'identity with 2+ SSNs', m.receipt, m.party_id, m.identity_id
-         from sponsor_identity_members m join (select identity_id from identity_comp where ssns > 1 order by rand(7) limit {n // 4}) c
-           on c.identity_id = m.identity_id)
-        union all
-        (select 'sponsor merged with record on own receipt', s.receipt, s.party_id, s.identity_id
-         from sponsor_parties s join sponsor_identity_members o
-           on o.identity_id = s.identity_id and o.base_key = s.base_key and not o.is_sponsor
-         where s.in_test_set order by rand(7) limit {n})
-        union all
-        (select 'sponsors not in stage', regexp_extract(s.base_key, '{RECEIPT_REGEX}', 1), s.base_key, cast(null as string)
-         from (select distinct base_key from sent) s left anti join (select distinct base_key from sponsor_parties) l
-           on l.base_key = s.base_key order by rand(7) limit {n})
-        union all
-        (select 'sponsor record without identity', receipt, party_id, identity_id
-         from sponsor_parties where in_test_set and identity_id is null order by rand(7) limit {n})
-    """))
+    review_counts = []
+    for k, q in REVIEW_SQL.items():
+        pdf = spark.sql(q + " order by 1, 2").toPandas()
+        TABLES[f"p5_review_{k}"] = pdf
+        review_counts.append({"category": REVIEW_LABELS[k], "records": len(pdf), "sheet": f"p5_review_{k}"})
+    keep("p5_review_lists", pd.DataFrame(review_counts))
 
 # COMMAND ----------
 
@@ -1126,6 +1217,10 @@ FINDINGS.append(f"Sponsor SSNs on 2+ receipts: same name and DOB on every receip
 FINDINGS.append(f"Payloads for the run: {p2['sponsors_in_payloads']:,.0f} sponsors in {p2['messages_with_sponsors']:,.0f} messages; "
                 f"{p2['sponsors_after_first_position']:,.0f} are in position 2+ of the sponsors array. "
                 f"{p2['test_set_keys_in_payloads']:,.0f} of {p1['test_set_beneficiary_keys']:,.0f} test-set keys found in payloads.")
+FINDINGS.append(f"Load check across all {LOG_SOURCE_SYSTEM} runs: {metric(load, 'found_in_any_run'):,.0f} of "
+                f"{metric(load, 'test_set_keys'):,.0f} test-set records were sent ({metric(load, 'found_in_any_run') / max(metric(load, 'test_set_keys'), 1):.2%}); "
+                f"{metric(load, 'not_found_in_any_run'):,.0f} were not found in any run; "
+                f"{metric(load, 'found_only_in_other_runs'):,.0f} were found only in runs other than {LOG_RUN_IDS}.")
 if STAGE_READY:
     FINDINGS.append(f"Stage party index: {p3['sponsor_records_in_stage_for_test_set']:,.0f} sponsor records for the test set vs "
                     f"{EXPECTED_SPONSORS:,} sent ({pct(p3['sponsor_records_in_stage_for_test_set'], EXPECTED_SPONSORS):.1%}); "
@@ -1169,7 +1264,10 @@ from openpyxl.drawing.image import Image as XLImage
 def write_workbook(path):
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for sheet, df in TABLES.items():
-            df.to_excel(writer, sheet_name=sheet[:31], index=False)
+            parts = max(1, -(-len(df) // EXCEL_MAX_ROWS))
+            for k in range(parts):
+                name = sheet[:31] if parts == 1 else f"{sheet[:27]}_{k + 1}"
+                df.iloc[k * EXCEL_MAX_ROWS:(k + 1) * EXCEL_MAX_ROWS].to_excel(writer, sheet_name=name, index=False)
         ws = writer.book.create_sheet("charts", 1)
         row = 1
         for name, chart_path in CHARTS.items():
