@@ -1,0 +1,310 @@
+Speaker 1  0:00  
+Forward than have been in the past. I am cool. I'm meeting with Anita at two. Just like I mean, which is kind of related exactly to what the tickets are. So I wonder if I have a clearer picture after that. Just because we're doing some work on our end with like our context layer specialists and trying to think through. But there's obviously this like business workflow component and where the value is, so I think there's like a broader alignment question. So yeah, I guess long-winded way of saying I will reach out to Pepe. Likely we'll get time later today, but I don't think we need him for this specifically if he's not on it.
+
+Speaker 2  0:34  
+No, that that sounds good. Yeah, if you don't mind connecting with him and getting aligned, I think he really wants to get a line too on the actual solution that you guys are building, so that it's connected with everything else that he's built out as well. Right, and
+
+Speaker 1  0:49  
+we want that too. Like it sounds like he's done a lot of work and has a lot of expertise. So,
+
+Speaker 2  0:55  
+all right, Anish, I saw you did an update to the tech design. I made it like three paragraphs in. It's long. I still owe you finishing the review of that, so I haven't had it. I got distracted on a bunch of other stuff, so I'll get back to it at some point today.
+
+Speaker 3  1:17  
+That's fine. Thanks, Alan. Just keep tagging me. We can keep tagging the comments, and there is a lot of material. So if something needs clarification, just you can ping me and we'll look at it. But I'm kind of I'm kind of operating under the assumption that I'm going to be focused more on the application features this week. So I'm not thinking too heavily about it right now. Yep.
+
+Speaker 2  1:42  
+Fair enough. Fair enough.
+
+Speaker 3  1:43  
+Should we do our standup? Should we kick off Jira?
+
+Speaker 2  1:50  
+Yeah, we can do that. Does anybody have it up? Got it.
+
+Speaker 3  2:00  
+Oh wait, maybe I don't.
+
+Speaker 1  2:01  
+Anish on his monitor. I was in the same room with Anish yesterday, and he, I was gonna take a call afterwards, and I was like, "You can't leave your monitor here. Like that's your computer." So he had to pick up the monitor on his laptop and like walkout
+
+Speaker 3  2:15  
+in. I've been carrying my monitor.
+
+Speaker 1  2:17  
+Yeah, you don't need bicep curls.
+
+Speaker 3  2:19  
+I I thought that Apple fixed like screen same day, and I go into the Apple store and they're like, "Yeah, this is gonna take two weeks." I was like, "Oh, okay."
+
+Speaker 2  2:30  
+Let's see. Active Sprint. Anish, this looks like you've got a ton of stuff in flight here because you've got subtasks underneath. I don't know why
+
+Speaker 3  2:47  
+it seems like it's okay. Some of these aren't in the sprint three. Yeah, if
+
+Speaker 2  2:55  
+you look here, like you'll have a feature AIE 121, which is implement the intra SSO authentication, but it looks like there are subtasks underneath that.
+
+Speaker 3  3:06  
+Yeah,
+
+Speaker 2  3:06  
+and so all of these subtasks are getting displayed here. It's probably not really that many items, but I think the only pulled in because they're subtasks here.
+
+Speaker 3  3:18  
+I think the issue is that the admin view stuff is showing up in this, and the UI UX for the call center product, which I wonder if I have them like in progress or something, and I need to move them to backlog. If we filter by the sprint, then maybe
+
+Speaker 2  3:33  
+can I do that here on the board?
+
+Speaker 3  3:38  
+Well, maybe on the one right to the left of your icon.
+
+Speaker 2  3:42  
+Is it easier? Do you want to look at it this way?
+
+Speaker 3  3:45  
+That might be easier.
+
+Speaker 4  3:46  
+Zoom makes more sense because this is what has a current sprint. Okay. Yeah, I'm I'm happy to go first. Go over my updates. Yeah, for AIE 197. suggestion graph plus updated is deploy divided to deployment. So I just commented out my PR at the bottom of it. So the PR is out for this ticket. Just going to sync with the niche and close this ticket. For AIE 198, determine the type of suggestion and the suggestion taxonomy. You can see that Anish and I synced yesterday, and we decided from a product POV what we want to do. I'll work on it today to put up a PR for that. AIE 203 is also in progress. After integration, we had some issues with latency, where the latency was actually getting up to like 3040 seconds because of some weird event loop scheduling backlog that was happening. So I'm now into a mono thread architecture, and that brought our latency down to like nine to 10 seconds. So let's see if we can like further optimize that. There's a couple of improvements to be done from the Salesforce side because we're using the sandbox connection, so it's a little slow. Ideally, when we move to the prod Salesforce, that latency is going to go down a little bit as well. And because we're we're trying to implement streaming, so ideally we only need to be concerned about time to first token, so yeah, this is also underway. My goal for the rest of the week is to complete all these three tickets and have an end-to-end product working, productionized product working with low latency. That's my goal for end of this week.
+
+Speaker 3  5:41  
+Okay, so Alan, I responded to your comment on latency in the design. By the way, is
+
+Speaker 2  5:47  
+yeah, yeah.
+
+Speaker 3  5:49  
+I think I think we just need we just need requirements around there. Yeah, I think that for now, Viv and I are going to focus on making it as low as possible. But if you're able to own the sign off on the targets from an overall perspective,
+
+Speaker 2  6:05  
+yeah, we should talk to. And I got to tell you, there's nothing empirical about me saying I think five seconds is probably too slow. It's just, well, the agents are going to tell us. You know, the agents are going to tell us when we get out there and start testing with them, and if it's laggy from their perspective, they'll let us know. So,
+
+Speaker 3  6:27  
+and that's why I think we should think about also like these UX improvements, right? Is like there's ways of doing a progress bar. There might be ways of I liked Lauren's suggestion of you know we could even maybe show the reasoning that's happening behind the scenes in some ways. So I think we can be creative there, but if there are, if you you know if there is kind of some kind of target, then please just let us know, and then we can we can factor that in. One ask is I I would say just suggestion is if if you want to just close out the suggestion taxonomy thing and then share it out, I think Anita might have, might be like good to just take a look at it too and make sure that she sees that
+
+Speaker 4  7:11  
+part. Okay. Um, can I still keep the ticket open because I was gonna close out the ticket once I'm done integrating it into the product to like make your all kind of Anita and the chat. I still I
+
+Speaker 3  7:22  
+still owe like a look at the PR as well. So just thanks for maintaining it.
+
+Speaker 4  7:28  
+Yeah, yeah, no worries. I'll just keep the ticket open. I changed the due date to tomorrow. So once I'm done with the PR, it just you know I guess helps me like know that it's on my yeah. And I'll send the message out to you as well today.
+
+Speaker 3  7:44  
+I can go. I am working on the SSO on authentication. I'm not working on this admin view for Proven Docs right now, so I think that was that's still scoped for this week once I finish off. But I want the rules baked in first. I think one of the issues is that maybe a lot of the subtasks in that admin view are still like due in progress. So,
+
+Speaker 2  8:05  
+oh, you're talking about down here, like when I hold this, there's a bunch of stuff underneath it here.
+
+Speaker 3  8:12  
+This is all accurate. The intra off ticket is accurate. I'm working on 204 and 205, six
+
+Speaker 5  8:19  
+through
+
+Speaker 3  8:20  
+13. I need some help from from JJ and Stephen, but I'm still going to try to target those this week. I need to put together and ask for them.
+
+Speaker 2  8:32  
+Okay.
+
+Speaker 3  8:36  
+And then the admin view would follow up Afterwards,
+
+Speaker 2  8:41  
+okay. And the admin view is a separate story down here.
+
+Speaker 3  8:53  
+You know, AI 129. I think maybe doesn't even belong in the sprint. I'm surprised I didn't realize it was there.
+
+Speaker 2  9:04  
+It's marked as done, though. So, but it has a bunch of to-do stuff underneath it.
+
+Speaker 4  9:15  
+Yeah, I think AI 129 was different when Anish created this ticket, but it's the meaning is different now.
+
+Speaker 3  9:23  
+Yeah. So maybe we can actually just close out this ticket and create a new one, and I can take care of the new one. Or okay, yeah, we can renew this ticket. We can mark this as canceled because some of these like configuration sections, I we don't really need, or they're already built. Like versioning should be done. Let's take
+
+Speaker 1  9:43  
+a look offline. Yeah. Enjoy keeping it clean. Does that make sense for me to walk through mine quickly?
+
+Speaker 3  9:53  
+Yeah.
+
+Speaker 1  9:54  
+So 209, 210, 210, and 211. I think they're like a little bit higher level, but just so you have visibility. I think the key thing we need to do is like get alignment in terms of like what the priority workflows are by value, and then actually sketch the input steps and outputs. I think the key thing on my mind is just building to build. If it's something that is not going to be important to the business is obviously a concern, so I'm going to work with Anita to really get clear on this, because we need to be working towards something ASAP, especially with Thanksgiving coming up and the meetings quickly in the first couple weeks of December, and then associated with that 210 is basically saying like once we have mapped out those priority workflows, like with context layers, and like speaking to some of like our experts. Like a lot of the work is not the V zero, but it's the hill climbing that happens thereafter, and a lot of that is related to like actually codifying like the business flows, and that requires like the SMEs like regular touch points because they're ultimately going to be the ones that are going to be able to evaluate that, rather than us. We're just going to like design it, make sure the process is happening correctly, so that it's going to be key to like get time on the calendar early and just like make sure we're having enough touch points and not letting their time be the bottleneck. And then 211 is more just like a note for myself, just like actually getting in and Experimenting with building a really basic context layer. As I said, like the the barrier to entry is very low. That doesn't mean the first version is going to be very good, but just like actually getting hands in and like playing with the architecture, so we can get towards building that as soon as possible. Those are three things that were on my to do list.
+
+Speaker 2  11:45  
+Your meeting with Anita, no blocks or anything like that for that.
+
+Speaker 1  11:50  
+Not for now. I think, yeah, I think a lot of stuff is going to come out of that. Like, there's obviously been a lot of discussions in the previous month or so with like you know the implementation analyst and a lot of context that just because I'm getting onboarded I don't necessarily have so I think there's going to be yeah just a little bit of like getting up to speed and then also like working with Pepe afterwards I think the big thing is just like trying to figure out like it's a big ask in terms of like redesigning like the whole org I think what it makes sense is like picking a slice and trying to like build it in a way that when you add more slices, it's very intuitive and the architecture is clear as to like how this will scale. But beginning with just like a slice, and I think like making sure that that slice is very valuable to the business is like where a lot of the work needs to be done, but we just need to get beating on that. So, no blocks for me right now, but can follow up throughout the week.
+
+Speaker 2  12:49  
+Right, sounds good.
+
+Speaker 3  12:51  
+Alan, oh sorry. Yeah, thanks, area. I guess Josh. Yeah, I
+
+Speaker 5  13:00  
+can go ahead and go. Yeah, I'm working with Nick to fill out this ticket to give me access into this AWS sandbox stuff. So I'm working with him right now on getting that ticket submitted, of getting me access to all the POC services. So I think it should be a quick flip. They're using; they haven't been going directly into Jira for it, so get that submitted today. Hopefully, get that gets turned around, and then Viv, I'll touch base with you maybe after. I still don't have the keys to run the end end, so maybe we can. I have access to this chat GPT. console here, but there's no way for me to like generate keys or anything.
+
+Speaker 4  13:52  
+Oh, what Alan? What's the right way for me to generate a key? Because I can generate a key for Josh and send him, but is there a one password or something that we can send it in an encrypted manner, or just Teams sharing is fine. I
+
+Speaker 2  14:05  
+would go for OneDrive sharing, so you can control access.
+
+Speaker 4  14:12  
+How would I share a key on OneDrive? Is there like a way?
+
+Speaker 3  14:18  
+Yeah,
+
+Speaker 2  14:18  
+you would have to store a file and share it through OneDrive.
+
+Speaker 4  14:24  
+Okay, okay. So Josh, I'll send you the key right now. That way,
+
+Speaker 2  14:30  
+yeah. That way you can control access that who has access to it and only give it to Josh. You don't want it to be to the world, you know. Makes sense. Yeah.
+
+Speaker 3  14:41  
+Alan, how sland is Jordan this week? There's a lot of access things. I think we actually have. The
+
+Speaker 2  14:48  
+only thing that I asked him for was I sent him a Teams message asking for that for the Jira workflow to add the canceled state, and it was like he did it in Minutes, so it seems like he can help. He's just yeah. I would ping him and say, "Hey, do you have time to help with this?" I think maybe I got that one through really quick because it was easy for him. Not a big deal, but yeah, ping him and see if he has time to support you on the intra thing,
+
+Speaker 3  15:22  
+okay, sounds good. It's it's intra. It's also a lot of the plugins, like GitHub connection doesn't actually find our repo. We don't actually have SharePoint read access to a site, and our Jira connection doesn't work. So I imagine these are actually blockers for program implementation. So Eric, I can talk to you about. But that we don't have access to like some of the OpenAI key pages, the usage page.
+
+Speaker 2  15:48  
+Yeah, for SharePoint, he has to know exactly which sites to open up.
+
+Speaker 3  15:54  
+Yeah,
+
+Speaker 2  15:55  
+it's crazy to me, but apparently he controls which sites at a site level in SharePoint are available.
+
+Speaker 3  16:05  
+Okay, so then actually in that case maybe I'll just talk with we'll we'll sync with Harry on for program implementation what we need so that we can have like a full list. The other quick update for you, Alan, is I talked to Alex a bit for the VDI. He's worked on a bunch of optimizations, I think, but we're at a point where it's. I don't think anything further can be done on the VDI. It's the latency is just what it is. Okay. So, I think we're we're definitely at a point where we need hardware, where we need to put in a Request, but I think that's yeah.
+
+Speaker 2  16:47  
+Okay, let me talk with Alex from IT and Tim Sighee, and I'll talk. I'll pull Aaron into. That's the group of us that we're working with it before. I'll pull them back together and say, okay. Now we're at the point of we need to order hardware. It's very much appreciated what Alex Markovic has done.
+
+Speaker 3  17:10  
+I think he's he's tried a lot of things. I I think it's just a limitation of this RDP setup in our networking.
+
+Speaker 2  17:18  
+Who all needs MacBooks? Is it just you and Bib, or is it more than that? Me,
+
+Speaker 3  17:25  
+Bib, Cole, and Harry D. I assume you need one too, right? Probably.
+
+Speaker 1  17:31  
+I would say yes. I mean, like I think, yeah. Maybe my take on it, Alan, and I don't know what your take is. It's just like obviously, given like the priority of like this whole sort of like engagement, like just getting the max is probably like it's like a nuisance, but like probably something that's worth doing, just like in the greater scheme. So, if it's not too much harm to add one extra, yeah, I think I think it helps.
+
+Speaker 2  18:00  
+Okay, let me work with them. It won't be an immediate turnaround because they. I mean, the one thing that Tim and Alex Markovich told me is they have to build out a profile for a contractor profile for you guys. So it'll be some work lead time work up in front for them to to build out the profile, and then once they have that, they can image them all. So let me work with them on timing. And where do you, if you guys can follow up with me on shipping information for them, for sure. I mean, we can ship them to the office there in San Francisco and New York, or well, Harry, you're in a different office in New York, though, right?
+
+Speaker 1  18:45  
+I can go to very easily go to Alicia. Two minutes away. Well, depending on the timeline as well, we could also do like the Steco week and just pick them up from Orlando, like if the times work. Okay, obviously, like as soon as possible is ideal. So if it can be sooner, that's great too. All right, I'll I'll let me talk with those guys and find out what they're thinking with timing. Yeah, that'd be helpful.
+
+Speaker 4  19:09  
+Good fun. Just just one quick note. I know Josh and I think earlier today on bank access. So curious to hear Alan that if we need, if he needs any, or curious to hear from both Joshua and Alan if you need any help on escalating that, because I assume even after you get access, it'll take some time for you to actually be able to download that information.
+
+Speaker 5  19:34  
+Yeah, let me check the status of it real quick.
+
+Speaker 3  19:38  
+And just to be clear, Josh, like there's just because we went through these hoops, there's the read access to variant. There's playback access, and then there's download and reporting access. So,
+
+Speaker 5  19:49  
+no, I requested download and interact interaction. Yeah, request access. Still shows pending. Who? I'm. I'm going to need to do some research to figure out who. Who this is going to.
+
+Speaker 2  20:09  
+Okay. Yeah. So we can
+
+Speaker 5  20:11  
+escalate.
+
+Speaker 2  20:13  
+Valerie's going to be the person we have to get in time contact with.
+
+Speaker 5  20:16  
+Valerie. What's her last name?
+
+Speaker 2  20:21  
+Look it up.
+
+Speaker 5  20:23  
+I'll just add her to the ticket here.
+
+Speaker 2  20:34  
+Valerie Grant, I think. Let me check it. Okay. Double check.
+
+Speaker 5  20:39  
+Yeah, I see. I see it here. Yeah, she's her. I see it. So I include her. She's on the ticket,
+
+Speaker 2  20:57  
+and I'm pinging her now. Yeah, Valerie Grant is going to be the right person.
+
+Speaker 1  21:10  
+Cool. Is that what we have, Deb? That's all
+
+Speaker 2  21:14  
+from my side. Yeah, all from us. The other thing I wanted to let you guys know is I did meet with the marketing team today. Finally, about call companion as a name, they're good with that. Totally fine with it. There may be some implications. They said, please don't do any logos or anything like that or personas associated with it. But like at the top right now today, when I'm looking at it, actually I'm sharing the screen right so I can show you. So like, you know, up here today it says SSRX at the top left. If you want to put Call Companion over here, that's fine. Not branded, I guess, is what they said. So just use call companion. It sounded like she said just make it lowercase. I'll talk to the legal team too to make sure they don't have a problem. There's no trademarks or anything that we're worried about. I think so should be fine.
+
+Speaker 3  22:13  
+Very glad that my not arbitrarily, but very quickly chose the name. This is common. We
+
+Speaker 2  22:22  
+should be good on that one, and yeah,
+
+Speaker 3  22:25  
+Alan. If you have like a list of things that marketing has sent, and also legal, which I think is maybe even more important, you could send those over. And we're doing some other like internal design work to clean up the branding, to clean up a lot of the UI. So, for example, I'd be curious if we want, if we need to put in the Assist RX logo, not like call companion, but Assist RX, and if so, like what to do.
+
+Speaker 2  22:52  
+Yeah, you could. Do you need like the actual branded logo?
+
+Speaker 3  22:58  
+If we do, again, I don't. I think it's more like if marketing and legal have requirements for the pilot, feel free to send those our way. But if if they're kind of just like it's rough, we can use best judgment.
+
+Speaker 2  23:12  
+It's totally fine. I'll give you the actual assistorex logo though, and it's fine to use that one. They just don't want us inventing our own logos for this app. That's what they asked.
+
+Speaker 3  23:23  
+Very fair.
+
+Speaker 2  23:26  
+Okay, and then yeah, I'm meeting with legal again today too. So I'll let you know what comes out of that. I think the biggest thing they legal is really worried about is the stuff upstream of the app. Yep. Before the app starts, this idea of letting users in certain areas that have to consent to it, letting them opt out, all of that stuff has to happen before the app kicks in. They're really concerned about those requirements and how we handle that. I don't think it necessarily changes the development of the app itself, but it's the front end IVR work and everything that happens in the total flow.
+
+Speaker 3  24:09  
+Makes sense.
+
+Speaker 2  24:10  
+I'll try and gather all of that and make sure we get it back so we get it into the requirements document and design.
+
+Speaker 3  24:18  
+Awesome.
+
+Speaker 2  24:19  
+All right, that's it for me. me.
+
+Speaker 3  24:23  
+All right. But I added Pepi in case he ever wants to join.
+
+Speaker 2  24:26  
+Okay. Sounds good. About Demarcation today. How you
+
+Unknown Speaker  24:32  
+doing
+
+Transcribed by https://otter.ai

@@ -1,0 +1,112 @@
+Speaker 1  0:00  
+JJ can can sort all that out. If he has any questions about what needs to you know what we need or something, with you know Skip can say okay we want we want another subnet here, want another subnet there inside the POC container. I think we've got that pretty well built out of the POC PC. anyway, and that's what he's going to use in Terraform. Once all this gets done, right, and then we'll roll it up and be able to just cookie cutter it out, dev test UAT probably.
+
+Speaker 2  0:35  
+Okay. So, Josh, do you have questions around access? Because you were saying, hey, AWS access to be able to do some of this stuff.
+
+Speaker 3  0:45  
+Yeah, I I don't know what kind of access I I currently have in AWS sand or this is just the sandbox, right? Or the POC environment.
+
+Speaker 1  0:54  
+Yes.
+
+Speaker 3  0:55  
+Yeah, I'm not even sure if I even have access to even get in there right now.
+
+Speaker 4  1:01  
+I can take that. Just give me a second.
+
+Speaker 1  1:07  
+If now we just need a ticket generated, we can grant access to you, Josh. Great.
+
+Speaker 2  1:20  
+Okay, and
+
+Speaker 4  1:22  
+then I believe Joshua have access to the VM. I just checked in, so I just added you in. I think Cole last time, so he should have access to the AWS VM.
+
+Speaker 2  1:32  
+Does he need access to the AWS portal though, so that he can create some of these new services? Like if Josh is going to go create Chime voice connector, or if he's gonna create another instance for the web app to separate that out, or the link views instance.
+
+Speaker 1  1:53  
+Yeah, I've got no problem getting access. Like I said, just a ticket for the audit trail is all I request. I mean, it's a POC environment, so if we're gonna, you know, if we're gonna break it, now's the time to do it. All right,
+
+Speaker 2  2:10  
+Josh, are you okay creating the ticket for that?
+
+Speaker 3  2:13  
+Uh, yeah. Well, I mean, I only have access to our board. You you don't have access to the ITSR board. Oh, you just mean like a general IT request? That's it. Yeah. Oh yeah, yeah, yeah. No, no. See it on the Jira project. See if you have access to ITSR. Let me see. Let me take a look. ITSR. Oh yeah, IT service request. Yep, I got it right here. Yeah,
+
+Speaker 5  2:42  
+if you do that, that bypasses the service desk, which is the ITSDs. This come directly to Rory and my Rory's team comes. They come to me, but then that way I can get a triage to Rory's team and get it done way quicker than if you go to the it
+
+Speaker 1  2:57  
+might be it might be delayed a little bit because I'm not sure if Skip's the only one that got that has that level of permissions to add users or not.
+
+Speaker 5  3:09  
+Yes, maybe true.
+
+Speaker 1  3:12  
+That'd be that. We'll at least get it assigned to
+
+Speaker 5  3:13  
+Skip, and yeah, we'll get into the we'll get into the right hands, and yeah.
+
+Speaker 3  3:18  
+You talking about this right here? I just pasted the image here in the chat.
+
+Speaker 5  3:26  
+Yeah, that's exactly it. Yep, yep. Sales, yeah, the ones that have AI deployco. That's the epic. We'll link them to that stuff that they're working on or they need to. So, yep. If you just create a new one there, it'll fire an email to me. I'll get with. Well, I'll sign it to Skip, and then we'll get him to do it when he's back.
+
+Speaker 3  3:46  
+Okay.
+
+Speaker 2  3:49  
+Right. Otherwise, let's see.
+
+Speaker 5  3:56  
+Yeah, and it looks like Anish said that this they forgot to cancel this meeting. They've got other session planning, but that Nonki will cancel it, and then it looks like he's going to create a new series or something. So,
+
+Speaker 2  4:07  
+okay,
+
+Speaker 5  4:08  
+use this time.
+
+Speaker 2  4:10  
+Yeah, no, that's okay. I like using the time just to give you guys an update where we're at. There's a ton of
+
+Speaker 5  4:17  
+there's a ton of
+
+Speaker 2  4:19  
+work here that the team's going to be working on this week with the POC environment. Viv is going to be working on evals. Like we said, Josh is working on being able to make a plan to build out the AWS environment with the POC, so that we separate output components. And then the other thing I wanted to let you guys know is that Anish really wants to work on the authentication, the intra ID single sign-on this week. So I wanted to prep you guys for that. That he's probably going to be reaching out for that one as well.
+
+Speaker 1  4:58  
+Yeah, that's going to be Jordan Clark,
+
+Speaker 5  5:02  
+yeah, Jordan
+
+Speaker 1  5:02  
+too. Yeah,
+
+Speaker 2  5:05  
+okay.
+
+Speaker 5  5:08  
+And he's in. Yeah,
+
+Speaker 1  5:09  
+the administrators are are the SSO admins, the inter ID admins, so they'd be able to help out with that. Okay, and Salesforce off. I don't know. I don't even. I'm not sure Jordan can do that. But you might have you might have to bring in a Salesforce admin for that.
+
+Speaker 2  5:28  
+Yeah, we've already got that under compliance. He's working with Vice and Steve Roper on that. Okay. Yeah. Vice is the right one. Yeah. Yeah. Okay. All right, that's
+
+Speaker 5  5:42  
+thanks for the update. Yeah,
+
+Speaker 2  5:44  
+that's really what we've got going this week. They're pushing hard for they want to try and work on to do some test calls with reps, and they had a target for december 7. I think it's going to be tight. I don't know that we'll get there, but they're trying to push toward how much can they get ready for that. It may be later, though. It's gonna yeah, but it's gonna be tough trying to get stuff scheduled around these holidays anyway. Yeah. Oh yeah. You totally.
+
+Transcribed by https://otter.ai
