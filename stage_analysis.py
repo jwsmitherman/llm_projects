@@ -177,14 +177,22 @@ def ssn_sql(col):
 
 def dob_sql(col):
     s = f"regexp_replace(trim(cast({col} as string)), '[.]0+$', '')"
-    ts = (f"coalesce(try_to_timestamp({s}, 'yyyyMMdd'), try_to_timestamp({s}, 'yyyy-MM-dd'), "
-          f"try_to_timestamp({s}, 'MM/dd/yyyy'), try_to_timestamp(substr({s}, 1, 10), 'yyyy-MM-dd'), try_to_timestamp({s}))")
+    epoch = (f"case when {s} rlike '^-?[0-9]{{11,13}}$' then timestamp_millis(cast({s} as bigint)) "
+             f"when {s} rlike '^-?[0-9]{{9,10}}$' then timestamp_seconds(cast({s} as bigint)) end")
+    ts = (f"coalesce({epoch}, try_to_timestamp({s}, 'yyyyMMdd'), try_to_timestamp({s}, 'yyyy-MM-dd'), "
+          f"try_to_timestamp({s}, 'MM/dd/yyyy'), try_to_timestamp({s}, 'M/d/yyyy'), try_to_timestamp({s}, 'yyyy/MM/dd'), "
+          f"try_to_timestamp(substr({s}, 1, 10), 'yyyy-MM-dd'), try_to_timestamp({s}))")
     d = f"date_format({ts}, 'yyyy-MM-dd')"
     return f"case when {d} > '1900-01-01' and {d} <= date_format(current_date(), 'yyyy-MM-dd') then {d} end"
 
 
 def clean_sql(col):
     return f"nullif(regexp_replace(upper(coalesce(cast({col} as string), '')), '[^A-Z]', ''), '')"
+
+
+def pattern_sql(col):
+    """Shape of a value with no content: digits -> 9, letters -> A (e.g. 9999-99-99)."""
+    return f"coalesce(regexp_replace(regexp_replace(trim(cast({col} as string)), '[0-9]', '9'), '[A-Za-z]', 'A'), '(null)')"
 
 
 def filled_sql(col):
@@ -236,8 +244,20 @@ def map_columns(cols, fields, overrides, exclude_rx=r"id_for_key"):
             continue
         hits = [c for c in cols if re.search(FIELD_SPECS[f], c.lower()) and not re.search(exclude_rx, c.lower())]
         hits.sort(key=len)
-        mapping[f] = f"`{hits[0]}`" if hits else None
-        rows.append({"field": f, "column": hits[0] if hits else "", "how": "matched by name" if hits else "not found"})
+        if hits:
+            mapping[f] = f"`{hits[0]}`"
+            rows.append({"field": f, "column": hits[0], "how": "matched by name"})
+            continue
+        if f in ("ssn", "a_number"):
+            val = next((c for c in cols if re.fullmatch(r"(identifier|identifier_?(value|nbr|number)|id_?value)", c.lower())), None)
+            typ = next((c for c in cols if re.fullmatch(r"identifier_?type(_?(cd|code))?|id_?type(_?cd)?", c.lower())), None)
+            if val and typ:
+                rx = SSN_TYPE_RX if f == "ssn" else "ALIEN|A_?NUMBER|ANUMBER|A-NUMBER"
+                mapping[f] = f"case when upper(`{typ}`) rlike '{rx}' then `{val}` end"
+                rows.append({"field": f, "column": f"{val} where {typ} ~ {rx}", "how": "identifier + type columns"})
+                continue
+        mapping[f] = None
+        rows.append({"field": f, "column": "", "how": "not found"})
     return mapping, pd.DataFrame(rows)
 
 
@@ -425,6 +445,15 @@ p1_summary = keep("p1_sent_summary", spark.sql(f"""
 p1 = p1_summary.iloc[0]
 EXPECTED_SPONSORS = int(p1["distinct_sponsor_keys"])
 
+keep("p1_detail_value_shapes", spark.sql(f"""
+    select 'dob' as field, {pattern_sql(null_sql(DCOL['dob']))} as value_shape, count(*) as sponsor_rows
+    from {SPONSOR_DETAILS_TABLE} group by 1, 2
+    union all
+    select 'identifier_type', coalesce(upper(cast({null_sql(next((f"`{c}`" for c in detail_cols if re.search(r"type_?cd$", c.lower()) and "identif" in c.lower()), None))} as string)), '(null)'), count(*)
+    from {SPONSOR_DETAILS_TABLE} group by 1, 2
+    order by 1, 3 desc
+""").toPandas().groupby("field", group_keys=False).head(10))
+
 per_key = keep("p1_sponsors_per_beneficiary", spark.sql("""
     select least(n, 4) as sponsors_on_record, count(*) as beneficiary_keys
     from (select base_key, count(distinct sponsor_key) as n from sent group by 1) group by 1 order by 1
@@ -556,6 +585,8 @@ payload = work(spark.sql(f"""
            {ssn_sql(f"get_json_object(try_element_at(filter(from_json(get_json_object(s, '{P['identifiers']}'), 'array<string>'), x -> upper(get_json_object(x, '{P['identifier_type']}')) rlike '{SSN_TYPE_RX}'), 1), '{P['identifier_value']}')")} as ssn_key,
            get_json_object(try_element_at(from_json(get_json_object(s, '{P['identifiers']}'), 'array<string>'), 1), '{P['identifier_type']}') as first_identifier_type,
            {dob_sql(f"get_json_object(s, '{P['dob']}')")} as dob,
+           {pattern_sql(f"get_json_object(s, '{P['dob']}')")} as dob_shape,
+           {pattern_sql(f"get_json_object(s, '{P['zip5']}')")} as zip5_shape,
            {clean_sql(f"get_json_object(s, '{P['first_name']}')")} as first_name,
            {clean_sql(f"get_json_object(s, '{P['last_name']}')")} as last_name,
            {filled_sql(f"get_json_object(s, '{P['zip5']}')")} as zip5
@@ -580,6 +611,22 @@ keep("p2_identifier_types", spark.sql("""
     select coalesce(first_identifier_type, '(none)') as first_identifier_type, count(*) as sponsors
     from payload where has_sponsor group by 1 order by 2 desc limit 20
 """))
+keep("p2_payload_value_shapes", spark.sql("""
+    select 'dob' as field, dob_shape as value_shape, count(*) as sponsors from payload where has_sponsor group by 1, 2
+    union all
+    select 'zip5', zip5_shape, count(*) from payload where has_sponsor group by 1, 2
+    order by 1, 3 desc
+""").toPandas().groupby("field", group_keys=False).head(10))
+
+sp_samples = [r[0] for r in spark.sql(f"""
+    select s from (select explode(from_json(get_json_object({DATA_EXPR}, '$.party.sponsors'), 'array<string>')) as s
+                   from {GENERATE_LOG_TABLE} where {run_filter} limit 500) limit 1000
+""").collect()]
+sp_leaves, _, sp_n = discover_paths(sp_samples)
+keep("p2_sponsor_json_paths", pd.DataFrame([{"path": p, "in_pct_of_sample": round(i["docs"] / max(sp_n, 1), 3),
+                                             "example_type": i["example_type"]} for p, i in sp_leaves.items()])
+     .sort_values("path").reset_index(drop=True))
+
 keep("p2_notification_types", spark.sql("""
     select coalesce(notification_type, '(none)') as notification_type, count(distinct concat_ws('|', source_id, case_id)) as messages
     from payload group by 1 order by 2 desc
