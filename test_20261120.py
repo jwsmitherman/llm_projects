@@ -36,8 +36,31 @@ PARTY_FIELDS = ["identityId", "partySourceId", "recordStatus", "aNumber", "recei
 PAYLOAD_TABLE = "pcis_metadata.mv_payload_ids"
 PAYLOAD_ENV = "prod"
 
-RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-OUT_DIR = f"/dbfs/tmp/pcis_search_suppression/{RUN_TS}"
+OUTPUT_PATHS = {
+    "step0_identity_mapping": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step0_identity_mapping.json",
+    "step0_party_mapping": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step0_party_mapping.json",
+    "step1a_identity_mget": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1a_identity_mget.json",
+    "step1b_party_mget": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1b_party_mget.json",
+    "step1b_party_owners_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1b_party_owners.csv",
+    "step1c_parties_pointing_at_47cce36642ad465783dcfda3a1f87a17": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1c_parties_pointing_at_47cce36642ad465783dcfda3a1f87a17.json",
+    "step1c_parties_pointing_at_7f5dae357d7c4eaf96fc8800b8deb310": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1c_parties_pointing_at_7f5dae357d7c4eaf96fc8800b8deb310.json",
+    "step1c_parties_by_identity_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1c_parties_by_identity.csv",
+    "step1d_parties_by_anumber": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1d_parties_by_anumber.json",
+    "step1d_parties_by_anumber_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step1d_parties_by_anumber.csv",
+    "step2_raw_index_tests": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step2_raw_index_tests.json",
+    "step2_raw_index_tests_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step2_raw_index_tests.csv",
+    "step2_verdict": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step2_verdict.json",
+    "step4_payload_timeline": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step4_payload_timeline.json",
+    "step4_payload_timeline_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step4_payload_timeline.csv",
+    "step5_scan_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step5_scan.csv",
+    "step5_scan_summary_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step5_scan_summary.csv",
+    "step5b_raw_anumber_check_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step5b_raw_anumber_check.csv",
+    "step6_full_candidates": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step6_full_candidates.json",
+    "step6_mlaas_request": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step6_mlaas_request.json",
+    "step6_mlaas_response": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step6_mlaas_response.json",
+    "step6_mlaas_scores_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step6_mlaas_scores.csv",
+    "step6_mlaas_best_csv": "/Workspace/Users/joshua.w.smitherman@uscis.dhs.gov/open_search/results/search_suppression_20261120/step6_mlaas_best.csv",
+}
 
 MASK_PHI = False
 PHI_COLUMNS = ["aNumber", "firstName", "middleName", "lastName", "dob", "fullName", "joinedName", "joinedNameWithFull"]
@@ -73,11 +96,19 @@ def total_of(res):
     t = res["hits"]["total"]
     return t["value"] if isinstance(t, dict) else t
 
-def save(name, obj):
-    os.makedirs(OUT_DIR, exist_ok=True)
-    path = f"{OUT_DIR}/{name}.json"
+def save(key, obj):
+    path = OUTPUT_PATHS[key]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(obj, f, indent=2, default=str)
+    print(f"saved {path}")
+    return path
+
+def save_csv(key, df):
+    path = OUTPUT_PATHS[key]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    out = df.toPandas() if hasattr(df, "toPandas") else df
+    mask(out).to_csv(path, index=False)
     print(f"saved {path}")
     return path
 
@@ -208,6 +239,7 @@ for pid in EXTRA_PARTY_IDS:
 party_mget = os_call("POST", PARTY_HOST, f"{PARTY_INDEX}/_mget", {"ids": list(listed_on)}, params={"_source_includes": PARTY_INCLUDES})
 save("step1b_party_mget", party_mget)
 party_owner_df = pd.DataFrame([party_row(d, listed_on.get(d["_id"], [])) for d in party_mget["docs"]]).sort_values(["listed_on_identity", "partyId"])
+save_csv("step1b_party_owners_csv", party_owner_df)
 display(mask(party_owner_df))
 
 # COMMAND ----------
@@ -224,6 +256,7 @@ for iid in IDENTITY_IDS:
     for h in res["hits"]["hits"]:
         reverse_rows.append({"identity": iid, **party_row(h)})
     print(f"{iid}: {total_of(res)}")
+save_csv("step1c_parties_by_identity_csv", pd.DataFrame(reverse_rows))
 display(mask(pd.DataFrame(reverse_rows)))
 
 # COMMAND ----------
@@ -246,6 +279,7 @@ if not anum_df.empty:
         chk = os_call("POST", IDENTITY_HOST, f"{IDENTITY_INDEX}/_mget", {"ids": owner_ids}, params={"_source": "false"})
         present = {d["_id"]: d.get("found", False) for d in chk["docs"]}
     anum_df["owner_in_identity_index"] = anum_df["current_identity"].map(lambda i: present.get(i, False))
+    save_csv("step1d_parties_by_anumber_csv", anum_df)
     display(mask(anum_df.sort_values(["current_identity", "partyId"])))
     display(anum_df.groupby(["recordStatus", "owner_in_identity_index"], dropna=False).size().reset_index(name="parties"))
 else:
@@ -285,6 +319,7 @@ for name, q in tests.items():
     })
 save("step2_raw_index_tests", step2_raw)
 step2_df = pd.DataFrame(step2_rows)
+save_csv("step2_raw_index_tests_csv", step2_df)
 display(step2_df)
 
 # COMMAND ----------
@@ -319,6 +354,17 @@ else:
     print("RESULT: _search block exists but does not match; inspect explain output and field types from Step 0")
 if n_listed and n_point_here < n_listed:
     print("RESULT: target identity parties array is stale")
+save("step2_verdict", {
+    "target_identity": TARGET_IDENTITY_ID,
+    "target_party": TARGET_PARTY_ID,
+    "target_party_record_status": target_status,
+    "target_party_identity_id": target_owner,
+    "search_block_present": search_block_present,
+    "raw_anumber_match": anumber_hit,
+    "raw_last_name_dob_match": name_dob_hit,
+    "parties_listed": n_listed,
+    "parties_pointing_back": n_point_here,
+})
 
 # COMMAND ----------
 
@@ -340,6 +386,7 @@ print(timeline_sql)
 timeline_df = spark.sql(timeline_sql)
 display(timeline_df)
 save("step4_payload_timeline", timeline_df.toPandas().to_dict("records"))
+save_csv("step4_payload_timeline_csv", timeline_df)
 
 # COMMAND ----------
 
@@ -401,6 +448,8 @@ summary = scan_df.selectExpr(
     "sum(case when n_non_processed > 0 then 1 else 0 end) as with_non_processed_parties",
     "sum(case when n_point_elsewhere > 0 and n_here_processed > 0 then 1 else 0 end) as stale_but_has_processed_owned_party",
 )
+save_csv("step5_scan_csv", scan_df)
+save_csv("step5_scan_summary_csv", summary)
 display(summary)
 display(scan_df.filter("n_non_processed > 0").groupBy("non_processed_statuses").count().orderBy("count", ascending=False))
 if SCAN_OUTPUT_TABLE:
@@ -424,6 +473,7 @@ for r in candidates:
             "query": {"bool": {"filter": [{"ids": {"values": [r["identity_id"]]}}], "must": [{"match": {ANUMBER_FIELD: a}}]}},
         })
         check_rows.append({"identity_id": r["identity_id"], "aNumber": a, "raw_index_matches": total_of(hit) > 0, "n_point_elsewhere": r["n_point_elsewhere"]})
+save_csv("step5b_raw_anumber_check_csv", pd.DataFrame(check_rows))
 display(mask(pd.DataFrame(check_rows)))
 
 # COMMAND ----------
@@ -491,5 +541,7 @@ else:
             return MODEL_THRESHOLD
         best["threshold"] = best["partyId"].map(threshold_for)
         best["would_match"] = best["score"] >= best["threshold"]
+    save_csv("step6_mlaas_scores_csv", scores_df)
+    save_csv("step6_mlaas_best_csv", best)
     display(scores_df)
     display(best)
