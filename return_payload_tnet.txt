@@ -1,0 +1,19 @@
+{
+  "evaluationId": "3f2a9c41-8d17-4b6e-9a2f-11c8e6d4a7b0",
+  "tripLegId": "10131767",
+  "assessedAtUtc": "2026-11-20T17:04:14.881Z",
+  "callType": "initial",
+  "meetsMedicalNecessity": true,
+  "clinicalSummary": "Ventilator dependent patient with a tracheostomy, transported with the ventilator operated by the transport crew and requiring oropharyngeal suctioning en route. Documented as bed confined on all three required elements: unable to get up from bed without assistance, unable to ambulate, and unable to sit in a chair or wheelchair.",
+  "clarifyingQuestion": null
+}
+{
+  "evaluationId": "b05e7d16-9c33-4e88-a1f2-66be90c7d401",
+  "priorEvaluationId": "7c41b982-55de-4a13-9f70-2ad6c1e40b55",
+  "tripLegId": "10131394",
+  "assessedAtUtc": "2026-11-20T17:08:47.502Z",
+  "callType": "reevaluation",
+  "meetsMedicalNecessity": true,
+  "clinicalSummary": "The patient has back pain, is bed confined and unable to get up from bed without assistance. The requester confirms the patient cannot sit safely in a chair or wheelchair for the duration of the transport.",
+  "clarifyingQuestion": null
+}
