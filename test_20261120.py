@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 import pandas as pd
 import requests
 
-IDENTITY_HOST = "https://<identity-opensearch-host>"
+IDENTITY_HOST = "https://opensearch-identity-prod.pcis.uscis.dhs.gov"
 IDENTITY_INDEX = "iis-identity-api-alias"
-PARTY_HOST = "https://<party-opensearch-host>"
-PARTY_INDEX = "aim-dedup-parties-20250519"
-AUTH_TOKEN = "<base64 user:pass>"
+PARTY_HOST = "https://opensearch-partyrecord-prod.pcis.uscis.dhs.gov"
+PARTY_INDEX = "aim-dedup-parties"
+IDENTITY_AUTH_TOKEN = "<base64 user:pass for opensearch-identity-prod>"
+PARTY_AUTH_TOKEN = "<base64 user:pass for opensearch-partyrecord-prod>"
 VERIFY_SSL = True
 
 IDENTITY_IDS = [
@@ -82,10 +83,14 @@ CPMS_THRESHOLD = None
 def auth_header(token):
     return token if token.lower().startswith("basic ") else f"Basic {token}"
 
-HEADERS = {"Authorization": auth_header(AUTH_TOKEN), "Content-Type": "application/json"}
+IDENTITY_HEADERS = {"Authorization": auth_header(IDENTITY_AUTH_TOKEN), "Content-Type": "application/json"}
+PARTY_HEADERS = {"Authorization": auth_header(PARTY_AUTH_TOKEN), "Content-Type": "application/json"}
+
+def headers_for(host):
+    return PARTY_HEADERS if host == PARTY_HOST else IDENTITY_HEADERS
 
 def os_call(method, host, path, body=None, params=None, ok404=False):
-    r = requests.request(method, f"{host}/{path}", headers=HEADERS, json=body, params=params, verify=VERIFY_SSL, timeout=120)
+    r = requests.request(method, f"{host}/{path}", headers=headers_for(host), json=body, params=params, verify=VERIFY_SSL, timeout=120)
     if ok404 and r.status_code == 404:
         return r.json()
     if r.status_code >= 400:
@@ -402,7 +407,7 @@ def scroll_identities():
             page = os_call("POST", IDENTITY_HOST, "_search/scroll", {"scroll": "5m", "scroll_id": sid})
             sid = page["_scroll_id"]
     finally:
-        requests.delete(f"{IDENTITY_HOST}/_search/scroll", headers=HEADERS, json={"scroll_id": sid}, verify=VERIFY_SSL, timeout=60)
+        requests.delete(f"{IDENTITY_HOST}/_search/scroll", headers=IDENTITY_HEADERS, json={"scroll_id": sid}, verify=VERIFY_SSL, timeout=60)
 
 scan_rows = []
 started = time.time()
